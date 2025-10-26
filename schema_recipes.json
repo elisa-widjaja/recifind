@@ -1,0 +1,236 @@
+{
+  "recipes": [
+    {
+      "id": "r1",
+      "title": "Creamy Garlic Chicken Pasta",
+      "sourceUrl": "https://example.com/creamy-garlic-chicken-pasta",
+      "imageUrl": "https://images.unsplash.com/photo-1603133872878-684f208fb688?q=80&w=1200&auto=format&fit=crop",
+      "mealTypes": [
+        "dinner"
+      ],
+      "ingredients": [
+        "chicken",
+        "garlic",
+        "pasta",
+        "cream",
+        "parmesan",
+        "spinach"
+      ],
+      "steps": [
+        "Sear chicken",
+        "Add garlic and cream",
+        "Toss with pasta and spinach"
+      ],
+      "durationMinutes": 25
+    },
+    {
+      "id": "r2",
+      "title": "Overnight Oats with Berries",
+      "sourceUrl": "https://example.com/overnight-oats-berries",
+      "imageUrl": "https://images.unsplash.com/photo-1505252585461-04db1eb84625?q=80&w=1200&auto=format&fit=crop",
+      "mealTypes": [
+        "breakfast"
+      ],
+      "ingredients": [
+        "oats",
+        "milk",
+        "chia seeds",
+        "strawberries",
+        "blueberries",
+        "honey"
+      ],
+      "steps": [
+        "Mix all ingredients",
+        "Refrigerate overnight",
+        "Top with fresh berries before serving"
+      ],
+      "durationMinutes": 10
+    },
+    {
+      "id": "r3",
+      "title": "Veggie Fried Rice",
+      "sourceUrl": "https://example.com/veggie-fried-rice",
+      "imageUrl": "https://images.unsplash.com/photo-1603132739691-62d3c6ae9451?q=80&w=1200&auto=format&fit=crop",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "ingredients": [
+        "rice",
+        "egg",
+        "carrot",
+        "peas",
+        "soy sauce",
+        "green onion"
+      ],
+      "steps": [
+        "Cook rice",
+        "Stir-fry vegetables",
+        "Add rice, egg, and soy sauce"
+      ],
+      "durationMinutes": 20
+    },
+    {
+      "id": "r4",
+      "title": "Molten Chocolate Lava Cake",
+      "sourceUrl": "https://example.com/molten-chocolate-lava-cake",
+      "imageUrl": "https://images.unsplash.com/photo-1541781286675-09f9b81b74aa?q=80&w=1200&auto=format&fit=crop",
+      "mealTypes": [
+        "dessert"
+      ],
+      "ingredients": [
+        "chocolate",
+        "butter",
+        "sugar",
+        "egg",
+        "flour"
+      ],
+      "steps": [
+        "Melt chocolate and butter",
+        "Mix with sugar, eggs, and flour",
+        "Bake until edges set"
+      ],
+      "durationMinutes": 18
+    },
+    {
+      "id": "r5",
+      "title": "Avocado Toast with Poached Egg",
+      "sourceUrl": "https://example.com/avocado-toast-poached-egg",
+      "imageUrl": "https://images.unsplash.com/photo-1551183053-bf91a1d81141?q=80&w=1200&auto=format&fit=crop",
+      "mealTypes": [
+        "breakfast",
+        "brunch"
+      ],
+      "ingredients": [
+        "bread",
+        "avocado",
+        "egg",
+        "lemon",
+        "salt",
+        "pepper"
+      ],
+      "steps": [
+        "Toast bread",
+        "Mash avocado with lemon",
+        "Poach egg and place on top"
+      ],
+      "durationMinutes": 15
+    },
+    {
+      "id": "r6",
+      "title": "Greek Salad",
+      "sourceUrl": "https://example.com/greek-salad",
+      "imageUrl": "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?q=80&w=1200&auto=format&fit=crop",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "ingredients": [
+        "tomato",
+        "cucumber",
+        "red onion",
+        "feta",
+        "olive oil",
+        "oregano"
+      ],
+      "steps": [
+        "Chop vegetables",
+        "Toss with olive oil and oregano",
+        "Add feta before serving"
+      ],
+      "durationMinutes": 12
+    },
+    {
+      "id": "r7",
+      "title": "Grilled Salmon with Lemon Butter",
+      "sourceUrl": "https://example.com/grilled-salmon-lemon-butter",
+      "imageUrl": "https://images.unsplash.com/photo-1504674900247-0877df9cc836?q=80&w=1200&auto=format&fit=crop",
+      "mealTypes": [
+        "dinner"
+      ],
+      "ingredients": [
+        "salmon",
+        "butter",
+        "lemon",
+        "garlic",
+        "parsley",
+        "salt"
+      ],
+      "steps": [
+        "Season salmon",
+        "Grill for 3-4 minutes per side",
+        "Top with lemon butter sauce"
+      ],
+      "durationMinutes": 20
+    },
+    {
+      "id": "r8",
+      "title": "Mango Smoothie Bowl",
+      "sourceUrl": "https://example.com/mango-smoothie-bowl",
+      "imageUrl": "https://images.unsplash.com/photo-1551024709-8f23befc6f87?q=80&w=1200&auto=format&fit=crop",
+      "mealTypes": [
+        "breakfast",
+        "snack"
+      ],
+      "ingredients": [
+        "mango",
+        "banana",
+        "yogurt",
+        "honey",
+        "granola"
+      ],
+      "steps": [
+        "Blend mango, banana, and yogurt",
+        "Pour into bowl",
+        "Top with granola and honey"
+      ],
+      "durationMinutes": 8
+    },
+    {
+      "id": "r9",
+      "title": "Chicken Caesar Wrap",
+      "sourceUrl": "https://example.com/chicken-caesar-wrap",
+      "imageUrl": "https://images.unsplash.com/photo-1606756790138-5f9b7d61f70b?q=80&w=1200&auto=format&fit=crop",
+      "mealTypes": [
+        "lunch"
+      ],
+      "ingredients": [
+        "chicken",
+        "tortilla",
+        "romaine lettuce",
+        "caesar dressing",
+        "parmesan"
+      ],
+      "steps": [
+        "Grill chicken",
+        "Toss with lettuce and dressing",
+        "Wrap in tortilla"
+      ],
+      "durationMinutes": 15
+    },
+    {
+      "id": "r10",
+      "title": "Tomato Basil Soup",
+      "sourceUrl": "https://example.com/tomato-basil-soup",
+      "imageUrl": "https://images.unsplash.com/photo-1617196034796-73c34b9b4172?q=80&w=1200&auto=format&fit=crop",
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "ingredients": [
+        "tomato",
+        "basil",
+        "onion",
+        "garlic",
+        "olive oil",
+        "cream"
+      ],
+      "steps": [
+        "Saut\u00e9 onion and garlic",
+        "Add tomatoes and simmer",
+        "Blend and add cream"
+      ],
+      "durationMinutes": 30
+    }
+  ]
+}
