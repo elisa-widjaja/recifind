@@ -208,9 +208,8 @@ DRINK_KEYWORDS = [
 ]
 
 MEAL_KEYWORDS = {
-    "lunch": ["lunch"],
+    "lunch": ["lunch", "snack", "nibbles", "bites"],
     "dinner": ["dinner"],
-    "snack": ["snack", "nibbles", "bites"],
     "brunch": ["brunch"],
 }
 
@@ -595,15 +594,9 @@ def infer_meal_types(title: str, ingredients: List[str], tags: List[str]) -> Lis
         meal_types.add("brunch")
     if "dessert" in lowered_tags or keyword_in_text(text, "dessert"):
         meal_types.add("dessert")
-    if "drink" in lowered_tags:
-        meal_types.add("snack")
-
     for meal, keywords in MEAL_KEYWORDS.items():
         if any(keyword_in_text(text, keyword) for keyword in keywords):
-            if meal == "brunch":
-                meal_types.add("brunch")
-            else:
-                meal_types.add(meal)
+            meal_types.add(meal)
 
     if not meal_types:
         if "salad" in lowered_tags or keyword_in_text(text, "salad"):

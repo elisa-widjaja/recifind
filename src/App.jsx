@@ -13,9 +13,9 @@ import {
   Dialog,
   DialogContent,
   DialogTitle,
-  DialogActions,
   Divider,
   FormControl,
+  InputAdornment,
   Grid,
   IconButton,
   Link,
@@ -30,6 +30,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
+import ClearIcon from '@mui/icons-material/Clear';
 import recipesData from '../recipes.json';
 
 const MEAL_TYPE_LABELS = {
@@ -37,11 +38,10 @@ const MEAL_TYPE_LABELS = {
   brunch: 'Brunch',
   lunch: 'Lunch',
   dinner: 'Dinner',
-  dessert: 'Dessert',
-  snack: 'Snack'
+  dessert: 'Dessert'
 };
 
-const MEAL_TYPE_ORDER = ['breakfast', 'brunch', 'lunch', 'dinner', 'dessert', 'snack'];
+const MEAL_TYPE_ORDER = ['breakfast', 'brunch', 'lunch', 'dinner', 'dessert'];
 
 function validateRecipesPayload(payload) {
   if (!payload || typeof payload !== 'object' || !Array.isArray(payload.recipes)) {
@@ -53,12 +53,18 @@ function validateRecipesPayload(payload) {
       throw new Error(`Recipe at index ${index} is not a valid object.`);
     }
 
+    const mealTypes = Array.isArray(recipe.mealTypes)
+      ? recipe.mealTypes
+          .filter((type) => typeof type === 'string' && type.toLowerCase() !== 'snack')
+          .map((type) => type.trim())
+      : [];
+
     return {
       id: recipe.id ?? `recipe-${index}`,
       title: recipe.title ?? 'Untitled recipe',
       sourceUrl: recipe.sourceUrl ?? '',
       imageUrl: recipe.imageUrl ?? '',
-      mealTypes: Array.isArray(recipe.mealTypes) ? recipe.mealTypes : [],
+      mealTypes,
       ingredients: Array.isArray(recipe.ingredients) ? recipe.ingredients : [],
       steps: Array.isArray(recipe.steps) ? recipe.steps : null,
       durationMinutes:
@@ -100,7 +106,7 @@ function buildEmbedUrl(sourceUrl) {
     if (!url.pathname.endsWith('/')) {
       url.pathname += '/';
     }
-    return `${url.origin}${url.pathname}embed/?autoplay=1`;
+    return `${url.origin}${url.pathname}`;
   } catch (error) {
     return '';
   }
@@ -116,22 +122,25 @@ function App() {
     message: '',
     severity: 'success'
   });
-  const [videoDialogState, setVideoDialogState] = useState({
-    open: false,
-    url: '',
-    title: '',
-    source: ''
-  });
   const fileInputRef = useRef(null);
   const sentinelRef = useRef(null);
   const RESULTS_PAGE_SIZE = 12;
   const [visibleCount, setVisibleCount] = useState(RESULTS_PAGE_SIZE);
 
   const normalizedIngredients = useMemo(() => {
-    return ingredientInput
+    const uniqueTokens = new Set();
+    ingredientInput
       .split(',')
-      .map((token) => token.trim().toLowerCase())
-      .filter(Boolean);
+      .map((segment) => segment.trim())
+      .filter(Boolean)
+      .forEach((segment) => {
+        segment
+          .split(/\s+/)
+          .map((token) => token.trim().toLowerCase())
+          .filter(Boolean)
+          .forEach((token) => uniqueTokens.add(token));
+      });
+    return Array.from(uniqueTokens);
   }, [ingredientInput]);
 
   const normalizedIngredientsKey = normalizedIngredients.join('|');
@@ -145,8 +154,6 @@ function App() {
 
     return recipes
       .map((recipe) => {
-        let score = 0;
-
         if (selectedMealType) {
           const matchesMealType = recipe.mealTypes.some(
             (type) => type.toLowerCase() === selectedMealType.toLowerCase()
@@ -154,32 +161,26 @@ function App() {
           if (!matchesMealType) {
             return null;
           }
-          score += 1;
         }
 
+        let ingredientScore = 0;
         if (normalizedIngredients.length > 0) {
-          const haystack = [
-            recipe.title,
-            recipe.ingredients.join(' '),
+          const haystack = `${recipe.title} ${recipe.ingredients.join(' ')} ${
             recipe.steps ? recipe.steps.join(' ') : ''
-          ]
-            .join(' ')
-            .toLowerCase();
+          }`.toLowerCase();
 
           normalizedIngredients.forEach((term) => {
-            if (!term) {
-              return;
-            }
-            if (haystack.includes(term)) {
-              score += term.length;
+            if (term && haystack.includes(term)) {
+              ingredientScore += term.length;
             }
           });
 
-          if (score === 0) {
+          if (ingredientScore === 0) {
             return null;
           }
         }
 
+        const score = ingredientScore + (selectedMealType ? 1 : 0);
         return { recipe, score };
       })
       .filter(Boolean)
@@ -287,26 +288,18 @@ function App() {
     event.preventDefault();
     event.stopPropagation();
 
-    const embedUrl = buildEmbedUrl(recipe.sourceUrl);
-    if (embedUrl) {
-      setVideoDialogState({
-        open: true,
-        url: embedUrl,
-        title: recipe.title,
-        source: recipe.sourceUrl
-      });
-    } else if (recipe.sourceUrl) {
-      window.open(recipe.sourceUrl, '_blank', 'noopener,noreferrer');
-    }
-  };
+    const normalizedUrl = buildEmbedUrl(recipe.sourceUrl);
+    const targetUrl = normalizedUrl || recipe.sourceUrl;
 
-  const closeVideoDialog = () => {
-    setVideoDialogState({
-      open: false,
-      url: '',
-      title: '',
-      source: ''
-    });
+    if (targetUrl) {
+      window.open(targetUrl, '_blank', 'noopener,noreferrer');
+    } else {
+      setSnackbarState({
+        open: true,
+        message: 'This recipe does not have a valid video link.',
+        severity: 'info'
+      });
+    }
   };
 
   const closeDialog = () => {
@@ -343,80 +336,129 @@ function App() {
         </Toolbar>
       </AppBar>
 
-      <Container maxWidth="lg" sx={{ py: { xs: 3, md: 4 } }}>
-        <Stack spacing={3}>
+      <Container maxWidth="lg" disableGutters>
+        <Box
+          sx={{
+            px: { xs: 2, sm: 3, md: 4 },
+            py: { xs: 3, md: 4 }
+          }}
+        >
           <Stack spacing={3}>
-            <FormControl fullWidth>
+            <Stack spacing={3}>
               <TextField
                 label="Search by ingredients"
                 placeholder="e.g., chicken, garlic, spinach"
                 value={ingredientInput}
                 onChange={(event) => setIngredientInput(event.target.value)}
+                fullWidth
+                InputProps={{
+                  endAdornment: ingredientInput ? (
+                    <InputAdornment position="end">
+                      <IconButton
+                        aria-label="Clear ingredient search"
+                        edge="end"
+                        size="small"
+                        onClick={() => setIngredientInput('')}
+                      >
+                        <ClearIcon fontSize="small" />
+                      </IconButton>
+                    </InputAdornment>
+                  ) : null
+                }}
               />
-            </FormControl>
 
-            <Stack spacing={2}>
-              <Typography variant="subtitle1" color="text.secondary">
-                Meal type
-              </Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {availableMealTypes.map((type) => {
-                  const label = MEAL_TYPE_LABELS[type] || type.replace(/^\w/, (c) => c.toUpperCase());
-                  const selected = selectedMealType === type;
-                  return (
-                    <Chip
-                      key={type}
-                      label={label}
-                      clickable
-                      color={selected ? 'primary' : 'default'}
-                      variant={selected ? 'filled' : 'outlined'}
-                      onClick={() => handleMealTypeSelect(type)}
-                      aria-pressed={selected}
-                    />
-                  );
-                })}
-              </Box>
-
-            </Stack>
-
-            <Stack direction={{ xs: 'column', sm: 'row' }} alignItems="center" spacing={1}>
-              <Typography variant="body1" color="text.secondary" sx={{ flexGrow: 1 }}>
-                {resultsLabel}
-              </Typography>
-              {normalizedIngredients.length > 0 && (
-                <Typography variant="caption" color="text.secondary">
-                  Showing recipes that include any of the ingredients you entered.
-                </Typography>
+              {availableMealTypes.length > 0 && (
+                <Stack spacing={2}>
+                  <Typography variant="subtitle1" color="text.secondary">
+                    Meal type
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {availableMealTypes.map((type) => {
+                      const label = MEAL_TYPE_LABELS[type] || type.replace(/^\w/, (c) => c.toUpperCase());
+                      const selected = selectedMealType === type;
+                      return (
+                        <Chip
+                          key={type}
+                          label={label}
+                          clickable
+                          color={selected ? 'primary' : 'default'}
+                          variant={selected ? 'filled' : 'outlined'}
+                          onClick={() => handleMealTypeSelect(type)}
+                          aria-pressed={selected}
+                        />
+                      );
+                    })}
+                  </Box>
+                </Stack>
               )}
-            </Stack>
-          </Stack>
 
-          {filteredRecipes.length === 0 ? (
-            <Box
-              sx={{
-                border: '1px dashed',
-                borderColor: 'divider',
-                borderRadius: 2,
-                p: 4,
-                textAlign: 'center',
-                backgroundColor: 'background.paper'
-              }}
-            >
-              <Typography variant="h6" gutterBottom>
-                No recipes found.
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Try switching to <strong>Match any</strong>, remove filters, or load a different JSON file.
-              </Typography>
-            </Box>
-          ) : (
-            <Grid container spacing={{ xs: 2, md: 3 }}>
-              {displayedRecipes.map((recipe) => (
-                <Grid key={recipe.id} item xs={12} sm={6} md={4} lg={3}>
-                  <Card elevation={1} sx={{ height: '100%' }}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} alignItems="center" spacing={1}>
+                <Typography variant="body1" color="text.secondary" sx={{ flexGrow: 1 }}>
+                  {resultsLabel}
+                </Typography>
+                {normalizedIngredients.length > 0 && (
+                  <Typography variant="caption" color="text.secondary">
+                    Showing recipes that include any of the ingredients you entered.
+                  </Typography>
+                )}
+              </Stack>
+            </Stack>
+
+            {filteredRecipes.length === 0 ? (
+              <Box
+                sx={{
+                  border: '1px dashed',
+                  borderColor: 'divider',
+                  borderRadius: 2,
+                  p: 4,
+                  textAlign: 'center',
+                  backgroundColor: 'background.paper'
+                }}
+              >
+                <Typography variant="h6" gutterBottom>
+                  No recipes found.
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Try switching to <strong>Match any</strong>, remove filters, or load a different JSON file.
+                </Typography>
+              </Box>
+            ) : (
+              <Box
+                sx={{
+                  width: '100%',
+                  display: 'grid',
+                  justifyItems: 'stretch',
+                  justifyContent: 'center',
+                  gridTemplateColumns: {
+                    xs: 'repeat(1, minmax(0, 1fr))',
+                    sm: 'repeat(2, minmax(0, 1fr))',
+                    md: 'repeat(3, minmax(0, 1fr))',
+                    lg: 'repeat(4, minmax(0, 1fr))'
+                  },
+                  gap: { xs: 1.5, sm: 2, md: 3 }
+                }}
+              >
+                {displayedRecipes.map((recipe) => (
+                  <Card
+                    key={recipe.id}
+                    elevation={1}
+                    sx={{
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      borderRadius: 2,
+                      overflow: 'hidden'
+                    }}
+                  >
                     <CardActionArea
                       onClick={() => setActiveRecipe(recipe)}
-                      sx={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
+                      sx={{
+                        height: '100%',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'stretch',
+                        width: '100%'
+                      }}
                     >
                       <Box
                         role="button"
@@ -425,8 +467,7 @@ function App() {
                         sx={{
                           position: 'relative',
                           width: '100%',
-                          height: 0,
-                          pt: '62%',
+                          aspectRatio: '4 / 3',
                           cursor: 'pointer',
                           overflow: 'hidden',
                           borderTopLeftRadius: 8,
@@ -506,12 +547,12 @@ function App() {
                       </CardContent>
                     </CardActionArea>
                   </Card>
-                </Grid>
-              ))}
-            </Grid>
-          )}
-          <Box ref={sentinelRef} sx={{ height: 1 }} />
-        </Stack>
+                ))}
+              </Box>
+            )}
+            <Box ref={sentinelRef} sx={{ height: 1 }} />
+          </Stack>
+        </Box>
       </Container>
 
       <Dialog
@@ -548,17 +589,59 @@ function App() {
             <DialogContent dividers>
               {activeRecipe.imageUrl && (
                 <Box
-                  component="img"
-                  src={activeRecipe.imageUrl}
-                  alt={activeRecipe.title}
+                  role="button"
+                  aria-label={`Open ${activeRecipe.title} on Instagram`}
+                  tabIndex={0}
+                  onClick={(event) => handleVideoThumbnailClick(event, activeRecipe)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      handleVideoThumbnailClick(event, activeRecipe);
+                    }
+                  }}
                   sx={{
+                    position: 'relative',
                     width: '100%',
                     borderRadius: 2,
+                    overflow: 'hidden',
                     height: { xs: 200, md: 280 },
-                    objectFit: 'cover',
-                    mb: 3
+                    mb: 3,
+                    cursor: 'pointer',
+                    '&:hover .dialog-play-overlay': { opacity: 1 }
                   }}
-                />
+                >
+                  <Box
+                    component="img"
+                    src={activeRecipe.imageUrl}
+                    alt={activeRecipe.title}
+                    sx={{
+                      position: 'absolute',
+                      inset: 0,
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover'
+                    }}
+                  />
+                  <Box
+                    className="dialog-play-overlay"
+                    sx={{
+                      position: 'absolute',
+                      inset: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 1,
+                      color: 'common.white',
+                      background: 'linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.55) 100%)',
+                      opacity: 0,
+                      transition: 'opacity 200ms ease'
+                    }}
+                  >
+                    <PlayCircleOutlineIcon fontSize="large" />
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                      Open on Instagram
+                    </Typography>
+                  </Box>
+                </Box>
               )}
 
               <Stack spacing={3}>
@@ -603,49 +686,6 @@ function App() {
             </DialogContent>
           </>
         )}
-      </Dialog>
-
-      <Dialog
-        open={videoDialogState.open}
-        onClose={closeVideoDialog}
-        fullWidth
-        maxWidth="sm"
-        aria-labelledby="video-dialog-title"
-      >
-        <DialogTitle id="video-dialog-title">{videoDialogState.title}</DialogTitle>
-        <DialogContent dividers>
-          {videoDialogState.url ? (
-            <Box
-              component="iframe"
-              src={videoDialogState.url}
-              title={videoDialogState.title}
-              allow="autoplay; clipboard-write; encrypted-media; picture-in-picture"
-              allowFullScreen
-              sx={{
-                width: '100%',
-                aspectRatio: '9 / 16',
-                border: 0,
-                borderRadius: 2,
-                backgroundColor: 'grey.900'
-              }}
-            />
-          ) : (
-            <Typography variant="body2" color="text.secondary">
-              Video playback is unavailable. You can open the recipe on Instagram instead.
-            </Typography>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeVideoDialog}>Close</Button>
-          {videoDialogState.source ? (
-            <Button
-              color="primary"
-              onClick={() => window.open(videoDialogState.source, '_blank', 'noopener,noreferrer')}
-            >
-              Open on Instagram
-            </Button>
-          ) : null}
-        </DialogActions>
       </Dialog>
 
       <Snackbar
