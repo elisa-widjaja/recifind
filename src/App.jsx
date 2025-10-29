@@ -38,10 +38,11 @@ const MEAL_TYPE_LABELS = {
   brunch: 'Brunch',
   lunch: 'Lunch',
   dinner: 'Dinner',
-  dessert: 'Dessert'
+  dessert: 'Dessert',
+  appetizer: 'Appetizer'
 };
 
-const MEAL_TYPE_ORDER = ['breakfast', 'brunch', 'lunch', 'dinner', 'dessert'];
+const MEAL_TYPE_ORDER = ['breakfast', 'brunch', 'lunch', 'dinner', 'dessert', 'appetizer'];
 
 function validateRecipesPayload(payload) {
   if (!payload || typeof payload !== 'object' || !Array.isArray(payload.recipes)) {
