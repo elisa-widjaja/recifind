@@ -26,7 +26,6 @@ import {
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
-import UploadFileIcon from '@mui/icons-material/UploadFile';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import ClearIcon from '@mui/icons-material/Clear';
@@ -315,7 +314,6 @@ function App() {
     message: '',
     severity: 'success'
   });
-  const fileInputRef = useRef(null);
   const sentinelRef = useRef(null);
   const RESULTS_PAGE_SIZE = 12;
   const [visibleCount, setVisibleCount] = useState(RESULTS_PAGE_SIZE);
@@ -443,52 +441,6 @@ function App() {
 
   const handleMealTypeSelect = (value) => {
     setSelectedMealType((prev) => (prev === value ? '' : value));
-  };
-
-  const handleFileButtonClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleFileChange = (event) => {
-    const file = event.target.files && event.target.files[0];
-    if (!file) {
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const parsed = JSON.parse(reader.result);
-        const validated = validateRecipesPayload(parsed);
-        setRecipes(validated);
-        setSelectedMealType('');
-        setVisibleCount(RESULTS_PAGE_SIZE);
-        setIngredientInput('');
-        setSnackbarState({
-          open: true,
-          message: `Loaded ${validated.length} recipes from ${file.name}.`,
-          severity: 'success'
-        });
-      } catch (error) {
-        console.error(error);
-        setSnackbarState({
-          open: true,
-          message: error.message || "That file isn’t valid. Expected an object with a `recipes` array.",
-          severity: 'error'
-        });
-      } finally {
-        event.target.value = '';
-      }
-    };
-    reader.onerror = () => {
-      setSnackbarState({
-        open: true,
-        message: 'Unable to read that file. Please try again.',
-        severity: 'error'
-      });
-      event.target.value = '';
-    };
-    reader.readAsText(file);
   };
 
   const handleSnackbarClose = () => {
@@ -828,24 +780,6 @@ function App() {
             ReciFind
           </Typography>
           <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="body2" color="text.secondary">
-              recipes.json
-            </Typography>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/json"
-              hidden
-              onChange={handleFileChange}
-            />
-            <Button
-              color="primary"
-              variant="contained"
-              startIcon={<UploadFileIcon />}
-              onClick={handleFileButtonClick}
-            >
-              Load JSON
-            </Button>
             <Button color="secondary" variant="outlined" onClick={openAddDialog}>
               Add recipe
             </Button>
@@ -936,7 +870,7 @@ function App() {
                   No recipes found.
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Try switching to <strong>Match any</strong>, remove filters, or load a different JSON file.
+                  Try switching to <strong>Match any</strong>, remove filters, or adjust your search terms.
                 </Typography>
               </Box>
             ) : (
