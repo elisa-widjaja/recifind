@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   AppBar,
@@ -17,6 +17,10 @@ import {
   InputAdornment,
   IconButton,
   Link,
+  List,
+  ListItemButton,
+  ListItemText,
+  Paper,
   Snackbar,
   Stack,
   TextField,
@@ -259,6 +263,212 @@ function createImageFallbackHandler(title) {
   };
 }
 
+const SOURCE_PROXY_PREFIX = 'https://r.jina.ai/';
+const SOURCE_PARSE_CACHE = new Map();
+
+function buildProxyFetchUrl(sourceUrl) {
+  if (!sourceUrl) {
+    return '';
+  }
+  try {
+    const normalized = new URL(sourceUrl.trim());
+    return `${SOURCE_PROXY_PREFIX}${normalized.toString()}`;
+  } catch (error) {
+    return '';
+  }
+}
+
+function findRecipeNode(candidate) {
+  if (!candidate) {
+    return null;
+  }
+  if (Array.isArray(candidate)) {
+    for (const entry of candidate) {
+      const found = findRecipeNode(entry);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }
+  if (typeof candidate === 'object') {
+    const typeValue = candidate['@type'];
+    const types = Array.isArray(typeValue) ? typeValue : [typeValue];
+    if (types.filter(Boolean).some((type) => String(type).toLowerCase() === 'recipe')) {
+      return candidate;
+    }
+    if (candidate['@graph']) {
+      return findRecipeNode(candidate['@graph']);
+    }
+  }
+  return null;
+}
+
+function normalizeInstructionList(value) {
+  const steps = [];
+  const pushStep = (text) => {
+    if (!text) {
+      return;
+    }
+    const cleaned = text.toString().trim();
+    if (cleaned) {
+      steps.push(cleaned);
+    }
+  };
+
+  const handleNode = (node) => {
+    if (!node) {
+      return;
+    }
+    if (Array.isArray(node)) {
+      node.forEach(handleNode);
+      return;
+    }
+    if (typeof node === 'string') {
+      node
+        .split(/\r?\n/)
+        .map((segment) => segment.trim())
+        .filter(Boolean)
+        .forEach(pushStep);
+      return;
+    }
+    if (typeof node === 'object') {
+      if (Array.isArray(node.itemListElement)) {
+        handleNode(node.itemListElement);
+        return;
+      }
+      pushStep(node.text || node.description || node.name);
+    }
+  };
+
+  handleNode(value);
+  return steps;
+}
+
+function collectMicrodataList(doc, selectors) {
+  const items = new Set();
+  selectors.forEach((selector) => {
+    doc.querySelectorAll(selector).forEach((element) => {
+      const text = element.textContent?.trim();
+      if (text) {
+        text
+          .split(/\r?\n/)
+          .map((segment) => segment.trim())
+          .filter(Boolean)
+          .forEach((segment) => items.add(segment));
+      }
+    });
+  });
+  return Array.from(items);
+}
+
+function extractRecipeFromJsonLd(doc) {
+  if (typeof window === 'undefined' || typeof DOMParser === 'undefined') {
+    return null;
+  }
+  const scripts = doc.querySelectorAll('script[type="application/ld+json"]');
+  for (const script of scripts) {
+    const rawContent = script.textContent?.trim();
+    if (!rawContent) {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(rawContent);
+      const recipeNode = findRecipeNode(parsed);
+      if (!recipeNode) {
+        continue;
+      }
+      const title = (recipeNode.name || recipeNode.headline || '').toString().trim();
+      const ingredients = Array.isArray(recipeNode.recipeIngredient)
+        ? recipeNode.recipeIngredient.map((item) => (typeof item === 'string' ? item.trim() : '')).filter(Boolean)
+        : [];
+      const steps = normalizeInstructionList(
+        recipeNode.recipeInstructions || recipeNode.instructions || recipeNode.recipeDirections
+      );
+
+      return {
+        title,
+        ingredients,
+        steps
+      };
+    } catch (error) {
+      // Ignore malformed JSON blocks.
+    }
+  }
+  return null;
+}
+
+function extractRecipeFromHtml(html) {
+  if (!html || typeof window === 'undefined' || typeof DOMParser === 'undefined') {
+    return null;
+  }
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+
+  const fromStructuredData = extractRecipeFromJsonLd(doc);
+  if (fromStructuredData) {
+    return fromStructuredData;
+  }
+
+  const fallbackTitle =
+    doc.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
+    doc.querySelector('title')?.textContent ||
+    '';
+  const ingredients = collectMicrodataList(doc, ['[itemprop="recipeIngredient"]', '[itemprop="ingredients"]']);
+  const steps = collectMicrodataList(doc, [
+    '[itemprop="recipeInstructions"]',
+    '[itemprop="recipeStep"]',
+    '[itemprop="instructions"]'
+  ]);
+
+  if (!fallbackTitle && ingredients.length === 0 && steps.length === 0) {
+    return null;
+  }
+
+  return {
+    title: fallbackTitle.trim(),
+    ingredients,
+    steps
+  };
+}
+
+async function fetchRecipeDetailsFromSource(sourceUrl, { signal } = {}) {
+  const cacheKey = normalizeUrlForLookup(sourceUrl);
+  if (cacheKey && SOURCE_PARSE_CACHE.has(cacheKey)) {
+    return SOURCE_PARSE_CACHE.get(cacheKey);
+  }
+
+  const proxiedUrl = buildProxyFetchUrl(sourceUrl);
+  if (!proxiedUrl) {
+    return null;
+  }
+
+  const fetchPromise = fetch(proxiedUrl, {
+    signal,
+    headers: {
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+    }
+  })
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return response.text();
+    })
+    .then((html) => extractRecipeFromHtml(html))
+    .catch((error) => {
+      console.error('Failed to parse recipe details from source URL.', error);
+      return null;
+    });
+
+  if (cacheKey) {
+    SOURCE_PARSE_CACHE.set(cacheKey, fetchPromise);
+  }
+
+  return fetchPromise;
+}
+
 const PREFILL_RECIPES_LOOKUP = (() => {
   const map = new Map();
 
@@ -308,6 +518,9 @@ function App() {
     hasIngredients: false,
     hasSteps: false
   });
+  const [sourceParseState, setSourceParseState] = useState({ status: 'idle', message: '' });
+  const [ingredientInputFocused, setIngredientInputFocused] = useState(false);
+  const [ingredientInputKeyCount, setIngredientInputKeyCount] = useState(0);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [snackbarState, setSnackbarState] = useState({
     open: false,
@@ -335,6 +548,44 @@ function App() {
   }, [ingredientInput]);
 
   const normalizedIngredientsKey = normalizedIngredients.join('|');
+
+  const ingredientSuggestions = useMemo(() => {
+    const counts = new Map();
+    recipes.forEach((recipe) => {
+      recipe.ingredients.forEach((ingredientLine) => {
+        ingredientLine
+          .toLowerCase()
+          .split(/[^a-z0-9]+/)
+          .map((token) => token.trim())
+          .filter((token) => token.length > 2 && isNaN(Number(token)))
+          .forEach((token) => {
+            counts.set(token, (counts.get(token) || 0) + 1);
+          });
+      });
+    });
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([token]) => token);
+  }, [recipes]);
+
+  const activeIngredientToken = ingredientInput
+    .split(',')
+    .pop()
+    ?.trim()
+    .toLowerCase();
+
+  const filteredIngredientSuggestions = useMemo(() => {
+    if (!ingredientSuggestions.length) {
+      return [];
+    }
+    const limit = 8;
+    if (!activeIngredientToken) {
+      return ingredientSuggestions.slice(0, limit);
+    }
+    return ingredientSuggestions
+      .filter((suggestion) => suggestion.startsWith(activeIngredientToken))
+      .slice(0, limit);
+  }, [ingredientSuggestions, activeIngredientToken]);
 
   const availableMealTypes = useMemo(() => getUniqueMealTypes(recipes), [recipes]);
 
@@ -421,6 +672,37 @@ function App() {
 
   const shouldRequireIngredients = newRecipePrefillInfo.hasIngredients;
   const shouldRequireSteps = newRecipePrefillInfo.hasSteps;
+
+  const ingredientSuggestionFormatter = useCallback(
+    (value) => value.replace(/\b\w/g, (char) => char.toUpperCase()),
+    []
+  );
+
+  const handleIngredientInputChange = useCallback((event) => {
+    const { value } = event.target;
+    setIngredientInput(value);
+    setIngredientInputKeyCount((prev) => prev + 1);
+  }, []);
+
+  const handleIngredientSuggestionSelect = useCallback((suggestion) => {
+    if (!suggestion) {
+      return;
+    }
+    setIngredientInput((prev) => {
+      if (!prev.trim()) {
+        return suggestion;
+      }
+      const segments = prev.split(',');
+      segments[segments.length - 1] = suggestion;
+      return segments
+        .map((segment) => segment.trim())
+        .filter(Boolean)
+        .join(', ');
+    });
+    setIngredientInputKeyCount((prev) => Math.max(prev, 3));
+  }, []);
+
+  const showIngredientSuggestions = ingredientInputFocused && filteredIngredientSuggestions.length > 0;
 
   const ingredientsHelperText =
     newRecipeErrors.ingredients ||
@@ -642,6 +924,104 @@ function App() {
     }
   }, [newRecipeForm.sourceUrl]);
 
+  useEffect(() => {
+    const sourceUrl = newRecipeForm.sourceUrl.trim();
+    if (!sourceUrl) {
+      setSourceParseState({ status: 'idle', message: '' });
+      return;
+    }
+
+    const urlError = validateUrl(sourceUrl, { required: true });
+    if (urlError) {
+      setSourceParseState({ status: 'idle', message: '' });
+      return;
+    }
+
+    let isActive = true;
+    const controller = new AbortController();
+    setSourceParseState({ status: 'loading', message: 'Parsing recipe details…' });
+
+    fetchRecipeDetailsFromSource(sourceUrl, { signal: controller.signal })
+      .then((result) => {
+        if (!isActive) {
+          return;
+        }
+        if (!result) {
+          setSourceParseState({ status: 'error', message: 'Unable to parse recipe details from that link.' });
+          return;
+        }
+
+        setSourceParseState({ status: 'success', message: 'Recipe details parsed from source link.' });
+
+        setNewRecipeForm((prev) => {
+          const next = { ...prev };
+          let changed = false;
+
+          if (!next.title && result.title) {
+            next.title = result.title;
+            changed = true;
+          }
+
+          if (!next.ingredients && Array.isArray(result.ingredients) && result.ingredients.length > 0) {
+            next.ingredients = result.ingredients.join('\n');
+            changed = true;
+          }
+
+          if (!next.steps && Array.isArray(result.steps) && result.steps.length > 0) {
+            next.steps = result.steps.join('\n');
+            changed = true;
+          }
+
+          return changed ? next : prev;
+        });
+
+        setNewRecipeErrors((prev) => {
+          if (!prev || Object.keys(prev).length === 0) {
+            return prev;
+          }
+          const next = { ...prev };
+          let updated = false;
+
+          if (result.title && next.title) {
+            delete next.title;
+            updated = true;
+          }
+
+          if (result.ingredients?.length && next.ingredients) {
+            delete next.ingredients;
+            updated = true;
+          }
+
+          if (result.steps?.length && next.steps) {
+            delete next.steps;
+            updated = true;
+          }
+
+          return updated ? next : prev;
+        });
+
+        setNewRecipePrefillInfo((prev) => ({
+          matched: prev.matched || Boolean(result.title),
+          hasIngredients: prev.hasIngredients || Boolean(result.ingredients?.length),
+          hasSteps: prev.hasSteps || Boolean(result.steps?.length)
+        }));
+      })
+      .catch((error) => {
+        if (!isActive && error?.name === 'AbortError') {
+          return;
+        }
+        console.error('Unable to parse recipe from URL.', error);
+        if (isActive) {
+          setSourceParseState({ status: 'error', message: 'Unable to parse recipe details from that link.' });
+        }
+      });
+
+    return () => {
+      isActive = false;
+      controller.abort();
+    };
+  }, [newRecipeForm.sourceUrl]);
+
   const handleGenerateImage = () => {
     const title = newRecipeForm.title.trim();
     if (!title) {
@@ -672,7 +1052,7 @@ function App() {
     });
   };
 
-  const validateUrl = (rawValue, { required } = { required: false }) => {
+  function validateUrl(rawValue, { required } = { required: false }) {
     const value = rawValue.trim();
     if (!value) {
       return required ? 'This field is required.' : '';
@@ -689,7 +1069,7 @@ function App() {
     } catch (error) {
       return 'Enter a valid URL.';
     }
-  };
+  }
 
   const parseList = (value, { allowComma = true } = {}) =>
     value
@@ -796,27 +1176,61 @@ function App() {
         >
           <Stack spacing={3}>
             <Stack spacing={3}>
-              <TextField
-                label="Search by ingredients"
-                placeholder="e.g., chicken, garlic, spinach"
-                value={ingredientInput}
-                onChange={(event) => setIngredientInput(event.target.value)}
-                fullWidth
-                InputProps={{
-                  endAdornment: ingredientInput ? (
-                    <InputAdornment position="end">
-                      <IconButton
-                        aria-label="Clear ingredient search"
-                        edge="end"
-                        size="small"
-                        onClick={() => setIngredientInput('')}
-                      >
-                        <ClearIcon fontSize="small" />
-                      </IconButton>
-                    </InputAdornment>
-                  ) : null
-                }}
-              />
+              <Box sx={{ position: 'relative' }}>
+                <TextField
+                  label="Search by ingredients"
+                  placeholder="e.g., chicken, garlic, spinach"
+                  value={ingredientInput}
+                  onChange={handleIngredientInputChange}
+                  onFocus={() => {
+                    setIngredientInputFocused(true);
+                    setIngredientInputKeyCount(0);
+                  }}
+                  onBlur={() => setIngredientInputFocused(false)}
+                  fullWidth
+                  InputProps={{
+                    endAdornment: ingredientInput ? (
+                      <InputAdornment position="end">
+                        <IconButton
+                          aria-label="Clear ingredient search"
+                          edge="end"
+                          size="small"
+                          onClick={() => setIngredientInput('')}
+                        >
+                          <ClearIcon fontSize="small" />
+                        </IconButton>
+                      </InputAdornment>
+                    ) : null
+                  }}
+                />
+                {ingredientInputKeyCount >= 3 && showIngredientSuggestions && (
+                  <Paper
+                    elevation={3}
+                    sx={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      mt: 1,
+                      zIndex: 5,
+                      maxHeight: 240,
+                      overflowY: 'auto'
+                    }}
+                  >
+                    <List dense disablePadding>
+                      {filteredIngredientSuggestions.map((suggestion) => (
+                        <ListItemButton
+                          key={suggestion}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => handleIngredientSuggestionSelect(suggestion)}
+                        >
+                          <ListItemText primary={ingredientSuggestionFormatter(suggestion)} />
+                        </ListItemButton>
+                      ))}
+                    </List>
+                  </Paper>
+                )}
+              </Box>
 
               {availableMealTypes.length > 0 && (
                 <Stack spacing={2}>
@@ -1172,15 +1586,6 @@ function App() {
         <DialogTitle id="add-recipe-dialog-title">Add recipe</DialogTitle>
         <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <TextField
-            label="Title"
-            value={newRecipeForm.title}
-            onChange={handleNewRecipeChange('title')}
-            required
-            fullWidth
-            error={Boolean(newRecipeErrors.title)}
-            helperText={newRecipeErrors.title}
-          />
-          <TextField
             label="Source URL"
             value={newRecipeForm.sourceUrl}
             onChange={handleNewRecipeChange('sourceUrl')}
@@ -1188,7 +1593,20 @@ function App() {
             fullWidth
             placeholder="https://example.com/recipe"
             error={Boolean(newRecipeErrors.sourceUrl)}
-            helperText={newRecipeErrors.sourceUrl || 'Link to the original recipe or video.'}
+            helperText={
+              newRecipeErrors.sourceUrl ||
+              sourceParseState.message ||
+              'Link to the original recipe or video.'
+            }
+          />
+          <TextField
+            label="Title"
+            value={newRecipeForm.title}
+            onChange={handleNewRecipeChange('title')}
+            required
+            fullWidth
+            error={Boolean(newRecipeErrors.title)}
+            helperText={newRecipeErrors.title}
           />
           <Stack spacing={1}>
             <TextField
