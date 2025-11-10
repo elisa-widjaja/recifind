@@ -510,6 +510,7 @@ function App() {
   const [selectedMealType, setSelectedMealType] = useState('');
   const [ingredientInput, setIngredientInput] = useState('');
   const [activeRecipe, setActiveRecipe] = useState(null);
+  const [activeRecipeDraft, setActiveRecipeDraft] = useState(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [newRecipeForm, setNewRecipeForm] = useState(() => ({ ...NEW_RECIPE_TEMPLATE }));
   const [newRecipeErrors, setNewRecipeErrors] = useState({});
@@ -590,12 +591,8 @@ function App() {
   const availableMealTypes = useMemo(() => getUniqueMealTypes(recipes), [recipes]);
 
   const filteredRecipes = useMemo(() => {
-    if (normalizedIngredients.length === 0 && !selectedMealType) {
-      return recipes;
-    }
-
-    return recipes
-      .map((recipe) => {
+    const scored = recipes
+      .map((recipe, index, array) => {
         if (selectedMealType) {
           const matchesMealType = recipe.mealTypes.some(
             (type) => type.toLowerCase() === selectedMealType.toLowerCase()
@@ -622,12 +619,20 @@ function App() {
           }
         }
 
+        const recencyScore = array.length - index;
         const score = ingredientScore + (selectedMealType ? 1 : 0);
-        return { recipe, score };
+        return { recipe, score, recencyScore };
       })
       .filter(Boolean)
-      .sort((a, b) => b.score - a.score)
+      .sort((a, b) => {
+        if (b.score !== a.score) {
+          return b.score - a.score;
+        }
+        return b.recencyScore - a.recencyScore;
+      })
       .map((entry) => entry.recipe);
+
+    return scored;
   }, [recipes, selectedMealType, normalizedIngredients]);
 
   useEffect(() => {
@@ -714,9 +719,18 @@ function App() {
     newRecipeErrors.steps ||
     (shouldRequireSteps ? 'Separate steps with new lines.' : 'Optional instructions. Separate steps with new lines.');
 
-  const activeRecipeImageUrl = useMemo(
-    () => (activeRecipe ? resolveRecipeImageUrl(activeRecipe.title, activeRecipe.imageUrl) : ''),
-    [activeRecipe]
+  const activeRecipeView = activeRecipeDraft;
+
+  const activeRecipeImageUrl = useMemo(() => {
+    if (!activeRecipeView) {
+      return '';
+    }
+    return resolveRecipeImageUrl(activeRecipeView.title, activeRecipeView.imageUrl);
+  }, [activeRecipeView]);
+
+  const newRecipePreviewImageUrl = useMemo(
+    () => resolveRecipeImageUrl(newRecipeForm.title, newRecipeForm.imageUrl),
+    [newRecipeForm.title, newRecipeForm.imageUrl]
   );
 
   const resultsLabel = filteredRecipes.length === 1 ? '1 result' : `${filteredRecipes.length} results`;
@@ -728,6 +742,19 @@ function App() {
   const handleSnackbarClose = () => {
     setSnackbarState((prev) => ({ ...prev, open: false }));
   };
+
+  const handleOpenRecipeDetails = useCallback((recipe) => {
+    if (!recipe) {
+      return;
+    }
+    setActiveRecipe(recipe);
+    setIsDeleteConfirmOpen(false);
+    setActiveRecipeDraft({
+      ...recipe,
+      ingredients: Array.isArray(recipe.ingredients) ? [...recipe.ingredients] : [],
+      steps: Array.isArray(recipe.steps) ? [...recipe.steps] : []
+    });
+  }, []);
 
   const handleVideoThumbnailClick = (event, recipe) => {
     event.preventDefault();
@@ -765,6 +792,7 @@ function App() {
 
     setRecipes((prev) => prev.filter((recipe) => recipe.id !== deletedId));
     setActiveRecipe(null);
+    setActiveRecipeDraft(null);
     setIsDeleteConfirmOpen(false);
     setSnackbarState({
       open: true,
@@ -773,8 +801,30 @@ function App() {
     });
   };
 
+  const handleSaveActiveRecipe = () => {
+    if (!activeRecipe || !activeRecipeDraft) {
+      closeDialog();
+      return;
+    }
+
+    setRecipes((prev) =>
+      prev.map((recipe) => (recipe.id === activeRecipe.id ? { ...recipe, ...activeRecipeDraft } : recipe))
+    );
+
+    setSnackbarState({
+      open: true,
+      message: `Saved "${activeRecipeDraft.title}".`,
+      severity: 'success'
+    });
+
+    setActiveRecipe(null);
+    setActiveRecipeDraft(null);
+    setIsDeleteConfirmOpen(false);
+  };
+
   const closeDialog = () => {
     setActiveRecipe(null);
+    setActiveRecipeDraft(null);
     setIsDeleteConfirmOpen(false);
   };
 
@@ -1141,6 +1191,9 @@ function App() {
     };
 
     setRecipes((prev) => [newRecipe, ...prev]);
+    setSelectedMealType('');
+    setIngredientInput('');
+    setVisibleCount(RESULTS_PAGE_SIZE);
     setNewRecipeForm({ ...NEW_RECIPE_TEMPLATE });
     setNewRecipeErrors({});
     setNewRecipePrefillInfo({ matched: false, hasIngredients: false, hasSteps: false });
@@ -1318,7 +1371,7 @@ function App() {
                       }}
                     >
                       <CardActionArea
-                        onClick={() => setActiveRecipe(recipe)}
+                        onClick={() => handleOpenRecipeDetails(recipe)}
                         sx={{
                           height: '100%',
                           display: 'flex',
@@ -1408,25 +1461,34 @@ function App() {
       </Container>
 
       <Dialog
-        open={Boolean(activeRecipe)}
+        open={Boolean(activeRecipeView)}
         onClose={closeDialog}
         fullWidth
         maxWidth="md"
         aria-labelledby="recipe-dialog-title"
       >
-        {activeRecipe && (
+        {activeRecipeView && (
           <>
             <DialogTitle id="recipe-dialog-title" sx={{ display: 'flex', alignItems: 'center', pr: 6 }}>
               <Box sx={{ flexGrow: 1 }}>
-                <Typography variant="h6">{activeRecipe.title}</Typography>
+                <TextField
+                  label="Title"
+                  value={activeRecipeView.title}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setActiveRecipeDraft((prev) => (prev ? { ...prev, title: value } : prev));
+                  }}
+                  fullWidth
+                  margin="dense"
+                />
                 <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap', rowGap: 1 }}>
-                  {activeRecipe.mealTypes.map((type) => (
+                  {activeRecipeView.mealTypes.map((type) => (
                     <Chip key={type} label={MEAL_TYPE_LABELS[type] || type} size="small" variant="outlined" />
                   ))}
-                  {activeRecipe.durationMinutes ? (
+                  {activeRecipeView.durationMinutes ? (
                     <Chip
                       icon={<AccessTimeIcon fontSize="small" />}
-                      label={`${activeRecipe.durationMinutes} min`}
+                      label={`${activeRecipeView.durationMinutes} min`}
                       size="small"
                       color="secondary"
                     />
@@ -1442,12 +1504,12 @@ function App() {
               {activeRecipeImageUrl && (
                 <Box
                   role="button"
-                  aria-label={`Open ${activeRecipe.title} on Instagram`}
+                  aria-label={`Open ${activeRecipeView.title} on Instagram`}
                   tabIndex={0}
-                  onClick={(event) => handleVideoThumbnailClick(event, activeRecipe)}
+                  onClick={(event) => handleVideoThumbnailClick(event, activeRecipeView)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
-                      handleVideoThumbnailClick(event, activeRecipe);
+                      handleVideoThumbnailClick(event, activeRecipeView);
                     }
                   }}
                   sx={{
@@ -1464,8 +1526,8 @@ function App() {
                   <Box
                     component="img"
                     src={activeRecipeImageUrl}
-                    alt={activeRecipe.title}
-                    onError={createImageFallbackHandler(activeRecipe.title)}
+                    alt={activeRecipeView.title}
+                    onError={createImageFallbackHandler(activeRecipeView.title)}
                     sx={{
                       position: 'absolute',
                       inset: 0,
@@ -1499,38 +1561,44 @@ function App() {
 
               <Stack spacing={3}>
                 <Box>
-                  <Typography variant="subtitle1" gutterBottom>
-                    Ingredients
-                  </Typography>
-                  <Divider />
-                  <Box component="ul" sx={{ pl: 2, mt: 1, mb: 0 }}>
-                    {activeRecipe.ingredients.map((ingredient) => (
-                      <Typography key={ingredient} component="li" variant="body2">
-                        {ingredient}
-                      </Typography>
-                    ))}
-                  </Box>
+                  <TextField
+                    label="Ingredients"
+                    value={activeRecipeView.ingredients.join('\n')}
+                    onChange={(event) => {
+                      const updated = event.target.value
+                        .split(/\r?\n/)
+                        .map((line) => line.trim())
+                        .filter(Boolean);
+                      setActiveRecipeDraft((prev) => (prev ? { ...prev, ingredients: updated } : prev));
+                    }}
+                    multiline
+                    minRows={4}
+                    fullWidth
+                    helperText="One ingredient per line."
+                  />
                 </Box>
 
-                {activeRecipe.steps && activeRecipe.steps.length > 0 && (
-                  <Box>
-                    <Typography variant="subtitle1" gutterBottom>
-                      Steps
-                    </Typography>
-                    <Divider />
-                    <Box component="ol" sx={{ pl: 2, mt: 1, mb: 0 }}>
-                      {activeRecipe.steps.map((step, index) => (
-                        <Typography key={index} component="li" variant="body2">
-                          {step}
-                        </Typography>
-                      ))}
-                    </Box>
-                  </Box>
-                )}
+                <Box>
+                  <TextField
+                    label="Steps"
+                    value={(activeRecipeView.steps || []).join('\n')}
+                    onChange={(event) => {
+                      const updated = event.target.value
+                        .split(/\r?\n/)
+                        .map((line) => line.trim())
+                        .filter(Boolean);
+                      setActiveRecipeDraft((prev) => (prev ? { ...prev, steps: updated } : prev));
+                    }}
+                    multiline
+                    minRows={4}
+                    fullWidth
+                    helperText="Separate each step with a new line."
+                  />
+                </Box>
 
-                {activeRecipe.sourceUrl && (
+                {activeRecipeView.sourceUrl && (
                   <Box>
-                    <Link href={activeRecipe.sourceUrl} target="_blank" rel="noopener" underline="hover">
+                    <Link href={activeRecipeView.sourceUrl} target="_blank" rel="noopener" underline="hover">
                       View source
                     </Link>
                   </Box>
@@ -1545,6 +1613,12 @@ function App() {
                 variant="outlined"
               >
                 Delete recipe
+              </Button>
+              <Button variant="outlined" onClick={closeDialog}>
+                Cancel
+              </Button>
+              <Button variant="contained" color="primary" onClick={handleSaveActiveRecipe} disabled={!activeRecipeDraft}>
+                Save changes
               </Button>
             </DialogActions>
           </>
@@ -1561,7 +1635,7 @@ function App() {
           <Typography variant="body1">
             Are you sure you want to delete{' '}
             <Typography component="span" variant="body1" sx={{ fontWeight: 600 }}>
-              {activeRecipe?.title ?? 'this recipe'}
+              {activeRecipeDraft?.title || activeRecipe?.title || 'this recipe'}
             </Typography>
             ? This action cannot be undone.
           </Typography>
@@ -1629,7 +1703,7 @@ function App() {
                 )
               }}
             />
-            {newRecipeForm.imageUrl ? (
+            {newRecipePreviewImageUrl ? (
               <Box
                 sx={{
                   width: '100%',
@@ -1642,7 +1716,7 @@ function App() {
               >
                 <Box
                   component="img"
-                  src={newRecipeForm.imageUrl}
+                  src={newRecipePreviewImageUrl}
                   alt={newRecipeForm.title ? `${newRecipeForm.title} preview` : 'Recipe preview'}
                   onError={createImageFallbackHandler(newRecipeForm.title)}
                   sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
