@@ -1612,13 +1612,10 @@ function App() {
                 startIcon={<DeleteOutlineIcon />}
                 variant="outlined"
               >
-                Delete recipe
-              </Button>
-              <Button variant="outlined" onClick={closeDialog}>
-                Cancel
+                Delete
               </Button>
               <Button variant="contained" color="primary" onClick={handleSaveActiveRecipe} disabled={!activeRecipeDraft}>
-                Save changes
+                Save
               </Button>
             </DialogActions>
           </>

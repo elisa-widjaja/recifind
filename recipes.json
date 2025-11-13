@@ -2,15 +2,56 @@
   "meta": {
     "source": "Recipies.pdf",
     "generatedAt": "2025-10-29T16:35:22.242711+00:00",
-    "totalRecipesDetected": 169,
+    "totalRecipesDetected": 205,
     "totalRecipesInPdf": 202,
-    "recipesWithMissingIngredients": 13,
-    "recipesWithMissingSteps": 106,
-    "recipesWithTags": 133,
-    "recipesWithMealTypes": 169,
-    "lastUpdated": "2025-10-30T00:00:00Z"
+    "recipesWithMissingIngredients": 46,
+    "recipesWithMissingSteps": 140,
+    "recipesWithTags": 135,
+    "recipesWithMealTypes": 205,
+    "lastUpdated": "2025-11-13T20:37:16Z"
   },
   "recipes": [
+    {
+      "title": "Loco moco",
+      "sourceUrl": "https://www.instagram.com/reel/DE0Kb9sBQz/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "tags": [
+        "beef"
+      ],
+      "mealTypes": [
+        "dinner"
+      ]
+    },
+    {
+      "title": "Garlicky Chicken With Lemon-Anchovy Sauce",
+      "sourceUrl": "https://www.instagram.com/reel/DM_LBDOSAAp/?igsh=NTc4MTIwNjQ2YQ==",
+      "imageUrl": "",
+      "ingredients": [
+        "1¼ pounds boneless, skinless chicken thighs (4 to 5 thighs)",
+        "1 teaspoon coarse kosher salt",
+        "Freshly ground black pepper",
+        "6 garlic cloves, smashed and peeled",
+        "¼ cup extra-virgin olive oil",
+        "5 anchovy fillets",
+        "2 tablespoons drained capers, patted dry",
+        "1 large pinch chile flakes",
+        "1 lemon, halved",
+        "Fresh chopped parsley, for serving"
+      ],
+      "steps": [
+        "Heat oven to 350°F. Season chicken thighs with salt and pepper. Mince one garlic clove and reserve. In an ovenproof skillet over medium-high heat, warm the olive oil, then add the five smashed garlic cloves, anchovies, capers, and chile flakes. Cook 3 to 5 minutes, stirring to break up the anchovies, until the garlic browns and the anchovies dissolve.",
+        "Add the chicken thighs and sear until well browned on one side, 5 to 7 minutes. Flip the thighs, transfer the skillet to the oven, and roast 5 to 10 minutes, until the chicken is cooked through.",
+        "Transfer chicken to a plate. Return the skillet to the stove, add the reserved minced garlic and juice from half the lemon, and cook about 30 seconds while scraping up browned bits. Return the chicken to the pan and cook in the sauce for another 15 to 30 seconds. Transfer to a platter, squeeze the remaining lemon half over the top, garnish with chopped parsley, and serve."
+      ],
+      "tags": [
+        "chicken"
+      ],
+      "mealTypes": [
+        "dinner"
+      ]
+    },
     {
       "title": "Beef and Guiness Stew",
       "sourceUrl": "https://www.instagram.com/reel/DAYOghNNT7u/",
@@ -3414,6 +3455,57 @@
       ]
     },
     {
+      "title": "Crispy chicken with butterbeans and leeks",
+      "sourceUrl": "https://www.instagram.com/reel/DEiJMvnqy_I/?igsh=NTc4MTIwNjQ2YQ%3D%3D",
+      "imageUrl": "",
+      "ingredients": [
+        "4 skin-on chicken thighs",
+        "Olive oil",
+        "2 large leeks, diced",
+        "700g butter beans, drained and rinsed",
+        "1 stock cube dissolved in 100ml boiling water",
+        "Large glass dry white wine",
+        "2 large handfuls spinach",
+        "Bunch of basil leaves",
+        "Salt"
+      ],
+      "steps": [
+        "Preheat the oven to 200C (fan).",
+        "Heat a glug of olive oil in an ovenproof casserole or frying pan. Place the chicken in the pan skin side down and cook for about 5 minutes until the skin is crisp. Turn and cook on the second side for about 1 minute to seal, then transfer to a plate.",
+        "Add the diced leeks to the rendered chicken fat and cook until soft, about 3 to 4 minutes.",
+        "Stir in the butter beans, prepared stock, and white wine. Bring everything to a simmer.",
+        "Add the spinach, cover for a few minutes to wilt, then stir in the basil leaves.",
+        "Return the chicken to the pan skin side up, drizzle with a little more olive oil, season the skin with flaky salt, and bake for 25 minutes."
+      ],
+      "mealTypes": [
+        "dinner"
+      ]
+    },
+    {
+      "title": "Katsudon",
+      "sourceUrl": "https://www.instagram.com/reel/DBIz6PBo-ih/?igsh=NTc4MTIwNjQ2YQ==",
+      "imageUrl": "",
+      "ingredients": [
+        "2 chicken breasts",
+        "1 tsp kosher salt",
+        "1 tsp black pepper",
+        "1/2 large white onion",
+        "2 spring onions",
+        "500ml neutral oil",
+        "For the eggs (per person): 2 eggs, 1/8 tsp salt",
+        "Batter: 1/2 cup all-purpose flour, 1/2 cup cold water, 1 egg, 1 tsp salt",
+        "Breading: 2 cups panko breadcrumbs",
+        "Rice: 360g sushi rice, 450ml cold water, 1 tsp salt",
+        "Mentsuyu broth: 500ml water, 2 tsp dashi powder, 4 tbsp sake, 4 tbsp mirin, 4 tbsp soy sauce, 1/8 tsp salt, 2 tsp sugar"
+      ],
+      "steps": null,
+      "mealTypes": [
+        "lunch",
+        "dinner"
+      ],
+      "notes": "Caption lists ingredients for katsudon; steps still need transcription from the video."
+    },
+    {
       "title": "Coconut chicken bake",
       "sourceUrl": "https://www.instagram.com/reel/C3mfJiPPxu4/",
       "imageUrl": "/images/recipes/coconut-chicken-bake-2.jpg",
@@ -3485,6 +3577,358 @@
       "mealTypes": [
         "dessert"
       ]
+    },
+    {
+      "title": "Baked sardine in white wine tomato sauce",
+      "sourceUrl": "https://www.instagram.com/p/C6XPDCNadi/?igsh=MTc4MmM1YmI2Ng==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Honey soy chicken rice",
+      "sourceUrl": "https://www.instagram.com/reel/CdBwaYCyx4/?igsh=MTc4MmM1YmI2Ng==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Ginger chicken soup",
+      "sourceUrl": "https://www.instagram.com/reel/C7-3XSuJVQ/?igsh=MTc4MmM1YmI2Ng==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Greek yogurt lemon chicken",
+      "sourceUrl": "https://www.instagram.com/reel/DABglqBPt7/?igsh=MTc4MmM1YmI2Ng==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "breakfast"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Spaghetti pomodoro",
+      "sourceUrl": "https://www.instagram.com/reel/Cxdqy6MlMm/?igsh=MTc4MmM1YmI2Ng==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Prosciutto appetizers",
+      "sourceUrl": "https://www.instagram.com/reel/C9utmtYseUY/?igsh=NTc4MTIwNjQ2YQ==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "appetizer"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Herb Crusted Salmon",
+      "sourceUrl": "https://www.instagram.com/reel/CK2cS4iLVJ/?igsh=MTc4MmM1YmI2Ng==Appetizer",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Cheesy potatoe gratin",
+      "sourceUrl": "https://www.instagram.com/reel/DBeJSPxoX7/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Creamy Thai coconut chicken meatballs",
+      "sourceUrl": "https://www.instagram.com/reel/CdoIV5IWgu/?igsh=MTc4MmM1YmI2Ng==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Crispy eggplant snitzel",
+      "sourceUrl": "https://www.instagram.com/reel/CQQim2soos/?igsh=NjZiM2M3MzIxNA==Shakahuka",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Crme caramel",
+      "sourceUrl": "https://www.instagram.com/reel/DDWrbg8oakq/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dessert"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Finish salmon soup",
+      "sourceUrl": "https://www.instagram.com/reel/DAuWg-jpAYE/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Prosciutto sushi style",
+      "sourceUrl": "https://www.instagram.com/reel/DDY3ZOnyf_9/?igsh=NTc4MTIwNjQ2YQ==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "appetizer"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Banana cake",
+      "sourceUrl": "https://www.instagram.com/reel/DF8OOK8xPX/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dessert"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Garlic confit avocado",
+      "sourceUrl": "https://www.instagram.com/reel/CsaZHuuhmV/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Go ju Chang chicken rice",
+      "sourceUrl": "https://www.instagram.com/reel/DFvaASjIeu/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Creamy white bean soup",
+      "sourceUrl": "https://www.instagram.com/reel/DEhg3-oJvW/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Pad Thai",
+      "sourceUrl": "https://www.instagram.com/reel/DEM3KitXZD/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "05) 1 ] TJ /TT4 1 Tf (\"",
+      "sourceUrl": "https://www.instagram.com/reel/DGNCIHxM9b/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Lemon posset",
+      "sourceUrl": "https://www.instagram.com/reel/DG3bWxPesR/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dessert"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Orange cake",
+      "sourceUrl": "https://www.instagram.com/reel/DIgG57yv6v/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dessert"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Oxtail soup",
+      "sourceUrl": "https://www.instagram.com/reel/DJCJlPocyo/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Instapot braised pork belly",
+      "sourceUrl": "https://www.instagram.com/reel/DJ9WkcUI3D/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Orange glazed salmon",
+      "sourceUrl": "https://www.instagram.com/reel/DJFvwqxlKh/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Chicken with lemon anchovies sauce",
+      "sourceUrl": "https://www.instagram.com/reel/DMLBDOSAAp/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Pistachios ice cream",
+      "sourceUrl": "https://www.instagram.com/reel/DHROvBhNUpG/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dessert"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Creamy spinach and crispy chicken",
+      "sourceUrl": "https://www.instagram.com/reel/DPbJCHug/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Greek meatballs",
+      "sourceUrl": "https://www.instagram.com/reel/DPt4y8DZAJ/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Peach salad",
+      "sourceUrl": "https://www.instagram.com/reel/DMO3ffPsV/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "lunch"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Lemon miso kale soup",
+      "sourceUrl": "https://www.instagram.com/reel/DMDJm3TLrR/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Thai chicken rice",
+      "sourceUrl": "https://www.instagram.com/reel/DDPXTioMtQ/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
+    },
+    {
+      "title": "Braised short rib",
+      "sourceUrl": "https://www.instagram.com/reel/DDte0NYRRdZ/?igsh=NjZiM2M3MzIxNA==",
+      "imageUrl": "",
+      "ingredients": [],
+      "steps": null,
+      "mealTypes": [
+        "dinner"
+      ],
+      "notes": "Details pending transcription from Instagram post."
     }
   ]
 }
