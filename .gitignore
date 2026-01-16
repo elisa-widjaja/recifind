@@ -1,2 +1,27 @@
+# Dependencies
 node_modules
+
+# Build outputs
+dist
+
+# Environment files
+.env
+.env.*
+apps/recipe-ui/.env.local
+apps/worker/.dev.vars
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__
+*.pyc
+
+# Cloudflare Wrangler
+.wrangler
+
+# Vercel
 .vercel
+
+# npm
+.npm-cache

@@ -1,0 +1,19 @@
+{
+  "name": "recipes-worker",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "preview": "wrangler dev --remote",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240320.0",
+    "dotenv": "^17.2.3",
+    "playwright": "^1.56.1",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0",
+    "wrangler": "^4.47.0"
+  }
+}

@@ -1,0 +1,84 @@
+
+> recipes-worker@0.0.1 dev
+> wrangler dev
+
+
+ ⛅️ wrangler 4.47.0
+───────────────────
+Using vars defined in .dev.vars
+Your Worker has access to the following bindings:
+Binding                                                             Resource                  Mode
+env.RECIPES_KV (REPLACE_WITH_DEV_NAMESPACE_ID)                      KV Namespace              local
+env.AUTH_ISSUER ("(hidden)")                                        Environment Variable      local
+env.AUTH_AUDIENCE ("(hidden)")                                      Environment Variable      local
+env.AUTH_JWKS_URL ("(hidden)")                                      Environment Variable      local
+env.DEV_API_KEY ("(hidden)")                                        Environment Variable      local
+env.SUPABASE_URL ("(hidden)")                                       Environment Variable      local
+env.SUPABASE_SERVICE_ROLE_KEY ("(hidden)")                          Environment Variable      local
+env.SUPABASE_STORAGE_BUCKET ("recipe-previews")                     Environment Variable      local
+env.CODEX_API_KEY ("(hidden)")                                      Environment Variable      local
+env.GEMINI_SERVICE_ACCOUNT_B64 ("(hidden)")                         Environment Variable      local
+
+⎔ Starting local server...
+[wrangler:info] Ready on http://localhost:49846
+fatal error: all goroutines are asleep - deadlock!
+
+goroutine 1 [chan receive]:
+github.com/evanw/esbuild/internal/helpers.(*ThreadSafeWaitGroup).Wait(...)
+	github.com/evanw/esbuild/internal/helpers/waitgroup.go:36
+main.runService.func2()
+	github.com/evanw/esbuild/cmd/esbuild/service.go:114 +0x51
+main.runService(0x1)
+	github.com/evanw/esbuild/cmd/esbuild/service.go:160 +0x50c
+main.main()
+	github.com/evanw/esbuild/cmd/esbuild/main.go:249 +0xb6b
+
+goroutine 19 [chan receive]:
+main.runService.func1()
+	github.com/evanw/esbuild/cmd/esbuild/service.go:98 +0x45
+created by main.runService in goroutine 1
+	github.com/evanw/esbuild/cmd/esbuild/service.go:97 +0x1db
+
+goroutine 20 [chan receive]:
+main.(*serviceType).sendRequest(0xc00018c2a0, {0xf5c1760, 0xc0003ec090})
+	github.com/evanw/esbuild/cmd/esbuild/service.go:192 +0x12b
+main.runService.func3()
+	github.com/evanw/esbuild/cmd/esbuild/service.go:125 +0x3e
+created by main.runService in goroutine 1
+	github.com/evanw/esbuild/cmd/esbuild/service.go:122 +0x30d
+
+goroutine 81 [semacquire]:
+sync.runtime_Semacquire(0xc0004ec0c0?)
+	runtime/sema.go:71 +0x25
+sync.(*WaitGroup).Wait(0xc0003a2120?)
+	sync/waitgroup.go:118 +0x48
+github.com/evanw/esbuild/internal/bundler.ScanBundle(_, {_, _, _, _, _, _}, {_, _}, 0xc0003a2120, ...)
+	github.com/evanw/esbuild/internal/bundler/bundler.go:1395 +0x98a
+github.com/evanw/esbuild/pkg/api.rebuildImpl({0xc0003a2120, {0xc0004d5878, 0x1, 0x1}, {0x0, 0x0, 0x0}, {0x0, 0x1, 0x0, ...}, ...}, ...)
+	github.com/evanw/esbuild/pkg/api/api_impl.go:1479 +0x2e5
+github.com/evanw/esbuild/pkg/api.(*internalContext).rebuild(_)
+	github.com/evanw/esbuild/pkg/api/api_impl.go:998 +0x29c
+github.com/evanw/esbuild/pkg/api.(*internalContext).Watch.func1()
+	github.com/evanw/esbuild/pkg/api/api_impl.go:1082 +0x25
+github.com/evanw/esbuild/pkg/api.(*watcher).start.func1()
+	github.com/evanw/esbuild/pkg/api/watcher.go:111 +0x95
+created by github.com/evanw/esbuild/pkg/api.(*watcher).start in goroutine 65
+	github.com/evanw/esbuild/pkg/api/watcher.go:92 +0x65
+
+goroutine 418 [chan receive]:
+main.(*serviceType).sendRequest(0xc00018c2a0, {0xf5c1760, 0xc00021ef60})
+	github.com/evanw/esbuild/cmd/esbuild/service.go:192 +0x12b
+main.(*serviceType).convertPlugins.func2.2()
+	github.com/evanw/esbuild/cmd/esbuild/service.go:959 +0x117
+github.com/evanw/esbuild/pkg/api.(*pluginImpl).onStart-fm.(*pluginImpl).onStart.func1()
+	github.com/evanw/esbuild/pkg/api/api_impl.go:1847 +0x35
+github.com/evanw/esbuild/internal/bundler.ScanBundle.func1({{0xf48dc93, 0x12}, {0xc0004d57e8, 0x1, 0x1}, {0xc00037ca50, 0x1, 0x1}, {0xc00037cab0, 0x1, ...}}, ...)
+	github.com/evanw/esbuild/internal/bundler/bundler.go:1312 +0x5e
+created by github.com/evanw/esbuild/internal/bundler.ScanBundle in goroutine 81
+	github.com/evanw/esbuild/internal/bundler/bundler.go:1311 +0xfff
+
+goroutine 420 [chan send]:
+github.com/evanw/esbuild/internal/bundler.ScanBundle.func2()
+	github.com/evanw/esbuild/internal/bundler/bundler.go:1346 +0x2c5
+created by github.com/evanw/esbuild/internal/bundler.ScanBundle in goroutine 81
+	github.com/evanw/esbuild/internal/bundler/bundler.go:1344 +0x97d
