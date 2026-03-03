@@ -990,10 +990,13 @@ function App() {
       setIsAddFriendOpen(false);
       await fetchFriendRequests();
     } catch (error) {
+      const msg = error.message || '';
+      const isAlreadyFriends = msg.includes('already friends');
+      const isPending = msg.includes('already sent') || msg.includes('already sent you');
       setSnackbarState({
         open: true,
-        message: error.message || 'Failed to send friend request',
-        severity: 'error'
+        message: isAlreadyFriends ? 'Already connected.' : isPending ? 'Request sent. Pending acceptance.' : msg || 'Failed to send friend request',
+        severity: isAlreadyFriends || isPending ? 'info' : 'error'
       });
     } finally {
       setAddFriendLoading(false);
