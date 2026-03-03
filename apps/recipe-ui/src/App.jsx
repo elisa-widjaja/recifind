@@ -923,6 +923,11 @@ function App() {
   const [friendRecipesLoading, setFriendRecipesLoading] = useState(false);
   const [visibleRecipeCount, setVisibleRecipeCount] = useState(7);
   const friendRecipesSentinelRef = useRef(null);
+  const [friendRecipeSearchOpen, setFriendRecipeSearchOpen] = useState(false);
+  const [friendRecipeSearchQuery, setFriendRecipeSearchQuery] = useState('');
+  const [friendsDrawerExpanded, setFriendsDrawerExpanded] = useState(false);
+  const drawerTouchStartY = useRef(null);
+  const drawerScrollRef = useRef(null);
 
   // Get access token from session
   const accessToken = session?.access_token || null;
@@ -1111,6 +1116,26 @@ function App() {
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [visibleRecipeCount, friendRecipes.length]);
+
+  const filteredFriendRecipes = useMemo(() => {
+    const query = friendRecipeSearchQuery.trim();
+    if (!query) return friendRecipes;
+    const tokens = query
+      .split(',')
+      .flatMap((seg) => seg.trim().split(/\s+/))
+      .map((t) => t.trim().toLowerCase())
+      .filter(Boolean);
+    if (tokens.length === 0) return friendRecipes;
+    return friendRecipes
+      .map((recipe) => {
+        const haystack = `${recipe.title} ${(recipe.ingredients || []).join(' ')} ${(recipe.steps || []).join(' ')}`.toLowerCase();
+        const score = tokens.reduce((sum, t) => (haystack.includes(t) ? sum + t.length : sum), 0);
+        return score > 0 ? { recipe, score } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.score - a.score)
+      .map((e) => e.recipe);
+  }, [friendRecipes, friendRecipeSearchQuery]);
 
   // ── End friends API functions ─────────────────────────────────────
 
@@ -3821,8 +3846,9 @@ function App() {
         </DialogActions>
       </Dialog>
 
-      {/* Friends Dialog */}
-      <Dialog
+      {/* Friends Drawer */}
+      <Drawer
+        anchor="bottom"
         open={isFriendsDialogOpen}
         onClose={() => {
           setIsFriendsDialogOpen(false);
@@ -3830,22 +3856,57 @@ function App() {
           setFriendRecipes([]);
           setIsAddFriendOpen(false);
           setAddFriendEmail('');
+          setFriendRecipeSearchOpen(false);
+          setFriendRecipeSearchQuery('');
+          setFriendsDrawerExpanded(false);
         }}
-        fullScreen={isMobile}
-        fullWidth={!isMobile}
-        maxWidth={isMobile ? false : 'sm'}
+        PaperProps={{
+          sx: {
+            borderRadius: friendsDrawerExpanded ? 0 : '16px 16px 0 0',
+            height: friendsDrawerExpanded ? '100dvh' : '85dvh',
+            display: 'flex',
+            flexDirection: 'column',
+            transition: 'height 0.3s ease, border-radius 0.3s ease',
+          }
+        }}
       >
-        <DialogTitle sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', pr: 1 }}>
+        {/* Drag handle — swipe target */}
+        <Box
+          onTouchStart={(e) => { drawerTouchStartY.current = e.touches[0].clientY; }}
+          onTouchEnd={(e) => {
+            if (drawerTouchStartY.current === null) return;
+            const delta = e.changedTouches[0].clientY - drawerTouchStartY.current;
+            drawerTouchStartY.current = null;
+            if (delta < -40) {
+              setFriendsDrawerExpanded(true);
+            } else if (delta > 40) {
+              if (friendsDrawerExpanded) {
+                setFriendsDrawerExpanded(false);
+              } else {
+                setIsFriendsDialogOpen(false);
+                setSelectedFriend(null); setFriendRecipes([]);
+                setIsAddFriendOpen(false); setAddFriendEmail('');
+                setFriendRecipeSearchOpen(false); setFriendRecipeSearchQuery('');
+              }
+            }
+          }}
+          sx={{ display: 'flex', justifyContent: 'center', pt: 1.5, pb: 0.5, flexShrink: 0, cursor: 'grab', touchAction: 'none' }}
+        >
+          <Box sx={{ width: 40, height: 4, borderRadius: 2, bgcolor: 'grey.300' }} />
+        </Box>
+
+        {/* Header */}
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', px: 2, pt: 0.5, pb: 1, flexShrink: 0 }}>
           {selectedFriend ? (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, flex: 1 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <IconButton onClick={() => { setSelectedFriend(null); setFriendRecipes([]); }} size="small" edge="start">
+                <IconButton onClick={() => { setSelectedFriend(null); setFriendRecipes([]); setFriendRecipeSearchOpen(false); setFriendRecipeSearchQuery(''); }} size="small" edge="start">
                   <ArrowBackIcon fontSize="small" />
                 </IconButton>
                 <Typography
                   variant="body2"
                   sx={{ cursor: 'pointer', color: 'text.secondary', fontWeight: 'bold', fontSize: '1rem' }}
-                  onClick={() => { setSelectedFriend(null); setFriendRecipes([]); }}
+                  onClick={() => { setSelectedFriend(null); setFriendRecipes([]); setFriendRecipeSearchOpen(false); setFriendRecipeSearchQuery(''); }}
                 >
                   Friends
                 </Typography>
@@ -3855,25 +3916,16 @@ function App() {
               </Typography>
             </Box>
           ) : (
-            <Typography variant="h6">Friends</Typography>
+            <Typography variant="h6" sx={{ flex: 1 }}>Friends</Typography>
           )}
-          <IconButton onClick={() => {
-            setIsFriendsDialogOpen(false);
-            setSelectedFriend(null);
-            setFriendRecipes([]);
-            setIsAddFriendOpen(false);
-            setAddFriendEmail('');
-          }}>
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
+        </Box>
 
         {!selectedFriend && (
           <Tabs
             value={friendsTab}
             onChange={(e, v) => setFriendsTab(v)}
             variant="fullWidth"
-            sx={{ borderBottom: 1, borderColor: 'divider' }}
+            sx={{ borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}
           >
             <Tab label="Friends" />
             <Tab label={
@@ -3884,7 +3936,31 @@ function App() {
           </Tabs>
         )}
 
-        <DialogContent dividers sx={{ p: selectedFriend ? 2 : undefined }}>
+        {/* Scrollable content */}
+        <Box
+          ref={drawerScrollRef}
+          onTouchStart={(e) => { drawerTouchStartY.current = e.touches[0].clientY; }}
+          onTouchEnd={(e) => {
+            if (drawerTouchStartY.current === null) return;
+            const delta = e.changedTouches[0].clientY - drawerTouchStartY.current;
+            const atTop = drawerScrollRef.current?.scrollTop === 0;
+            drawerTouchStartY.current = null;
+            if (delta < -40 && atTop) {
+              setFriendsDrawerExpanded(true);
+            } else if (delta > 60 && atTop) {
+              if (friendsDrawerExpanded) {
+                setFriendsDrawerExpanded(false);
+              } else {
+                setIsFriendsDialogOpen(false);
+                setSelectedFriend(null); setFriendRecipes([]);
+                setIsAddFriendOpen(false); setAddFriendEmail('');
+                setFriendRecipeSearchOpen(false); setFriendRecipeSearchQuery('');
+                setFriendsDrawerExpanded(false);
+              }
+            }
+          }}
+          sx={{ flex: 1, overflowY: 'auto', p: 2, borderTop: '1px solid', borderColor: 'divider' }}
+        >
           {selectedFriend ? (
             friendRecipesLoading ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
@@ -3896,11 +3972,46 @@ function App() {
               </Typography>
             ) : (
               <Box>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-                  {friendRecipes.length} {friendRecipes.length === 1 ? 'recipe' : 'recipes'}
-                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                  {friendRecipeSearchOpen ? (
+                    <TextField
+                      autoFocus
+                      size="small"
+                      placeholder="Search recipes..."
+                      value={friendRecipeSearchQuery}
+                      onChange={(e) => {
+                        setFriendRecipeSearchQuery(e.target.value);
+                        setVisibleRecipeCount(7);
+                      }}
+                      InputProps={{
+                        endAdornment: friendRecipeSearchQuery ? (
+                          <InputAdornment position="end">
+                            <IconButton size="small" onClick={() => setFriendRecipeSearchQuery('')}>
+                              <ClearIcon fontSize="small" />
+                            </IconButton>
+                          </InputAdornment>
+                        ) : null
+                      }}
+                      sx={{ flex: 1 }}
+                    />
+                  ) : (
+                    <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+                      {friendRecipes.length} {friendRecipes.length === 1 ? 'recipe' : 'recipes'}
+                    </Typography>
+                  )}
+                  <IconButton
+                    size="small"
+                    onClick={() => {
+                      setFriendRecipeSearchOpen((prev) => !prev);
+                      if (friendRecipeSearchOpen) setFriendRecipeSearchQuery('');
+                    }}
+                    color={friendRecipeSearchOpen ? 'primary' : 'default'}
+                  >
+                    <SearchIcon fontSize="small" />
+                  </IconButton>
+                </Box>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  {friendRecipes.slice(0, visibleRecipeCount).map((recipe) => (
+                  {filteredFriendRecipes.slice(0, visibleRecipeCount).map((recipe) => (
                     <Card
                       key={recipe.id}
                       elevation={0}
@@ -3946,13 +4057,18 @@ function App() {
                     </Card>
                   ))}
                 </Box>
-                {visibleRecipeCount < friendRecipes.length && (
+                {visibleRecipeCount < filteredFriendRecipes.length && (
                   <Box
                     ref={friendRecipesSentinelRef}
                     sx={{ display: 'flex', justifyContent: 'center', py: 3 }}
                   >
                     <CircularProgress size={24} />
                   </Box>
+                )}
+                {friendRecipeSearchQuery && filteredFriendRecipes.length === 0 && (
+                  <Typography color="text.secondary" align="center" sx={{ py: 3 }}>
+                    No recipes match &ldquo;{friendRecipeSearchQuery}&rdquo;
+                  </Typography>
                 )}
               </Box>
             )
@@ -4101,10 +4217,10 @@ function App() {
               </Stack>
             </Box>
           )}
-        </DialogContent>
+        </Box>
 
         {!selectedFriend && (
-          <DialogActions>
+          <Box sx={{ px: 2, py: 1.5, borderTop: '1px solid', borderColor: 'divider', flexShrink: 0 }}>
             <Button
               startIcon={isAddFriendOpen ? <CloseIcon /> : <PersonAddIcon />}
               onClick={() => {
@@ -4114,9 +4230,9 @@ function App() {
             >
               {isAddFriendOpen ? 'Cancel' : 'Add Friend'}
             </Button>
-          </DialogActions>
+          </Box>
         )}
-      </Dialog>
+      </Drawer>
 
       <Snackbar
         open={snackbarState.open}
