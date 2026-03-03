@@ -3818,7 +3818,7 @@ function App() {
               </IconButton>
               <Typography
                 variant="body2"
-                sx={{ cursor: 'pointer', color: 'text.secondary' }}
+                sx={{ cursor: 'pointer', color: 'text.secondary', fontWeight: 'bold', fontSize: '1rem' }}
                 onClick={() => { setSelectedFriend(null); setFriendRecipes([]); }}
               >
                 Friends
