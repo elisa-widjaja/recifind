@@ -3932,9 +3932,16 @@ function App() {
                 {friendRequests.map((req) => (
                   <ListItem
                     key={req.fromUserId}
-                    sx={{ gap: 1, pl: 0, '& .MuiListItemSecondaryAction-root': { right: 0 } }}
-                    secondaryAction={
-                      <Stack direction="row" spacing={1}>
+                    sx={{ pl: 0, alignItems: 'flex-start' }}
+                  >
+                    <ListItemAvatar>
+                      <Avatar sx={{ bgcolor: 'secondary.main' }}>
+                        {(req.fromName || req.fromEmail || '?')[0].toUpperCase()}
+                      </Avatar>
+                    </ListItemAvatar>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <ListItemText primary={req.fromName || req.fromEmail} />
+                      <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
                         <Button
                           size="small"
                           variant="contained"
@@ -3953,17 +3960,7 @@ function App() {
                           Decline
                         </Button>
                       </Stack>
-                    }
-                  >
-                    <ListItemAvatar>
-                      <Avatar sx={{ bgcolor: 'secondary.main' }}>
-                        {(req.fromName || req.fromEmail || '?')[0].toUpperCase()}
-                      </Avatar>
-                    </ListItemAvatar>
-                    <ListItemText
-                      primary={req.fromName || req.fromEmail}
-                      sx={{ pr: 18 }}
-                    />
+                    </Box>
                   </ListItem>
                 ))}
                 {sentRequests.length > 0 && (
