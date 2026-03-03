@@ -855,7 +855,10 @@ function App() {
   const [ingredientInputKeyCount, setIngredientInputKeyCount] = useState(0);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isSharedRecipeView, setIsSharedRecipeView] = useState(false);
-  const [isSharedRecipeSaved, setIsSharedRecipeSaved] = useState(false);
+  const [savedSharedRecipeIds, setSavedSharedRecipeIds] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('saved_shared_recipe_ids') || '[]')); }
+    catch { return new Set(); }
+  });
   const [sharedRecipeOwnerId, setSharedRecipeOwnerId] = useState(null);
   const [cookMode, setCookMode] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -2223,7 +2226,12 @@ function App() {
         return updated;
       });
 
-      setIsSharedRecipeSaved(true);
+      setSavedSharedRecipeIds((prev) => {
+        const next = new Set(prev);
+        next.add(activeRecipe.id);
+        try { localStorage.setItem('saved_shared_recipe_ids', JSON.stringify([...next])); } catch {}
+        return next;
+      });
     } catch (error) {
       console.error('Error saving shared recipe:', error);
       setSnackbarState({
@@ -3621,13 +3629,13 @@ function App() {
               {isSharedRecipeView ? (
                 <Button
                   variant="contained"
-                  color={isSharedRecipeSaved ? 'success' : 'primary'}
-                  onClick={isSharedRecipeSaved ? undefined : handleSaveSharedRecipe}
-                  startIcon={isSharedRecipeSaved ? <CheckIcon /> : undefined}
-                  disableElevation={isSharedRecipeSaved}
-                  sx={isSharedRecipeSaved ? { pointerEvents: 'none' } : undefined}
+                  color={savedSharedRecipeIds.has(activeRecipe?.id) ? 'success' : 'primary'}
+                  onClick={savedSharedRecipeIds.has(activeRecipe?.id) ? undefined : handleSaveSharedRecipe}
+                  startIcon={savedSharedRecipeIds.has(activeRecipe?.id) ? <CheckIcon /> : undefined}
+                  disableElevation={savedSharedRecipeIds.has(activeRecipe?.id)}
+                  sx={savedSharedRecipeIds.has(activeRecipe?.id) ? { pointerEvents: 'none' } : undefined}
                 >
-                  {isSharedRecipeSaved ? 'Saved' : 'Save to my recipes'}
+                  {savedSharedRecipeIds.has(activeRecipe?.id) ? 'Saved' : 'Save to my recipes'}
                 </Button>
               ) : isEditMode ? (
                 <>
@@ -3901,7 +3909,6 @@ function App() {
                     <Card key={recipe.id} variant="outlined">
                       <CardActionArea onClick={() => {
                         setIsSharedRecipeView(true);
-                        setIsSharedRecipeSaved(false);
                         setActiveRecipe(recipe);
                         setActiveRecipeDraft(null);
                       }}>
