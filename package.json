@@ -1,4 +1,8 @@
 {
+  "scripts": {
+    "build": "cd apps/recipe-ui && npm install && npm run build",
+    "vercel-build": "cd apps/recipe-ui && npm install && npm run build"
+  },
   "devDependencies": {
     "supabase": "^2.58.5"
   },
