@@ -3632,7 +3632,7 @@ function App() {
                   color="primary"
                   onClick={savedSharedRecipeIds.has(activeRecipe?.id) ? undefined : handleSaveSharedRecipe}
                   startIcon={savedSharedRecipeIds.has(activeRecipe?.id) ? <CheckIcon /> : undefined}
-                  sx={savedSharedRecipeIds.has(activeRecipe?.id) ? { pointerEvents: 'none', borderColor: 'secondary.main', color: 'secondary.main' } : undefined}
+                  sx={savedSharedRecipeIds.has(activeRecipe?.id) ? { pointerEvents: 'none', borderColor: '#1976d2', color: '#1976d2' } : undefined}
                 >
                   {savedSharedRecipeIds.has(activeRecipe?.id) ? 'Saved' : 'Save to my recipes'}
                 </Button>
@@ -3899,27 +3899,28 @@ function App() {
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
                   {friendRecipes.length} {friendRecipes.length === 1 ? 'recipe' : 'recipes'}
                 </Typography>
-                <Box sx={{
-                  display: 'grid',
-                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' },
-                  gap: 2
-                }}>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                   {friendRecipes.slice(0, visibleRecipeCount).map((recipe) => (
                     <Card key={recipe.id} variant="outlined">
-                      <CardActionArea onClick={() => {
-                        setIsSharedRecipeView(true);
-                        setActiveRecipe(recipe);
-                        setActiveRecipeDraft(null);
-                      }}>
-                        {recipe.imageUrl && (
+                      <CardActionArea
+                        onClick={() => {
+                          setIsSharedRecipeView(true);
+                          setActiveRecipe(recipe);
+                          setActiveRecipeDraft(null);
+                        }}
+                        sx={{ display: 'flex', alignItems: 'center' }}
+                      >
+                        {recipe.imageUrl ? (
                           <Box
                             component="img"
                             src={recipe.imageUrl}
                             alt={recipe.title}
-                            sx={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover' }}
+                            sx={{ width: 64, height: 64, objectFit: 'cover', flexShrink: 0 }}
                           />
+                        ) : (
+                          <Box sx={{ width: 64, height: 64, flexShrink: 0, bgcolor: 'grey.100' }} />
                         )}
-                        <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
+                        <CardContent sx={{ py: 1, px: 1.5, '&:last-child': { pb: 1 }, flex: 1, minWidth: 0 }}>
                           <Typography variant="subtitle2" noWrap>{recipe.title}</Typography>
                         </CardContent>
                       </CardActionArea>
