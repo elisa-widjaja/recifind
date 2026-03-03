@@ -3628,12 +3628,11 @@ function App() {
             <DialogActions sx={{ justifyContent: isSharedRecipeView ? 'center' : 'flex-end', gap: 1 }}>
               {isSharedRecipeView ? (
                 <Button
-                  variant="contained"
-                  color={savedSharedRecipeIds.has(activeRecipe?.id) ? 'success' : 'primary'}
+                  variant={savedSharedRecipeIds.has(activeRecipe?.id) ? 'outlined' : 'contained'}
+                  color="primary"
                   onClick={savedSharedRecipeIds.has(activeRecipe?.id) ? undefined : handleSaveSharedRecipe}
                   startIcon={savedSharedRecipeIds.has(activeRecipe?.id) ? <CheckIcon /> : undefined}
-                  disableElevation={savedSharedRecipeIds.has(activeRecipe?.id)}
-                  sx={savedSharedRecipeIds.has(activeRecipe?.id) ? { pointerEvents: 'none' } : undefined}
+                  sx={savedSharedRecipeIds.has(activeRecipe?.id) ? { pointerEvents: 'none', borderColor: 'secondary.main', color: 'secondary.main' } : undefined}
                 >
                   {savedSharedRecipeIds.has(activeRecipe?.id) ? 'Saved' : 'Save to my recipes'}
                 </Button>
