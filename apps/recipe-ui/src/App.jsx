@@ -855,6 +855,7 @@ function App() {
   const [ingredientInputKeyCount, setIngredientInputKeyCount] = useState(0);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isSharedRecipeView, setIsSharedRecipeView] = useState(false);
+  const [isSharedRecipeSaved, setIsSharedRecipeSaved] = useState(false);
   const [sharedRecipeOwnerId, setSharedRecipeOwnerId] = useState(null);
   const [cookMode, setCookMode] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -2222,12 +2223,7 @@ function App() {
         return updated;
       });
 
-      closeDialog();
-      setSnackbarState({
-        open: true,
-        message: 'Recipe saved to your collection!',
-        severity: 'success'
-      });
+      setIsSharedRecipeSaved(true);
     } catch (error) {
       console.error('Error saving shared recipe:', error);
       setSnackbarState({
@@ -3621,14 +3617,17 @@ function App() {
               </Stack>
               </Box>
             </DialogContent>
-            <DialogActions sx={{ justifyContent: 'flex-end', gap: 1 }}>
+            <DialogActions sx={{ justifyContent: isSharedRecipeView ? 'center' : 'flex-end', gap: 1 }}>
               {isSharedRecipeView ? (
                 <Button
                   variant="contained"
-                  color="primary"
-                  onClick={handleSaveSharedRecipe}
+                  color={isSharedRecipeSaved ? 'success' : 'primary'}
+                  onClick={isSharedRecipeSaved ? undefined : handleSaveSharedRecipe}
+                  startIcon={isSharedRecipeSaved ? <CheckIcon /> : undefined}
+                  disableElevation={isSharedRecipeSaved}
+                  sx={isSharedRecipeSaved ? { pointerEvents: 'none' } : undefined}
                 >
-                  Save to my recipes
+                  {isSharedRecipeSaved ? 'Saved' : 'Save to my recipes'}
                 </Button>
               ) : isEditMode ? (
                 <>
@@ -3902,6 +3901,7 @@ function App() {
                     <Card key={recipe.id} variant="outlined">
                       <CardActionArea onClick={() => {
                         setIsSharedRecipeView(true);
+                        setIsSharedRecipeSaved(false);
                         setActiveRecipe(recipe);
                         setActiveRecipeDraft(null);
                       }}>
