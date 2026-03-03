@@ -3966,7 +3966,7 @@ function App() {
                 {sentRequests.length > 0 && (
                   <>
                     {friendRequests.length > 0 && <Divider sx={{ my: 1 }} />}
-                    <Typography variant="caption" color="text.secondary" sx={{ px: 2, py: 1, display: 'block' }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ pl: 0, pt: '4px', pb: 1, display: 'block' }}>
                       Sent
                     </Typography>
                     {sentRequests.map((req) => (
