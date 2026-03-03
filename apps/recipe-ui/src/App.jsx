@@ -118,6 +118,18 @@ function clearRecipesCache() {
   }
 }
 
+// Capture accept_friend URL param immediately at module load time, before
+// Supabase or React can modify the URL. This survives OAuth redirect returns.
+{
+  const _url = new URL(window.location.href);
+  const _acceptId = _url.searchParams.get('accept_friend');
+  if (_acceptId) {
+    localStorage.setItem('pending_accept_friend', _acceptId);
+    _url.searchParams.delete('accept_friend');
+    window.history.replaceState({}, '', _url.toString());
+  }
+}
+
 // Initialize Supabase client
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -1658,29 +1670,17 @@ function App() {
     }
   }, [recipes, activeRecipe, handleOpenRecipeDetails, session]);
 
-  // Handle accept_friend URL param from email link
+  // Handle pending friend request accept (URL param captured at module load)
   useEffect(() => {
-    // Check URL param and persist to localStorage
-    const url = new URL(window.location.href);
-    const acceptFriendId = url.searchParams.get('accept_friend');
-    if (acceptFriendId) {
-      localStorage.setItem('pending_accept_friend', acceptFriendId);
-      url.searchParams.delete('accept_friend');
-      window.history.replaceState({}, '', url.toString());
-    }
-
-    // Wait until we know auth status before taking action
     if (!isAuthChecked) return;
 
+    const pendingId = localStorage.getItem('pending_accept_friend');
+
     if (!accessToken) {
-      // Not logged in — prompt sign-in if there's a pending accept
-      const pendingId = localStorage.getItem('pending_accept_friend');
-      if (acceptFriendId || pendingId) setIsAuthDialogOpen(true);
+      if (pendingId) setIsAuthDialogOpen(true);
       return;
     }
 
-    // Logged in — check for pending accept
-    const pendingId = localStorage.getItem('pending_accept_friend');
     if (pendingId) {
       localStorage.removeItem('pending_accept_friend');
       callRecipesApi(`/friends/requests/${encodeURIComponent(pendingId)}/accept`, {
@@ -1692,7 +1692,6 @@ function App() {
         fetchFriendRequests();
         fetchFriends();
       }).catch(() => {
-        localStorage.removeItem('pending_accept_friend');
         setSnackbarState({ open: true, message: 'Could not accept the friend request. It may have been cancelled.', severity: 'error' });
       });
     }
