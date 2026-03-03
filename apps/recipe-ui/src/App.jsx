@@ -3901,7 +3901,15 @@ function App() {
                 </Typography>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                   {friendRecipes.slice(0, visibleRecipeCount).map((recipe) => (
-                    <Card key={recipe.id} variant="outlined">
+                    <Card
+                      key={recipe.id}
+                      elevation={0}
+                      sx={{
+                        border: '1px solid #E5E5E5',
+                        borderRadius: 1,
+                        overflow: 'hidden',
+                      }}
+                    >
                       <CardActionArea
                         onClick={() => {
                           setIsSharedRecipeView(true);
@@ -3915,13 +3923,24 @@ function App() {
                             component="img"
                             src={recipe.imageUrl}
                             alt={recipe.title}
-                            sx={{ width: 64, height: 64, objectFit: 'cover', flexShrink: 0 }}
+                            sx={{ width: 72, height: 72, objectFit: 'cover', flexShrink: 0 }}
                           />
                         ) : (
-                          <Box sx={{ width: 64, height: 64, flexShrink: 0, bgcolor: 'grey.100' }} />
+                          <Box sx={{ width: 72, height: 72, flexShrink: 0, bgcolor: 'grey.100' }} />
                         )}
                         <CardContent sx={{ py: 1, px: 1.5, '&:last-child': { pb: 1 }, flex: 1, minWidth: 0 }}>
-                          <Typography variant="subtitle2" noWrap>{recipe.title}</Typography>
+                          <Typography
+                            variant="subtitle2"
+                            sx={{
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                              lineHeight: 1.4,
+                            }}
+                          >
+                            {recipe.title}
+                          </Typography>
                         </CardContent>
                       </CardActionArea>
                     </Card>
