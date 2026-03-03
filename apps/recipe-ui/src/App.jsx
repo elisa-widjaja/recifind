@@ -880,7 +880,8 @@ function App() {
   const [snackbarState, setSnackbarState] = useState({
     open: false,
     message: '',
-    severity: 'success'
+    severity: 'success',
+    anchorOrigin: { vertical: 'bottom', horizontal: 'center' }
   });
   const sentinelRef = useRef(null);
   const searchBarRef = useRef(null);
@@ -1005,7 +1006,7 @@ function App() {
         method: 'POST'
       }, accessToken);
       trackEvent('accept_friend_request');
-      setSnackbarState({ open: true, message: 'Friend request accepted!', severity: 'success' });
+      setSnackbarState({ open: true, message: 'Friend request accepted!', severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
       await fetchFriendRequests();
       await fetchFriends();
     } catch (error) {
@@ -1690,7 +1691,7 @@ function App() {
       }, accessToken).then(() => {
         trackEvent('accept_friend_request');
         setIsAuthDialogOpen(false);
-        setSnackbarState({ open: true, message: 'Friend request accepted!', severity: 'success' });
+        setSnackbarState({ open: true, message: 'Friend request accepted!', severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
         fetchFriendRequests();
         fetchFriends();
       }).catch(() => {
@@ -4051,7 +4052,7 @@ function App() {
         open={snackbarState.open}
         autoHideDuration={4000}
         onClose={handleSnackbarClose}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        anchorOrigin={snackbarState.anchorOrigin}
       >
         <Alert onClose={handleSnackbarClose} severity={snackbarState.severity} sx={{ width: '100%' }}>
           {snackbarState.message}
