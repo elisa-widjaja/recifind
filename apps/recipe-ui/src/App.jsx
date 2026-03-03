@@ -3847,11 +3847,6 @@ function App() {
               <Typography variant="h6" sx={{ pl: 0.5 }}>
                 {selectedFriend.friendName}
               </Typography>
-              {!friendRecipesLoading && (
-                <Typography variant="caption" color="text.secondary" sx={{ pl: 0.5 }}>
-                  {friendRecipes.length} {friendRecipes.length === 1 ? 'recipe' : 'recipes'}
-                </Typography>
-              )}
             </Box>
           ) : (
             <Typography variant="h6">Friends</Typography>
@@ -3895,6 +3890,9 @@ function App() {
               </Typography>
             ) : (
               <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                  {friendRecipes.length} {friendRecipes.length === 1 ? 'recipe' : 'recipes'}
+                </Typography>
                 <Box sx={{
                   display: 'grid',
                   gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' },
