@@ -6,10 +6,11 @@ workers_dev = true
 [observability]
 enabled = true
 
-[[kv_namespaces]]
-binding = "RECIPES_KV"
-id = "15fc7eefa6e2484981be9ac59962e6a9"
-preview_id = "f39fb05775be4c8e8579253bc5d49831"
+[[d1_databases]]
+binding = "DB"
+database_name = "recipes-db"
+database_id = "b02df58e-38fa-4c26-896a-5323bcc9d35d"
+migrations_dir = "migrations"
 
 [vars]
 AUTH_ISSUER = "https://jpjuaaxwfpemecbwwthk.supabase.co/auth/v1"

@@ -5,7 +5,7 @@ const JWKS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes.
 const GEMINI_SCOPE = 'https://www.googleapis.com/auth/generative-language';
 
 export interface Env {
-  RECIPES_KV: KVNamespace;
+  DB: D1Database;
   AUTH_ISSUER: string;
   AUTH_AUDIENCE: string;
   AUTH_JWKS_URL: string;
@@ -15,6 +15,7 @@ export interface Env {
   SUPABASE_STORAGE_BUCKET: string;
   SUPABASE_JWT_SECRET?: string;
   GEMINI_SERVICE_ACCOUNT_B64?: string;
+  RESEND_API_KEY?: string;
 }
 
 interface Recipe {
@@ -32,7 +33,32 @@ interface Recipe {
   createdAt: string;
   updatedAt: string;
   previewImage?: ImageMetadata | null;
+  sharedWithFriends?: boolean;
 }
+
+interface UserProfile {
+  userId: string;
+  email: string;
+  displayName: string;
+  createdAt: string;
+}
+
+
+interface Friend {
+  friendId: string;
+  friendEmail: string;
+  friendName: string;
+  connectedAt: string;
+}
+
+interface NotificationItem {
+  type: 'friend_request' | 'friend_accepted';
+  message: string;
+  data: Record<string, string>;
+  createdAt: string;
+  read: boolean;
+}
+
 
 interface ImageMetadata {
   objectKey: string;
@@ -134,6 +160,50 @@ const json = (body: unknown, status = 200, headers: HeadersInit = {}) =>
     headers: withCors({ 'Content-Type': 'application/json', ...headers })
   });
 
+function makeEtag(value: string): string {
+  return `"${value}"`;
+}
+
+function checkConditional(request: Request, etag: string, lastModified?: Date): Response | null {
+  const ifNoneMatch = request.headers.get('If-None-Match');
+  if (ifNoneMatch) {
+    const tags = ifNoneMatch.split(',').map(t => t.trim());
+    if (tags.includes(etag) || tags.includes('*')) {
+      return new Response(null, { status: 304, headers: withCors({ 'ETag': etag }) });
+    }
+  }
+  if (lastModified) {
+    const ifModSince = request.headers.get('If-Modified-Since');
+    if (ifModSince) {
+      const clientDate = new Date(ifModSince).getTime();
+      // Truncate to seconds for HTTP date comparison
+      const serverDate = Math.floor(lastModified.getTime() / 1000) * 1000;
+      if (!isNaN(clientDate) && serverDate <= clientDate) {
+        return new Response(null, { status: 304, headers: withCors({ 'ETag': etag }) });
+      }
+    }
+  }
+  return null;
+}
+
+function cacheHeaders(opts: {
+  visibility: 'public' | 'private';
+  maxAge: number;
+  etag: string;
+  lastModified?: Date;
+  immutable?: boolean;
+}): Record<string, string> {
+  const h: Record<string, string> = {};
+  const parts = [opts.visibility, `max-age=${opts.maxAge}`];
+  if (opts.immutable) parts.push('immutable');
+  h['Cache-Control'] = parts.join(', ');
+  h['ETag'] = opts.etag;
+  if (opts.lastModified) {
+    h['Last-Modified'] = opts.lastModified.toUTCString();
+  }
+  return h;
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
@@ -147,6 +217,13 @@ export default {
         return new Response('ok', { headers: withCors() });
       }
 
+      // Public endpoint to get shared recipe by token (no auth required)
+      const shareTokenMatch = url.pathname.match(/^\/public\/share\/([^/]+)$/);
+      if (shareTokenMatch && request.method === 'GET') {
+        const shareToken = decodeURIComponent(shareTokenMatch[1]);
+        return handleGetSharedRecipe(request, env, shareToken);
+      }
+
       const isImageRequest = /^\/images\/[^/]+$/.test(url.pathname);
       const requiresAuth = !isImageRequest;
 
@@ -156,14 +233,14 @@ export default {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');
         }
-        return handleListRecipes(url, env, user);
+        return handleListRecipes(request, url, env, user);
       }
 
       if (url.pathname === '/recipes/count' && request.method === 'GET') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');
         }
-        return handleRecipeCount(env, user);
+        return handleRecipeCount(request, env, user);
       }
 
       if (url.pathname === '/recipes' && request.method === 'POST') {
@@ -195,13 +272,23 @@ export default {
       }
 
       const recipeMatch = url.pathname.match(/^\/recipes\/([^/]+)$/);
+      // Create share link for a recipe
+      const shareMatch = url.pathname.match(/^\/recipes\/([^/]+)\/share$/);
+      if (shareMatch && request.method === 'POST') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const recipeId = decodeURIComponent(shareMatch[1]);
+        return handleCreateShareLink(env, user, recipeId);
+      }
+
       if (recipeMatch) {
         const recipeId = decodeURIComponent(recipeMatch[1]);
         if (request.method === 'GET') {
           if (!user) {
             throw new HttpError(401, 'Missing Authorization header');
           }
-          return handleGetRecipe(env, user, recipeId);
+          return handleGetRecipe(request, env, user, recipeId);
         }
         if (request.method === 'PUT' || request.method === 'PATCH') {
           if (!user) {
@@ -218,15 +305,79 @@ export default {
         return methodNotAllowed(['GET', 'PUT', 'PATCH', 'DELETE']);
       }
 
+      // ── Friends routes ─────────────────────────────────────────────
+      if (url.pathname === '/friends' && request.method === 'GET') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return handleListFriends(env, user);
+      }
+      if (url.pathname === '/friends/requests' && request.method === 'GET') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return handleListFriendRequests(env, user);
+      }
+      if (url.pathname === '/friends/request' && request.method === 'POST') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return handleSendFriendRequest(request, env, user, ctx);
+      }
+      if (url.pathname === '/friends/requests/sent' && request.method === 'GET') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return handleListSentFriendRequests(env, user);
+      }
+      if (url.pathname === '/friends/notifications' && request.method === 'GET') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return handleGetNotifications(env, user);
+      }
+      if (url.pathname === '/friends/notifications/read' && request.method === 'POST') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return handleMarkNotificationsRead(env, user);
+      }
+      const cancelSentMatch = url.pathname.match(/^\/friends\/requests\/sent\/([^/]+)\/cancel$/);
+      if (cancelSentMatch && request.method === 'DELETE') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        const toUserId = decodeURIComponent(cancelSentMatch[1]);
+        return handleCancelSentFriendRequest(env, user, toUserId);
+      }
+      const friendRequestActionMatch = url.pathname.match(/^\/friends\/requests\/([^/]+)\/(accept|decline)$/);
+      if (friendRequestActionMatch) {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        const fromUserId = decodeURIComponent(friendRequestActionMatch[1]);
+        if (friendRequestActionMatch[2] === 'accept' && request.method === 'POST') {
+          return handleAcceptFriendRequest(request, env, user, fromUserId, ctx);
+        }
+        if (friendRequestActionMatch[2] === 'decline' && request.method === 'DELETE') {
+          return handleDeclineFriendRequest(env, user, fromUserId);
+        }
+      }
+      const friendRecipesMatch = url.pathname.match(/^\/friends\/([^/]+)\/recipes$/);
+      if (friendRecipesMatch && request.method === 'GET') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        const friendId = decodeURIComponent(friendRecipesMatch[1]);
+        return handleGetFriendRecipes(request, env, user, friendId);
+      }
+      const friendMatch = url.pathname.match(/^\/friends\/([^/]+)$/);
+      if (friendMatch && request.method === 'DELETE') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        const friendId = decodeURIComponent(friendMatch[1]);
+        return handleRemoveFriend(env, user, friendId);
+      }
+
       const imageMatch = url.pathname.match(/^\/images\/([^/]+)$/);
       if (imageMatch && request.method === 'GET') {
         const recipeId = decodeURIComponent(imageMatch[1]);
-        return handleImageRequest(url, env, user, recipeId);
+        return handleImageRequest(request, url, env, user, recipeId);
       }
 
       return json({ error: 'Not Found' }, 404);
     } catch (error) {
-      return handleError(error);
+      console.error('Top-level worker error:', error);
+      try {
+        return handleError(error);
+      } catch (innerError) {
+        console.error('handleError itself failed:', innerError);
+        return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
+          status: 500,
+          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
+        });
+      }
     }
   }
 };
@@ -432,49 +583,144 @@ function base64UrlToUint8Array(segment: string) {
   return bytes;
 }
 
-async function handleListRecipes(url: URL, env: Env, user: AuthenticatedUser) {
-  const cursor = url.searchParams.get('cursor') ?? undefined;
+function rowToRecipe(row: Record<string, unknown>): Recipe {
+  return {
+    id: row.id as string,
+    userId: row.user_id as string,
+    title: row.title as string,
+    sourceUrl: (row.source_url as string) || '',
+    imageUrl: (row.image_url as string) || '',
+    imagePath: (row.image_path as string) || null,
+    mealTypes: JSON.parse((row.meal_types as string) || '[]'),
+    ingredients: JSON.parse((row.ingredients as string) || '[]'),
+    steps: JSON.parse((row.steps as string) || '[]'),
+    durationMinutes: row.duration_minutes as number | null,
+    notes: (row.notes as string) || '',
+    previewImage: row.preview_image ? JSON.parse(row.preview_image as string) : null,
+    sharedWithFriends: Boolean(row.shared_with_friends),
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+  };
+}
+
+async function handleListRecipes(request: Request, url: URL, env: Env, user: AuthenticatedUser) {
   const limitParamRaw = url.searchParams.get('limit');
   const limitParsed = limitParamRaw === null ? NaN : Number(limitParamRaw);
   const limit = Number.isFinite(limitParsed)
     ? Math.max(1, Math.min(MAX_PAGE_SIZE, Math.trunc(limitParsed)))
     : DEFAULT_PAGE_SIZE;
+  const offset = Number(url.searchParams.get('offset') || '0') || 0;
 
-  const prefix = buildRecipeKeyPrefix(user.userId);
-  console.log(`[DEBUG] handleListRecipes - userId: ${user.userId}, prefix: ${prefix}, limit: ${limit}`);
+  const meta = await getCollectionMeta(env, user.userId);
+  const etag = makeEtag(`recipes-${user.userId}-${meta?.version ?? 0}`);
+  const notModified = checkConditional(request, etag);
+  if (notModified) return notModified;
 
-  const listResult = await env.RECIPES_KV.list({ prefix, limit, cursor });
-  console.log(`[DEBUG] handleListRecipes - found ${listResult.keys.length} keys, list_complete: ${listResult.list_complete}`);
-  if (listResult.keys.length < 10) {
-    console.log(`[DEBUG] Keys found: ${listResult.keys.map(k => k.name).join(', ')}`);
-  }
+  const result = await env.DB.prepare(
+    'SELECT * FROM recipes WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
+  ).bind(user.userId, limit, offset).all();
 
-  const recipes = await Promise.all(
-    listResult.keys.map(async (key) => env.RECIPES_KV.get<Recipe>(key.name, { type: 'json' }))
-  );
-
-  console.log(`[DEBUG] handleListRecipes - returning ${recipes.filter(Boolean).length} recipes`);
+  const recipes = (result.results || []).map(rowToRecipe);
 
   return json({
-    recipes: recipes.filter(Boolean),
-    cursor: listResult.list_complete ? null : listResult.cursor
-  });
+    recipes,
+    cursor: recipes.length < limit ? null : offset + limit
+  }, 200, cacheHeaders({
+    visibility: 'private', maxAge: 0, etag,
+    lastModified: meta?.updatedAt ? new Date(meta.updatedAt) : undefined
+  }));
 }
 
-async function handleRecipeCount(env: Env, user: AuthenticatedUser) {
-  // Single KV read - much faster than listing all keys
+async function handleRecipeCount(request: Request, env: Env, user: AuthenticatedUser) {
   const meta = await getCollectionMeta(env, user.userId);
+  const etag = makeEtag(`count-${user.userId}-${meta?.version ?? 0}`);
+  const notModified = checkConditional(request, etag);
+  if (notModified) return notModified;
 
   return json({
     count: meta?.count ?? 0,
     updatedAt: meta?.updatedAt ?? null,
     version: meta?.version ?? 0
-  });
+  }, 200, cacheHeaders({ visibility: 'private', maxAge: 0, etag }));
 }
 
-async function handleGetRecipe(env: Env, user: AuthenticatedUser, recipeId: string) {
+async function handleGetRecipe(request: Request, env: Env, user: AuthenticatedUser, recipeId: string) {
   const recipe = await loadRecipe(env, user.userId, recipeId);
-  return json({ recipe });
+  const lastModified = new Date(recipe.updatedAt);
+  const etag = makeEtag(`recipe-${recipe.id}-${recipe.updatedAt}`);
+  const notModified = checkConditional(request, etag, lastModified);
+  if (notModified) return notModified;
+
+  return json({ recipe }, 200, cacheHeaders({
+    visibility: 'private', maxAge: 60, etag, lastModified
+  }));
+}
+
+
+function generateShareToken(): string {
+  const array = new Uint8Array(16);
+  crypto.getRandomValues(array);
+  return Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function handleCreateShareLink(env: Env, user: AuthenticatedUser, recipeId: string) {
+  const recipe = await env.DB.prepare(
+    'SELECT id FROM recipes WHERE user_id = ? AND id = ?'
+  ).bind(user.userId, recipeId).first();
+  if (!recipe) {
+    return json({ error: 'Recipe not found' }, 404, withCors());
+  }
+
+  const existing = await env.DB.prepare(
+    'SELECT token FROM share_links WHERE user_id = ? AND recipe_id = ?'
+  ).bind(user.userId, recipeId).first<{ token: string }>();
+  if (existing) {
+    return json({ token: existing.token }, 200, withCors());
+  }
+
+  const token = generateShareToken();
+  await env.DB.prepare(
+    'INSERT INTO share_links (token, user_id, recipe_id, created_at) VALUES (?, ?, ?, ?)'
+  ).bind(token, user.userId, recipeId, new Date().toISOString()).run();
+
+  return json({ token }, 201, withCors());
+}
+
+async function handleGetSharedRecipe(request: Request, env: Env, token: string) {
+  const shareLink = await env.DB.prepare(
+    'SELECT * FROM share_links WHERE token = ?'
+  ).bind(token).first<{ user_id: string; recipe_id: string }>();
+  if (!shareLink) {
+    return json({ error: 'Share link not found or expired' }, 404, withCors());
+  }
+
+  const row = await env.DB.prepare(
+    'SELECT * FROM recipes WHERE user_id = ? AND id = ?'
+  ).bind(shareLink.user_id, shareLink.recipe_id).first();
+  if (!row) {
+    return json({ error: 'Recipe not found' }, 404, withCors());
+  }
+
+  const recipe = rowToRecipe(row as Record<string, unknown>);
+  const lastModified = new Date(recipe.updatedAt);
+  const etag = makeEtag(`share-${token}-${recipe.updatedAt}`);
+  const notModified = checkConditional(request, etag, lastModified);
+  if (notModified) return notModified;
+
+  return json({
+    id: recipe.id,
+    title: recipe.title,
+    sourceUrl: recipe.sourceUrl || '',
+    imageUrl: recipe.imageUrl || '',
+    imagePath: recipe.imagePath || '',
+    mealTypes: recipe.mealTypes || [],
+    ingredients: recipe.ingredients || [],
+    steps: recipe.steps || null,
+    durationMinutes: recipe.durationMinutes || null,
+    notes: recipe.notes || ''
+  }, 200, cacheHeaders({
+    visibility: 'public', maxAge: 300, etag, lastModified
+  }));
 }
 
 async function handleCreateRecipe(request: Request, env: Env, user: AuthenticatedUser) {
@@ -487,7 +733,16 @@ async function handleCreateRecipe(request: Request, env: Env, user: Authenticate
     recipe.imageUrl = preview.publicUrl || recipe.imageUrl;
   }
 
-  await env.RECIPES_KV.put(buildRecipeKey(user.userId, recipe.id), JSON.stringify(recipe));
+  await env.DB.prepare(
+    `INSERT INTO recipes (id, user_id, title, source_url, image_url, image_path, meal_types, ingredients, steps, duration_minutes, notes, preview_image, shared_with_friends, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    recipe.id, recipe.userId, recipe.title, recipe.sourceUrl, recipe.imageUrl,
+    recipe.imagePath ?? null, JSON.stringify(recipe.mealTypes), JSON.stringify(recipe.ingredients),
+    JSON.stringify(recipe.steps), recipe.durationMinutes, recipe.notes || '',
+    recipe.previewImage ? JSON.stringify(recipe.previewImage) : null,
+    recipe.sharedWithFriends ? 1 : 0, recipe.createdAt, recipe.updatedAt
+  ).run();
   await updateCollectionMeta(env, user.userId, { countDelta: 1 });
   return json({ recipe }, 201);
 }
@@ -522,6 +777,38 @@ async function handleParseRecipe(request: Request) {
 
   if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
     throw new HttpError(400, 'sourceUrl must use http or https');
+  }
+
+  // For TikTok URLs, use oEmbed API to get the title since direct HTML returns generic "TikTok - Make Your Day"
+  if (parsedUrl.hostname.includes('tiktok.com')) {
+    try {
+      const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(parsedUrl.toString())}`;
+      const oembedResponse = await fetch(oembedUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)',
+          'Accept': 'application/json'
+        }
+      });
+      if (oembedResponse.ok) {
+        const payload = await oembedResponse.json() as { title?: string; thumbnail_url?: string };
+        const caption = (payload.title || '').trim();
+        if (caption) {
+          const title = extractTikTokRecipeTitle(caption);
+          return json({
+            parsed: {
+              title,
+              ingredients: [],
+              steps: [],
+              mealTypes: inferMealTypesFromTitle(title),
+              durationMinutes: null,
+              imageUrl: (payload.thumbnail_url || '').trim() || null
+            }
+          });
+        }
+      }
+    } catch {
+      // Fall through to HTML parsing
+    }
   }
 
   const html = await fetchRecipeHtml(parsedUrl.toString());
@@ -620,7 +907,6 @@ async function handleUpdateRecipe(request: Request, env: Env, user: Authenticate
   const hasUpload = previewImagePayload && hasPreviewUpload(previewImagePayload);
   if (hasUpload) {
     if (existing.previewImage?.objectKey) {
-      // Remove previous preview before we upload a new one.
       await deleteSupabaseObject(env, existing.previewImage.objectKey);
     }
     const preview = await persistPreviewImage(previewImagePayload, env, user.userId, recipe.id);
@@ -631,8 +917,18 @@ async function handleUpdateRecipe(request: Request, env: Env, user: Authenticate
     }
   }
 
-  await env.RECIPES_KV.put(buildRecipeKey(user.userId, recipe.id), JSON.stringify(recipe));
-  await updateCollectionMeta(env, user.userId, { countDelta: 0 }); // Updates version/timestamp
+  await env.DB.prepare(
+    `UPDATE recipes SET title = ?, source_url = ?, image_url = ?, image_path = ?, meal_types = ?, ingredients = ?, steps = ?, duration_minutes = ?, notes = ?, preview_image = ?, shared_with_friends = ?, updated_at = ?
+     WHERE user_id = ? AND id = ?`
+  ).bind(
+    recipe.title, recipe.sourceUrl, recipe.imageUrl, recipe.imagePath ?? null,
+    JSON.stringify(recipe.mealTypes), JSON.stringify(recipe.ingredients), JSON.stringify(recipe.steps),
+    recipe.durationMinutes, recipe.notes || '',
+    recipe.previewImage ? JSON.stringify(recipe.previewImage) : null,
+    recipe.sharedWithFriends ? 1 : 0, recipe.updatedAt,
+    user.userId, recipe.id
+  ).run();
+  await updateCollectionMeta(env, user.userId, { countDelta: 0 });
   return json({ recipe });
 }
 
@@ -640,27 +936,43 @@ async function handleDeleteRecipe(env: Env, user: AuthenticatedUser, recipeId: s
   const recipe = await loadRecipe(env, user.userId, recipeId);
   if (recipe.previewImage?.objectKey) {
     await deleteSupabaseObject(env, recipe.previewImage.objectKey);
-    recipe.imageUrl = '';
   }
-  await env.RECIPES_KV.delete(buildRecipeKey(user.userId, recipeId));
+  await env.DB.prepare(
+    'DELETE FROM recipes WHERE user_id = ? AND id = ?'
+  ).bind(user.userId, recipeId).run();
   await updateCollectionMeta(env, user.userId, { countDelta: -1 });
   return new Response(null, { status: 204, headers: withCors() });
 }
 
 async function handleImageRequest(
+  request: Request,
   url: URL,
   env: Env,
   user: AuthenticatedUser | null,
   recipeId: string
 ) {
-  const ownerId = user?.userId ?? (await resolveRecipeOwner(env, recipeId));
-  if (!ownerId) {
+  let row: Record<string, unknown> | null = null;
+  if (user?.userId) {
+    row = await env.DB.prepare(
+      'SELECT * FROM recipes WHERE user_id = ? AND id = ?'
+    ).bind(user.userId, recipeId).first();
+  }
+  if (!row) {
+    row = await env.DB.prepare(
+      'SELECT * FROM recipes WHERE id = ? LIMIT 1'
+    ).bind(recipeId).first();
+  }
+  if (!row) {
     throw new HttpError(404, 'Recipe preview not found');
   }
-  const recipe = await env.RECIPES_KV.get<Recipe>(buildRecipeKey(ownerId, recipeId), { type: 'json' });
-  if (!recipe || !recipe.previewImage?.objectKey) {
+  const recipe = rowToRecipe(row as Record<string, unknown>);
+  if (!recipe.previewImage?.objectKey) {
     throw new HttpError(404, 'Recipe preview not found');
   }
+
+  const etag = makeEtag(recipe.previewImage.objectKey);
+  const notModified = checkConditional(request, etag);
+  if (notModified) return notModified;
 
   const objectResponse = await fetchSupabaseObject(env, recipe.previewImage.objectKey);
   const headers = new Headers(withCors());
@@ -670,7 +982,8 @@ async function handleImageRequest(
     objectResponse.headers.get('content-type') ||
     'application/octet-stream';
   headers.set('Content-Type', contentType);
-  headers.set('Cache-Control', 'public, max-age=3600');
+  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+  headers.set('ETag', etag);
   headers.set('X-Image-Source', recipe.previewImage.objectKey);
 
   const requestedSize = Number(url.searchParams.get('size'));
@@ -682,12 +995,297 @@ async function handleImageRequest(
   return new Response(objectResponse.body, { status: 200, headers });
 }
 
+// ── Friends route handlers ───────────────────────────────────────────
+
+async function handleSendFriendRequest(request: Request, env: Env, user: AuthenticatedUser, ctx: ExecutionContext) {
+  const body = await readJsonBody(request);
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  if (!email) throw new HttpError(400, 'Email is required');
+
+  if (user.email && email === user.email.toLowerCase()) {
+    throw new HttpError(400, 'You cannot add yourself as a friend');
+  }
+
+  const targetUser = await lookupUserByEmail(env, email);
+  if (!targetUser) {
+    throw new HttpError(404, 'No account found for that email. They need to sign up first.');
+  }
+
+  const existingFriend = await env.DB.prepare(
+    'SELECT 1 FROM friends WHERE user_id = ? AND friend_id = ?'
+  ).bind(user.userId, targetUser.id).first();
+  if (existingFriend) {
+    throw new HttpError(409, 'You are already friends with this user');
+  }
+
+  const existingSent = await env.DB.prepare(
+    'SELECT 1 FROM friend_requests_sent WHERE from_user_id = ? AND to_user_id = ?'
+  ).bind(user.userId, targetUser.id).first();
+  if (existingSent) {
+    throw new HttpError(409, 'Friend request already sent');
+  }
+
+  const existingIncoming = await env.DB.prepare(
+    'SELECT 1 FROM friend_requests WHERE to_user_id = ? AND from_user_id = ?'
+  ).bind(user.userId, targetUser.id).first();
+  if (existingIncoming) {
+    throw new HttpError(409, 'This user has already sent you a friend request. Check your requests.');
+  }
+
+  const senderProfile = await getOrCreateProfile(env, user.userId, user.email);
+  const now = new Date().toISOString();
+
+  await env.DB.batch([
+    env.DB.prepare(
+      'INSERT INTO friend_requests (to_user_id, from_user_id, from_email, from_name, to_email, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).bind(targetUser.id, user.userId, user.email || '', senderProfile.displayName, email, 'pending', now),
+    env.DB.prepare(
+      'INSERT INTO friend_requests_sent (from_user_id, to_user_id) VALUES (?, ?)'
+    ).bind(user.userId, targetUser.id)
+  ]);
+
+  await addNotification(env, targetUser.id, {
+    type: 'friend_request',
+    message: `${senderProfile.displayName} sent you a friend request`,
+    data: { fromUserId: user.userId, fromEmail: user.email || '' },
+    createdAt: now
+  });
+
+  ctx.waitUntil(sendEmailNotification(
+    env,
+    email,
+    `${senderProfile.displayName} wants to connect on ReciFind`,
+    `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
+      <h2 style="margin: 0 0 16px; font-size: 20px; color: #1a1a1a;">New friend request</h2>
+      <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;"><strong>${senderProfile.displayName}</strong> wants to connect with you on <a href="https://recifind.elisawidjaja.com" style="color: #6200EA; text-decoration: none;">ReciFind</a> and share recipes.</p>
+      <a href="https://recifind.elisawidjaja.com?accept_friend=${encodeURIComponent(user.userId)}" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Accept</a>
+      <p style="margin: 24px 0 0; font-size: 13px; color: #999;">You received this because someone sent you a friend request on ReciFind.</p>
+    </div>`
+  ));
+
+  return json({ success: true, message: 'Friend request sent' }, 201);
+}
+
+async function handleListFriendRequests(env: Env, user: AuthenticatedUser) {
+  const result = await env.DB.prepare(
+    'SELECT * FROM friend_requests WHERE to_user_id = ? AND status = ? LIMIT 100'
+  ).bind(user.userId, 'pending').all();
+
+  const requests = (result.results || []).map((row) => ({
+    fromUserId: row.from_user_id as string,
+    fromEmail: row.from_email as string,
+    fromName: row.from_name as string,
+    toUserId: row.to_user_id as string,
+    toEmail: row.to_email as string,
+    status: row.status as string,
+    createdAt: row.created_at as string,
+  }));
+
+  return json({ requests });
+}
+
+async function handleListSentFriendRequests(env: Env, user: AuthenticatedUser) {
+  const result = await env.DB.prepare(
+    `SELECT fr.to_user_id, fr.to_email, fr.created_at
+     FROM friend_requests_sent frs
+     JOIN friend_requests fr ON fr.to_user_id = frs.to_user_id AND fr.from_user_id = frs.from_user_id
+     WHERE frs.from_user_id = ? LIMIT 100`
+  ).bind(user.userId).all();
+
+  const sent = (result.results || []).map((row) => ({
+    toUserId: row.to_user_id as string,
+    toEmail: row.to_email as string,
+    createdAt: row.created_at as string,
+  }));
+
+  return json({ sent });
+}
+
+async function handleAcceptFriendRequest(_request: Request, env: Env, user: AuthenticatedUser, fromUserId: string, ctx: ExecutionContext) {
+  const friendReq = await env.DB.prepare(
+    'SELECT * FROM friend_requests WHERE to_user_id = ? AND from_user_id = ? AND status = ?'
+  ).bind(user.userId, fromUserId, 'pending').first();
+  if (!friendReq) {
+    throw new HttpError(404, 'Friend request not found');
+  }
+
+  const now = new Date().toISOString();
+  const userProfile = await getOrCreateProfile(env, user.userId, user.email);
+  const fromProfile = await getOrCreateProfile(env, fromUserId, friendReq.from_email as string);
+
+  const friendA: Friend = {
+    friendId: fromUserId,
+    friendEmail: fromProfile.email,
+    friendName: fromProfile.displayName,
+    connectedAt: now
+  };
+
+  await env.DB.batch([
+    env.DB.prepare(
+      'INSERT INTO friends (user_id, friend_id, friend_email, friend_name, connected_at) VALUES (?, ?, ?, ?, ?)'
+    ).bind(user.userId, fromUserId, fromProfile.email, fromProfile.displayName, now),
+    env.DB.prepare(
+      'INSERT INTO friends (user_id, friend_id, friend_email, friend_name, connected_at) VALUES (?, ?, ?, ?, ?)'
+    ).bind(fromUserId, user.userId, userProfile.email, userProfile.displayName, now),
+    env.DB.prepare(
+      'DELETE FROM friend_requests WHERE to_user_id = ? AND from_user_id = ?'
+    ).bind(user.userId, fromUserId),
+    env.DB.prepare(
+      'DELETE FROM friend_requests_sent WHERE from_user_id = ? AND to_user_id = ?'
+    ).bind(fromUserId, user.userId)
+  ]);
+
+  await addNotification(env, fromUserId, {
+    type: 'friend_accepted',
+    message: `${userProfile.displayName} accepted your friend request`,
+    data: { friendId: user.userId, friendEmail: userProfile.email },
+    createdAt: now
+  });
+
+  ctx.waitUntil(sendEmailNotification(
+    env,
+    fromProfile.email,
+    `${userProfile.displayName} accepted your friend request on ReciFind`,
+    `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
+      <h2 style="margin: 0 0 16px; font-size: 20px; color: #1a1a1a;">You're now connected!</h2>
+      <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;"><strong>${userProfile.displayName}</strong> accepted your friend request. You can now share recipes with each other on ReciFind.</p>
+      <a href="https://recifind.elisawidjaja.com" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Open ReciFind</a>
+      <p style="margin: 24px 0 0; font-size: 13px; color: #999;">You received this because your friend request was accepted on ReciFind.</p>
+    </div>`
+  ));
+
+  return json({ success: true, friend: friendA });
+}
+
+async function handleDeclineFriendRequest(env: Env, user: AuthenticatedUser, fromUserId: string) {
+  await env.DB.batch([
+    env.DB.prepare(
+      'DELETE FROM friend_requests WHERE to_user_id = ? AND from_user_id = ?'
+    ).bind(user.userId, fromUserId),
+    env.DB.prepare(
+      'DELETE FROM friend_requests_sent WHERE from_user_id = ? AND to_user_id = ?'
+    ).bind(fromUserId, user.userId)
+  ]);
+  return json({ success: true });
+}
+
+async function handleCancelSentFriendRequest(env: Env, user: AuthenticatedUser, toUserId: string) {
+  await env.DB.batch([
+    env.DB.prepare(
+      'DELETE FROM friend_requests WHERE to_user_id = ? AND from_user_id = ?'
+    ).bind(toUserId, user.userId),
+    env.DB.prepare(
+      'DELETE FROM friend_requests_sent WHERE from_user_id = ? AND to_user_id = ?'
+    ).bind(user.userId, toUserId)
+  ]);
+  return json({ success: true });
+}
+
+async function handleListFriends(env: Env, user: AuthenticatedUser) {
+  const result = await env.DB.prepare(
+    'SELECT * FROM friends WHERE user_id = ? LIMIT 100'
+  ).bind(user.userId).all();
+
+  const friends = (result.results || []).map((row) => ({
+    friendId: row.friend_id as string,
+    friendEmail: row.friend_email as string,
+    friendName: row.friend_name as string,
+    connectedAt: row.connected_at as string,
+  }));
+
+  return json({ friends });
+}
+
+async function handleRemoveFriend(env: Env, user: AuthenticatedUser, friendId: string) {
+  await env.DB.batch([
+    env.DB.prepare(
+      'DELETE FROM friends WHERE user_id = ? AND friend_id = ?'
+    ).bind(user.userId, friendId),
+    env.DB.prepare(
+      'DELETE FROM friends WHERE user_id = ? AND friend_id = ?'
+    ).bind(friendId, user.userId)
+  ]);
+  return json({ success: true });
+}
+
+async function handleGetFriendRecipes(request: Request, env: Env, user: AuthenticatedUser, friendId: string) {
+  const friendship = await env.DB.prepare(
+    'SELECT 1 FROM friends WHERE user_id = ? AND friend_id = ?'
+  ).bind(user.userId, friendId).first();
+  if (!friendship) {
+    throw new HttpError(403, 'You are not friends with this user');
+  }
+
+  const friendMeta = await getCollectionMeta(env, friendId);
+  const etag = makeEtag(`friend-recipes-${friendId}-${friendMeta?.version ?? 0}`);
+  const notModified = checkConditional(request, etag);
+  if (notModified) return notModified;
+
+  const result = await env.DB.prepare(
+    'SELECT * FROM recipes WHERE user_id = ? AND shared_with_friends = 1'
+  ).bind(friendId).all();
+
+  const sharedRecipes = (result.results || []).map((row) => {
+    const r = rowToRecipe(row as Record<string, unknown>);
+    return {
+      id: r.id,
+      userId: r.userId,
+      title: r.title,
+      sourceUrl: r.sourceUrl || '',
+      imageUrl: r.imageUrl || '',
+      imagePath: r.imagePath || null,
+      mealTypes: r.mealTypes || [],
+      ingredients: r.ingredients || [],
+      steps: r.steps || [],
+      durationMinutes: r.durationMinutes || null,
+      notes: r.notes || '',
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt
+    };
+  });
+
+  return json({ recipes: sharedRecipes }, 200, cacheHeaders({
+    visibility: 'private', maxAge: 60, etag,
+    lastModified: friendMeta?.updatedAt ? new Date(friendMeta.updatedAt) : undefined
+  }));
+}
+
+async function handleGetNotifications(env: Env, user: AuthenticatedUser) {
+  const result = await env.DB.prepare(
+    'SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50'
+  ).bind(user.userId).all();
+
+  const items = (result.results || []).map((row) => ({
+    type: row.type as string,
+    message: row.message as string,
+    data: JSON.parse((row.data as string) || '{}'),
+    createdAt: row.created_at as string,
+    read: Boolean(row.read),
+  }));
+
+  return json({
+    notifications: items,
+    unreadCount: items.filter((n) => !n.read).length
+  });
+}
+
+async function handleMarkNotificationsRead(env: Env, user: AuthenticatedUser) {
+  await env.DB.prepare(
+    'UPDATE notifications SET read = 1 WHERE user_id = ?'
+  ).bind(user.userId).run();
+  return json({ success: true });
+}
+
+// ── End friends route handlers ───────────────────────────────────────
+
 async function loadRecipe(env: Env, userId: string, recipeId: string): Promise<Recipe> {
-  const record = await env.RECIPES_KV.get<Recipe>(buildRecipeKey(userId, recipeId), { type: 'json' });
-  if (!record) {
+  const row = await env.DB.prepare(
+    'SELECT * FROM recipes WHERE user_id = ? AND id = ?'
+  ).bind(userId, recipeId).first();
+  if (!row) {
     throw new HttpError(404, 'Recipe not found');
   }
-  return record;
+  return rowToRecipe(row as Record<string, unknown>);
 }
 
 async function readJsonBody(request: Request): Promise<Record<string, any>> {
@@ -728,7 +1326,8 @@ function normalizeRecipePayload(
         createdAt: now,
         updatedAt: now,
         notes: '',
-        previewImage: null
+        previewImage: null,
+        sharedWithFriends: true
       };
 
   recipe.updatedAt = now;
@@ -767,6 +1366,10 @@ function normalizeRecipePayload(
 
   if ('notes' in payload) {
     recipe.notes = typeof payload.notes === 'string' ? payload.notes.trim() : '';
+  }
+
+  if ('sharedWithFriends' in payload) {
+    recipe.sharedWithFriends = Boolean(payload.sharedWithFriends);
   }
 
   return {
@@ -931,20 +1534,17 @@ function arrayBufferToBase64Url(buffer: ArrayBuffer) {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
-function buildRecipeKeyPrefix(userId: string) {
-  return `recipe:${userId}:`;
-}
-
-function buildRecipeKey(userId: string, recipeId: string) {
-  return `${buildRecipeKeyPrefix(userId)}${recipeId}`;
-}
-
-function buildMetaKey(userId: string) {
-  return `meta:${userId}`;
-}
 
 async function getCollectionMeta(env: Env, userId: string): Promise<RecipeCollectionMeta | null> {
-  return env.RECIPES_KV.get<RecipeCollectionMeta>(buildMetaKey(userId), { type: 'json' });
+  const row = await env.DB.prepare(
+    'SELECT * FROM collection_meta WHERE user_id = ?'
+  ).bind(userId).first();
+  if (!row) return null;
+  return {
+    count: row.count as number,
+    updatedAt: row.updated_at as string,
+    version: row.version as number,
+  };
 }
 
 async function updateCollectionMeta(
@@ -952,7 +1552,6 @@ async function updateCollectionMeta(
   userId: string,
   update: { countDelta?: number; forceCount?: number }
 ): Promise<RecipeCollectionMeta> {
-  const key = buildMetaKey(userId);
   const existing = await getCollectionMeta(env, userId);
 
   let newCount: number;
@@ -968,9 +1567,103 @@ async function updateCollectionMeta(
     version: (existing?.version ?? 0) + 1
   };
 
-  await env.RECIPES_KV.put(key, JSON.stringify(meta));
+  await env.DB.prepare(
+    'INSERT OR REPLACE INTO collection_meta (user_id, count, updated_at, version) VALUES (?, ?, ?, ?)'
+  ).bind(userId, meta.count, meta.updatedAt, meta.version).run();
   return meta;
 }
+
+// ── Friends helpers ──────────────────────────────────────────────────
+
+async function lookupUserByEmail(env: Env, email: string): Promise<{ id: string; email: string } | null> {
+  try {
+    // Use filter param to avoid fetching all users (substring match, then exact check)
+    const url = `${env.SUPABASE_URL}/auth/v1/admin/users?filter=${encodeURIComponent(email)}&per_page=50`;
+    const response = await fetch(url, {
+      headers: createSupabaseHeaders(env, { 'Content-Type': 'application/json' })
+    });
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      console.error('Supabase admin users lookup failed:', response.status, errorText);
+      throw new HttpError(502, 'Unable to look up user. Please try again.');
+    }
+    const data = (await response.json()) as { users?: Array<{ id: string; email?: string }> };
+    if (!Array.isArray(data.users)) {
+      console.error('Supabase admin users response missing users array:', JSON.stringify(data).slice(0, 200));
+      throw new HttpError(502, 'Unable to look up user. Please try again.');
+    }
+    // Exact match (filter does substring matching)
+    const found = data.users.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+    return found ? { id: found.id, email: found.email || email } : null;
+  } catch (err) {
+    if (err instanceof HttpError) throw err;
+    console.error('lookupUserByEmail error:', err);
+    throw new HttpError(502, 'Unable to look up user. Please try again.');
+  }
+}
+
+async function getOrCreateProfile(env: Env, userId: string, email?: string): Promise<UserProfile> {
+  const row = await env.DB.prepare(
+    'SELECT * FROM profiles WHERE user_id = ?'
+  ).bind(userId).first();
+  if (row) {
+    return {
+      userId: row.user_id as string,
+      email: row.email as string,
+      displayName: row.display_name as string,
+      createdAt: row.created_at as string,
+    };
+  }
+
+  const profile: UserProfile = {
+    userId,
+    email: email || '',
+    displayName: email?.split('@')[0] || 'User',
+    createdAt: new Date().toISOString()
+  };
+  await env.DB.prepare(
+    'INSERT INTO profiles (user_id, email, display_name, created_at) VALUES (?, ?, ?, ?)'
+  ).bind(profile.userId, profile.email, profile.displayName, profile.createdAt).run();
+  return profile;
+}
+
+async function addNotification(env: Env, userId: string, notification: Omit<NotificationItem, 'read'>) {
+  await env.DB.prepare(
+    'INSERT INTO notifications (user_id, type, message, data, created_at, read) VALUES (?, ?, ?, ?, ?, 0)'
+  ).bind(
+    userId, notification.type, notification.message,
+    JSON.stringify(notification.data), notification.createdAt
+  ).run();
+  // Trim to 50 most recent
+  await env.DB.prepare(
+    `DELETE FROM notifications WHERE user_id = ? AND id NOT IN (
+      SELECT id FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50
+    )`
+  ).bind(userId, userId).run();
+}
+
+async function sendEmailNotification(env: Env, to: string, subject: string, html: string) {
+  if (!env.RESEND_API_KEY) return;
+  try {
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: 'ReciFind <notifications@recifind.elisawidjaja.com>',
+        to,
+        subject,
+        html
+      })
+    });
+  } catch (err) {
+    console.error('Failed to send email notification:', err);
+  }
+}
+
+// ── End friends helpers ──────────────────────────────────────────────
 
 function buildImagePath(recipeId: string) {
   return `/images/${encodeURIComponent(recipeId)}`;
@@ -1146,6 +1839,38 @@ function extractInstagramRecipeTitle(ogTitle: string): string {
   return caption;
 }
 
+function extractTikTokRecipeTitle(ogTitle: string): string {
+  // TikTok og:title is typically the video caption directly
+  let caption = decodeHtmlEntities(ogTitle).trim();
+
+  // Remove common TikTok suffixes like "| TikTok"
+  caption = caption.replace(/\s*\|\s*TikTok\s*$/i, '').trim();
+
+  // Reuse the same emoji/sentence extraction logic as Instagram
+  const emojiMatch = caption.match(/^([^🍏🍎🍐🍊🍋🍌🍉🍇🍓🫐🍈🍒🍑🥭🍍🥥🥝🍅🍆🥑🥦🥬🥒🌶️🫑🌽🥕🫒🧄🧅🥔🍠🥐🥯🍞🥖🥨🧀🥚🍳🧈🥞🧇🥓🥩🍗🍖🦴🌭🍔🍟🍕🫓🥪🥙🧆🌮🌯🫔🥗🥘🫕🥫🍝🍜🍲🍛🍣🍱🥟🦪🍤🍙🍚🍘🍥🥠🥮🍢🍡🍧🍨🍦🥧🧁🍰🎂🍮🍭🍬🍫🍿🍩🍪🌰🥜🍯🥛🍼🫖☕🍵🧃🥤🧋🍶🍺🍻🥂🍷🥃🍸🍹🧉🍾🧊🥄🍴🍽️🥣🥡🥢🧂⭐✨💯🔥❤️😍🤤👨‍🍳👩‍🍳📝✅]+)/u);
+  if (emojiMatch && emojiMatch[1].trim().length > 3) {
+    return emojiMatch[1].trim();
+  }
+
+  const sentenceMatch = caption.match(/^(.+?)(?:It['']s|This is|Here['']s|I['']m|We['']re|You['']ll|Comment|Save|Share|Tag|#)/i);
+  if (sentenceMatch && sentenceMatch[1].trim().length > 3) {
+    return sentenceMatch[1].trim();
+  }
+
+  const firstLine = caption.split(/[.\n!?]/)[0]?.trim();
+  if (firstLine && firstLine.length > 3 && firstLine.length <= 100) {
+    return firstLine;
+  }
+
+  if (caption.length > 60) {
+    const truncated = caption.slice(0, 60).trim();
+    const lastSpace = truncated.lastIndexOf(' ');
+    return lastSpace > 20 ? truncated.slice(0, lastSpace) : truncated;
+  }
+
+  return caption;
+}
+
 function extractRecipeDetailsFromHtml(html: string, sourceUrl: string): ParsedRecipeDetails | null {
   if (!html) {
     return null;
@@ -1156,10 +1881,13 @@ function extractRecipeDetailsFromHtml(html: string, sourceUrl: string): ParsedRe
     extractMetaContent(html, 'name', 'twitter:title') ||
     extractTitleFromHtml(html);
 
-  // For Instagram URLs, extract just the recipe name from the caption
+  // For Instagram/TikTok URLs, extract just the recipe name from the caption
   const isInstagram = /instagram\.com/i.test(sourceUrl);
+  const isTikTok = /tiktok\.com/i.test(sourceUrl);
   if (isInstagram && fallbackTitle) {
     fallbackTitle = extractInstagramRecipeTitle(fallbackTitle);
+  } else if (isTikTok && fallbackTitle) {
+    fallbackTitle = extractTikTokRecipeTitle(fallbackTitle);
   }
 
   const fallbackImage = extractOgImageUrlFromHtml(html, sourceUrl);
@@ -1552,10 +2280,34 @@ async function fetchRawRecipeText(sourceUrl: string | undefined) {
       'User-Agent': 'RecipeWorker/1.0'
     }
   });
-  if (!response.ok) {
-    return null;
+  if (response.ok) {
+    return response.text();
   }
-  return response.text();
+
+  // Fallback for TikTok: use oEmbed title which contains the full caption
+  try {
+    const parsedUrl = new URL(sourceUrl);
+    if (parsedUrl.hostname.includes('tiktok.com')) {
+      const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(sourceUrl)}`;
+      const oembedResponse = await fetch(oembedUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)',
+          'Accept': 'application/json'
+        }
+      });
+      if (oembedResponse.ok) {
+        const payload = await oembedResponse.json() as { title?: string; author_name?: string };
+        const caption = (payload.title || '').trim();
+        if (caption) {
+          return `Recipe by ${payload.author_name || 'TikTok creator'}:\n\n${caption}`;
+        }
+      }
+    }
+  } catch {
+    // Fall through to null
+  }
+
+  return null;
 }
 
 async function fetchOgImage(sourceUrl: string | undefined): Promise<string | null> {
@@ -1604,6 +2356,52 @@ async function fetchOgImage(sourceUrl: string | undefined): Promise<string | nul
     }
   } catch (urlError) {
     // Not a valid URL or Instagram fetch failed, continue with regular og:image fetch
+  }
+
+  // Try TikTok oEmbed API for TikTok URLs
+  try {
+    const parsedUrl = new URL(sourceUrl);
+    if (parsedUrl.hostname.includes('tiktok.com')) {
+      const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(sourceUrl)}`;
+
+      const oembedResponse = await fetch(oembedUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)',
+          'Accept': 'application/json'
+        }
+      });
+
+      if (oembedResponse.ok) {
+        const payload = await oembedResponse.json() as { thumbnail_url?: string };
+        const thumbnail = (payload.thumbnail_url || '').trim();
+        if (thumbnail) {
+          try {
+            const imgResponse = await fetch(thumbnail, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)',
+                'Referer': 'https://www.tiktok.com/'
+              }
+            });
+            if (imgResponse.ok) {
+              const contentType = imgResponse.headers.get('content-type') || 'image/jpeg';
+              const buffer = await imgResponse.arrayBuffer();
+              const bytes = new Uint8Array(buffer);
+              let binary = '';
+              for (let i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i]);
+              }
+              const base64 = btoa(binary);
+              return `data:${contentType};base64,${base64}`;
+            }
+          } catch (imgError) {
+            console.warn('Failed to download TikTok thumbnail, returning URL:', imgError);
+          }
+          return thumbnail;
+        }
+      }
+    }
+  } catch (urlError) {
+    // Not a valid URL or TikTok fetch failed, continue with regular og:image fetch
   }
 
   try {
@@ -1901,22 +2699,6 @@ function pemToArrayBuffer(pem: string) {
   return base64ToArrayBuffer(cleaned);
 }
 
-async function resolveRecipeOwner(env: Env, recipeId: string): Promise<string | null> {
-  let cursor: string | undefined;
-  do {
-    const list = await env.RECIPES_KV.list({ prefix: 'recipe:', cursor, limit: 1000 });
-    for (const key of list.keys) {
-      if (key.name.endsWith(`:${recipeId}`)) {
-        const match = key.name.match(/^recipe:([^:]+):/);
-        if (match?.[1]) {
-          return match[1];
-        }
-      }
-    }
-    cursor = list.list_complete ? undefined : list.cursor;
-  } while (cursor);
-  return null;
-}
 
 export {
   callGemini,
