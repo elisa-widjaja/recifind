@@ -221,7 +221,7 @@ export default {
       const shareTokenMatch = url.pathname.match(/^\/public\/share\/([^/]+)$/);
       if (shareTokenMatch && request.method === 'GET') {
         const shareToken = decodeURIComponent(shareTokenMatch[1]);
-        return handleGetSharedRecipe(request, env, shareToken);
+        return await handleGetSharedRecipe(request, env, shareToken);
       }
 
       const isImageRequest = /^\/images\/[^/]+$/.test(url.pathname);
@@ -233,42 +233,42 @@ export default {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');
         }
-        return handleListRecipes(request, url, env, user);
+        return await handleListRecipes(request, url, env, user);
       }
 
       if (url.pathname === '/recipes/count' && request.method === 'GET') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');
         }
-        return handleRecipeCount(request, env, user);
+        return await handleRecipeCount(request, env, user);
       }
 
       if (url.pathname === '/recipes' && request.method === 'POST') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');
         }
-        return handleCreateRecipe(request, env, user);
+        return await handleCreateRecipe(request, env, user);
       }
 
       if (url.pathname === '/recipes/enrich' && request.method === 'POST') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');
         }
-        return handleEnrichRecipe(request, env);
+        return await handleEnrichRecipe(request, env);
       }
 
       if (url.pathname === '/recipes/parse' && request.method === 'POST') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');
         }
-        return handleParseRecipe(request);
+        return await handleParseRecipe(request);
       }
 
       if (url.pathname === '/recipes/og-image' && request.method === 'POST') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');
         }
-        return handleGetOgImage(request);
+        return await handleGetOgImage(request);
       }
 
       const recipeMatch = url.pathname.match(/^\/recipes\/([^/]+)$/);
@@ -279,7 +279,7 @@ export default {
           throw new HttpError(401, 'Missing Authorization header');
         }
         const recipeId = decodeURIComponent(shareMatch[1]);
-        return handleCreateShareLink(env, user, recipeId);
+        return await handleCreateShareLink(env, user, recipeId);
       }
 
       if (recipeMatch) {
@@ -288,19 +288,19 @@ export default {
           if (!user) {
             throw new HttpError(401, 'Missing Authorization header');
           }
-          return handleGetRecipe(request, env, user, recipeId);
+          return await handleGetRecipe(request, env, user, recipeId);
         }
         if (request.method === 'PUT' || request.method === 'PATCH') {
           if (!user) {
             throw new HttpError(401, 'Missing Authorization header');
           }
-          return handleUpdateRecipe(request, env, user, recipeId);
+          return await handleUpdateRecipe(request, env, user, recipeId);
         }
         if (request.method === 'DELETE') {
           if (!user) {
             throw new HttpError(401, 'Missing Authorization header');
           }
-          return handleDeleteRecipe(env, user, recipeId);
+          return await handleDeleteRecipe(env, user, recipeId);
         }
         return methodNotAllowed(['GET', 'PUT', 'PATCH', 'DELETE']);
       }
@@ -308,62 +308,62 @@ export default {
       // ── Friends routes ─────────────────────────────────────────────
       if (url.pathname === '/friends' && request.method === 'GET') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
-        return handleListFriends(env, user);
+        return await handleListFriends(env, user);
       }
       if (url.pathname === '/friends/requests' && request.method === 'GET') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
-        return handleListFriendRequests(env, user);
+        return await handleListFriendRequests(env, user);
       }
       if (url.pathname === '/friends/request' && request.method === 'POST') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
-        return handleSendFriendRequest(request, env, user, ctx);
+        return await handleSendFriendRequest(request, env, user, ctx);
       }
       if (url.pathname === '/friends/requests/sent' && request.method === 'GET') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
-        return handleListSentFriendRequests(env, user);
+        return await handleListSentFriendRequests(env, user);
       }
       if (url.pathname === '/friends/notifications' && request.method === 'GET') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
-        return handleGetNotifications(env, user);
+        return await handleGetNotifications(env, user);
       }
       if (url.pathname === '/friends/notifications/read' && request.method === 'POST') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
-        return handleMarkNotificationsRead(env, user);
+        return await handleMarkNotificationsRead(env, user);
       }
       const cancelSentMatch = url.pathname.match(/^\/friends\/requests\/sent\/([^/]+)\/cancel$/);
       if (cancelSentMatch && request.method === 'DELETE') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
         const toUserId = decodeURIComponent(cancelSentMatch[1]);
-        return handleCancelSentFriendRequest(env, user, toUserId);
+        return await handleCancelSentFriendRequest(env, user, toUserId);
       }
       const friendRequestActionMatch = url.pathname.match(/^\/friends\/requests\/([^/]+)\/(accept|decline)$/);
       if (friendRequestActionMatch) {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
         const fromUserId = decodeURIComponent(friendRequestActionMatch[1]);
         if (friendRequestActionMatch[2] === 'accept' && request.method === 'POST') {
-          return handleAcceptFriendRequest(request, env, user, fromUserId, ctx);
+          return await handleAcceptFriendRequest(request, env, user, fromUserId, ctx);
         }
         if (friendRequestActionMatch[2] === 'decline' && request.method === 'DELETE') {
-          return handleDeclineFriendRequest(env, user, fromUserId);
+          return await handleDeclineFriendRequest(env, user, fromUserId);
         }
       }
       const friendRecipesMatch = url.pathname.match(/^\/friends\/([^/]+)\/recipes$/);
       if (friendRecipesMatch && request.method === 'GET') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
         const friendId = decodeURIComponent(friendRecipesMatch[1]);
-        return handleGetFriendRecipes(request, env, user, friendId);
+        return await handleGetFriendRecipes(request, env, user, friendId);
       }
       const friendMatch = url.pathname.match(/^\/friends\/([^/]+)$/);
       if (friendMatch && request.method === 'DELETE') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
         const friendId = decodeURIComponent(friendMatch[1]);
-        return handleRemoveFriend(env, user, friendId);
+        return await handleRemoveFriend(env, user, friendId);
       }
 
       const imageMatch = url.pathname.match(/^\/images\/([^/]+)$/);
       if (imageMatch && request.method === 'GET') {
         const recipeId = decodeURIComponent(imageMatch[1]);
-        return handleImageRequest(request, url, env, user, recipeId);
+        return await handleImageRequest(request, url, env, user, recipeId);
       }
 
       return json({ error: 'Not Found' }, 404);
