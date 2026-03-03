@@ -917,6 +917,8 @@ function App() {
   const [selectedFriend, setSelectedFriend] = useState(null);
   const [friendRecipes, setFriendRecipes] = useState([]);
   const [friendRecipesLoading, setFriendRecipesLoading] = useState(false);
+  const [visibleRecipeCount, setVisibleRecipeCount] = useState(7);
+  const friendRecipesSentinelRef = useRef(null);
 
   // Get access token from session
   const accessToken = session?.access_token || null;
@@ -1057,6 +1059,7 @@ function App() {
   const fetchFriendRecipes = async (friend) => {
     trackEvent('view_friend_recipes', { friend_name: friend.friendName || '' });
     setSelectedFriend(friend);
+    setVisibleRecipeCount(7);
     setFriendRecipesLoading(true);
     try {
       const response = await callRecipesApi(
@@ -1088,6 +1091,22 @@ function App() {
 
     return () => clearInterval(pollInterval);
   }, [session?.user?.id, accessToken, fetchFriends, fetchFriendRequests, fetchNotifications]);
+
+  // Lazy-load more friend recipes when sentinel scrolls into view
+  useEffect(() => {
+    const sentinel = friendRecipesSentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleRecipeCount((prev) => prev + 7);
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [visibleRecipeCount, friendRecipes.length]);
 
   // ── End friends API functions ─────────────────────────────────────
 
@@ -3870,32 +3889,42 @@ function App() {
                 No shared recipes yet
               </Typography>
             ) : (
-              <Box sx={{
-                display: 'grid',
-                gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' },
-                gap: 2
-              }}>
-                {friendRecipes.map((recipe) => (
-                  <Card key={recipe.id} variant="outlined">
-                    <CardActionArea onClick={() => {
-                      setIsSharedRecipeView(true);
-                      setActiveRecipe(recipe);
-                      setActiveRecipeDraft(null);
-                    }}>
-                      {recipe.imageUrl && (
-                        <Box
-                          component="img"
-                          src={recipe.imageUrl}
-                          alt={recipe.title}
-                          sx={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover' }}
-                        />
-                      )}
-                      <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
-                        <Typography variant="subtitle2" noWrap>{recipe.title}</Typography>
-                      </CardContent>
-                    </CardActionArea>
-                  </Card>
-                ))}
+              <Box>
+                <Box sx={{
+                  display: 'grid',
+                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' },
+                  gap: 2
+                }}>
+                  {friendRecipes.slice(0, visibleRecipeCount).map((recipe) => (
+                    <Card key={recipe.id} variant="outlined">
+                      <CardActionArea onClick={() => {
+                        setIsSharedRecipeView(true);
+                        setActiveRecipe(recipe);
+                        setActiveRecipeDraft(null);
+                      }}>
+                        {recipe.imageUrl && (
+                          <Box
+                            component="img"
+                            src={recipe.imageUrl}
+                            alt={recipe.title}
+                            sx={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover' }}
+                          />
+                        )}
+                        <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
+                          <Typography variant="subtitle2" noWrap>{recipe.title}</Typography>
+                        </CardContent>
+                      </CardActionArea>
+                    </Card>
+                  ))}
+                </Box>
+                {visibleRecipeCount < friendRecipes.length && (
+                  <Box
+                    ref={friendRecipesSentinelRef}
+                    sx={{ display: 'flex', justifyContent: 'center', py: 3 }}
+                  >
+                    <CircularProgress size={24} />
+                  </Box>
+                )}
               </Box>
             )
           ) : friendsTab === 0 ? (
