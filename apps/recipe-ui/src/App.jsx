@@ -3847,6 +3847,11 @@ function App() {
               <Typography variant="h6" sx={{ pl: 0.5 }}>
                 {selectedFriend.friendName}
               </Typography>
+              {!friendRecipesLoading && (
+                <Typography variant="caption" color="text.secondary" sx={{ pl: 0.5 }}>
+                  {friendRecipes.length} {friendRecipes.length === 1 ? 'recipe' : 'recipes'}
+                </Typography>
+              )}
             </Box>
           ) : (
             <Typography variant="h6">Friends</Typography>
