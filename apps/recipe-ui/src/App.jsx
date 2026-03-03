@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   AppBar,
@@ -3930,7 +3930,7 @@ function App() {
             ) : (
               <List disablePadding>
                 {friendRequests.map((req, index) => (
-                  <React.Fragment key={req.fromUserId}>
+                  <Fragment key={req.fromUserId}>
                     {index > 0 && <Divider sx={{ borderColor: 'grey.200' }} />}
                     <ListItem sx={{ pl: 0, alignItems: 'flex-start' }}>
                       <ListItemAvatar>
@@ -3961,7 +3961,7 @@ function App() {
                         </Stack>
                       </Box>
                     </ListItem>
-                  </React.Fragment>
+                  </Fragment>
                 ))}
                 {sentRequests.length > 0 && (
                   <>
