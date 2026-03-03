@@ -119,12 +119,14 @@ function clearRecipesCache() {
 }
 
 // Capture accept_friend URL param immediately at module load time, before
-// Supabase or React can modify the URL. This survives OAuth redirect returns.
+// Supabase or React can modify the URL. Uses sessionStorage (not localStorage)
+// so the intent is tab-scoped: clicking the Accept button in an email sets it,
+// but clicking the plain ReciFind link (new tab) starts fresh with no pending accept.
 {
   const _url = new URL(window.location.href);
   const _acceptId = _url.searchParams.get('accept_friend');
   if (_acceptId) {
-    localStorage.setItem('pending_accept_friend', _acceptId);
+    sessionStorage.setItem('pending_accept_friend', _acceptId);
     _url.searchParams.delete('accept_friend');
     window.history.replaceState({}, '', _url.toString());
   }
@@ -1092,7 +1094,7 @@ function App() {
     setIsAuthLoading(true);
     setAuthError('');
     try {
-      const pendingId = localStorage.getItem('pending_accept_friend');
+      const pendingId = sessionStorage.getItem('pending_accept_friend');
       const redirectTo = pendingId
         ? `${window.location.origin}?accept_friend=${encodeURIComponent(pendingId)}`
         : window.location.origin;
@@ -1125,7 +1127,7 @@ function App() {
     setAuthError('');
 
     try {
-      const pendingId = localStorage.getItem('pending_accept_friend');
+      const pendingId = sessionStorage.getItem('pending_accept_friend');
       const emailRedirectTo = pendingId
         ? `${window.location.origin}?accept_friend=${encodeURIComponent(pendingId)}`
         : window.location.origin;
@@ -1674,7 +1676,7 @@ function App() {
   useEffect(() => {
     if (!isAuthChecked) return;
 
-    const pendingId = localStorage.getItem('pending_accept_friend');
+    const pendingId = sessionStorage.getItem('pending_accept_friend');
 
     if (!accessToken) {
       if (pendingId) setIsAuthDialogOpen(true);
@@ -1682,7 +1684,7 @@ function App() {
     }
 
     if (pendingId) {
-      localStorage.removeItem('pending_accept_friend');
+      sessionStorage.removeItem('pending_accept_friend');
       callRecipesApi(`/friends/requests/${encodeURIComponent(pendingId)}/accept`, {
         method: 'POST'
       }, accessToken).then(() => {
