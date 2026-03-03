@@ -41,6 +41,7 @@ import {
   ListItem,
   ListItemAvatar
 } from '@mui/material';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
@@ -3811,11 +3812,17 @@ function App() {
       >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pr: 1 }}>
           {selectedFriend ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <IconButton onClick={() => { setSelectedFriend(null); setFriendRecipes([]); }} size="small">
-                <CloseIcon fontSize="small" />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <IconButton onClick={() => { setSelectedFriend(null); setFriendRecipes([]); }} size="small" edge="start">
+                <ArrowBackIcon fontSize="small" />
               </IconButton>
-              <Typography variant="h6" sx={{ fontSize: '1.1rem' }}>{selectedFriend.friendName}&apos;s Recipes</Typography>
+              <Typography
+                variant="body2"
+                sx={{ cursor: 'pointer', color: 'text.secondary' }}
+                onClick={() => { setSelectedFriend(null); setFriendRecipes([]); }}
+              >
+                Friends
+              </Typography>
             </Box>
           ) : (
             <Typography variant="h6">Friends</Typography>
