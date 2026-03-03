@@ -3810,18 +3810,23 @@ function App() {
         fullWidth={!isMobile}
         maxWidth={isMobile ? false : 'sm'}
       >
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pr: 1 }}>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', pr: 1 }}>
           {selectedFriend ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <IconButton onClick={() => { setSelectedFriend(null); setFriendRecipes([]); }} size="small" edge="start">
-                <ArrowBackIcon fontSize="small" />
-              </IconButton>
-              <Typography
-                variant="body2"
-                sx={{ cursor: 'pointer', color: 'text.secondary', fontWeight: 'bold', fontSize: '1rem' }}
-                onClick={() => { setSelectedFriend(null); setFriendRecipes([]); }}
-              >
-                Friends
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <IconButton onClick={() => { setSelectedFriend(null); setFriendRecipes([]); }} size="small" edge="start">
+                  <ArrowBackIcon fontSize="small" />
+                </IconButton>
+                <Typography
+                  variant="body2"
+                  sx={{ cursor: 'pointer', color: 'text.secondary', fontWeight: 'bold', fontSize: '1rem' }}
+                  onClick={() => { setSelectedFriend(null); setFriendRecipes([]); }}
+                >
+                  Friends
+                </Typography>
+              </Box>
+              <Typography variant="h6" sx={{ pl: 0.5 }}>
+                {selectedFriend.friendName}
               </Typography>
             </Box>
           ) : (
