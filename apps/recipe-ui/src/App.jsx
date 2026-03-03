@@ -3929,39 +3929,39 @@ function App() {
               </Typography>
             ) : (
               <List disablePadding>
-                {friendRequests.map((req) => (
-                  <ListItem
-                    key={req.fromUserId}
-                    sx={{ pl: 0, alignItems: 'flex-start' }}
-                  >
-                    <ListItemAvatar>
-                      <Avatar sx={{ bgcolor: 'secondary.main' }}>
-                        {(req.fromName || req.fromEmail || '?')[0].toUpperCase()}
-                      </Avatar>
-                    </ListItemAvatar>
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <ListItemText primary={req.fromName || req.fromEmail} />
-                      <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
-                        <Button
-                          size="small"
-                          variant="contained"
-                          color="primary"
-                          onClick={() => acceptFriendRequest(req.fromUserId)}
-                          startIcon={<CheckIcon />}
-                        >
-                          Accept
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color="inherit"
-                          onClick={() => declineFriendRequest(req.fromUserId)}
-                        >
-                          Decline
-                        </Button>
-                      </Stack>
-                    </Box>
-                  </ListItem>
+                {friendRequests.map((req, index) => (
+                  <React.Fragment key={req.fromUserId}>
+                    {index > 0 && <Divider sx={{ borderColor: 'grey.200' }} />}
+                    <ListItem sx={{ pl: 0, alignItems: 'flex-start' }}>
+                      <ListItemAvatar>
+                        <Avatar sx={{ bgcolor: 'secondary.main' }}>
+                          {(req.fromName || req.fromEmail || '?')[0].toUpperCase()}
+                        </Avatar>
+                      </ListItemAvatar>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <ListItemText primary={req.fromName || req.fromEmail} />
+                        <Stack direction="row" spacing={1} sx={{ mt: '10px' }}>
+                          <Button
+                            size="small"
+                            variant="contained"
+                            color="primary"
+                            onClick={() => acceptFriendRequest(req.fromUserId)}
+                            startIcon={<CheckIcon />}
+                          >
+                            Accept
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="inherit"
+                            onClick={() => declineFriendRequest(req.fromUserId)}
+                          >
+                            Decline
+                          </Button>
+                        </Stack>
+                      </Box>
+                    </ListItem>
+                  </React.Fragment>
                 ))}
                 {sentRequests.length > 0 && (
                   <>
