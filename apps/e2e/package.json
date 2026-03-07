@@ -1,0 +1,17 @@
+{
+  "name": "recifind-e2e",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:setup": "playwright test --project=setup",
+    "test:ui": "playwright test --ui",
+    "test:recipe-crud": "playwright test tests/recipe-crud.spec.ts",
+    "test:sharing": "playwright test tests/recipe-sharing.spec.ts",
+    "test:friends": "playwright test tests/friends.spec.ts",
+    "test:search": "playwright test tests/search-filter.spec.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.44.0",
+    "typescript": "^5.4.5"
+  }
+}
