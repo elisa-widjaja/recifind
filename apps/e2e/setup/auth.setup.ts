@@ -12,6 +12,8 @@ setup.describe('auth setup', () => {
   });
 
   setup('authenticate Alice', async ({ page }) => {
+    await page.context().clearCookies();
+    await page.evaluate(() => localStorage.clear());
     await page.goto('http://localhost:5173');
     console.log('\n=== LOG IN AS ALICE (account 1) ===');
     console.log('Click "Sign in with Google" and complete login in the browser.');
@@ -23,6 +25,8 @@ setup.describe('auth setup', () => {
   });
 
   setup('authenticate Bob', async ({ page }) => {
+    await page.context().clearCookies();
+    await page.evaluate(() => localStorage.clear());
     await page.goto('http://localhost:5173');
     console.log('\n=== LOG IN AS BOB (account 2) ===');
     console.log('Click "Sign in with Google" and complete login in the browser.');

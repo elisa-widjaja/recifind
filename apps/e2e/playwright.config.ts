@@ -13,6 +13,10 @@ export default defineConfig({
     {
       name: 'setup',
       testMatch: /setup\/auth\.setup\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: undefined,
+      },
     },
     {
       name: 'alice',
