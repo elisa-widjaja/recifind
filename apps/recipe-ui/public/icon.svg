@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="112" fill="#6200EA"/>
+  <!-- Fork -->
+  <rect x="180" y="100" width="20" height="80" rx="10" fill="white"/>
+  <rect x="210" y="100" width="20" height="80" rx="10" fill="white"/>
+  <rect x="240" y="100" width="20" height="80" rx="10" fill="white"/>
+  <path d="M180 175 Q210 210 230 210 Q250 210 280 175" stroke="white" stroke-width="20" fill="none" stroke-linecap="round"/>
+  <rect x="220" y="210" width="20" height="150" rx="10" fill="white"/>
+  <!-- Magnifying glass -->
+  <circle cx="320" cy="230" r="70" stroke="white" stroke-width="22" fill="none"/>
+  <line x1="372" y1="282" x2="420" y2="340" stroke="white" stroke-width="22" stroke-linecap="round"/>
+</svg>

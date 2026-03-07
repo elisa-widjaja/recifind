@@ -7,6 +7,7 @@ import {
   Card,
   CardActionArea,
   CardContent,
+  Checkbox,
   Chip,
   CircularProgress,
   Container,
@@ -34,17 +35,25 @@ import {
   ListItemIcon,
   Switch,
   FormControlLabel,
+  Slider,
+  ToggleButton,
+  ToggleButtonGroup,
   Badge,
   Tab,
   Tabs,
   Avatar,
   ListItem,
-  ListItemAvatar
+  ListItemAvatar,
+  CssBaseline,
+  Skeleton,
+  createTheme,
+  ThemeProvider
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import ClearIcon from '@mui/icons-material/Clear';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
@@ -53,6 +62,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import SendIcon from '@mui/icons-material/Send';
+import IosShareOutlinedIcon from '@mui/icons-material/IosShareOutlined';
 import AddIcon from '@mui/icons-material/Add';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
@@ -64,9 +74,14 @@ import CheckBoxIcon from '@mui/icons-material/CheckBox';
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
 import PeopleIcon from '@mui/icons-material/People';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
+import SmsIcon from '@mui/icons-material/Sms';
 import CheckIcon from '@mui/icons-material/Check';
 import FavoriteIcon from '@mui/icons-material/Favorite';
 import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
+import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
+import SoupKitchenOutlinedIcon from '@mui/icons-material/SoupKitchenOutlined';
+import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import FeedbackOutlinedIcon from '@mui/icons-material/FeedbackOutlined';
 import { createClient } from '@supabase/supabase-js';
 import recipesData from '../recipes.json';
 import recipesFromPdfData from '../recipes_from_pdf.json';
@@ -119,10 +134,7 @@ function clearRecipesCache() {
   }
 }
 
-// Capture accept_friend URL param immediately at module load time, before
-// Supabase or React can modify the URL. Uses sessionStorage (not localStorage)
-// so the intent is tab-scoped: clicking the Accept button in an email sets it,
-// but clicking the plain ReciFind link (new tab) starts fresh with no pending accept.
+// Capture accept_friend and invite_token URL params immediately at module load time.
 {
   const _url = new URL(window.location.href);
   const _acceptId = _url.searchParams.get('accept_friend');
@@ -130,6 +142,17 @@ function clearRecipesCache() {
     sessionStorage.setItem('pending_accept_friend', _acceptId);
     _url.searchParams.delete('accept_friend');
     window.history.replaceState({}, '', _url.toString());
+  }
+  const _inviteToken = _url.searchParams.get('invite_token');
+  if (_inviteToken) {
+    sessionStorage.setItem('pending_invite_token', _inviteToken);
+    _url.searchParams.delete('invite_token');
+    window.history.replaceState({}, '', _url.toString());
+  }
+  const _shareToken = _url.searchParams.get('share');
+  if (_shareToken) {
+    sessionStorage.setItem('pending_share_token', _shareToken);
+    // Don't delete from URL — the share useEffect needs it to open the recipe dialog
   }
 }
 
@@ -276,7 +299,8 @@ const NEW_RECIPE_TEMPLATE = {
   mealTypes: '',
   ingredients: '',
   steps: '',
-  durationMinutes: ''
+  durationMinutes: '',
+  sharedWithFriends: true
 };
 
 function validateRecipesPayload(payload) {
@@ -284,7 +308,10 @@ function validateRecipesPayload(payload) {
     throw new Error("That file isn’t valid. Expected an object with a `recipes` array.");
   }
 
-  return payload.recipes.map((recipe, index) => {
+  return payload.recipes.filter((recipe) => {
+    return Array.isArray(recipe.ingredients) && recipe.ingredients.length > 0 &&
+           Array.isArray(recipe.steps) && recipe.steps.length > 0;
+  }).map((recipe, index) => {
     if (!recipe || typeof recipe !== 'object') {
       throw new Error(`Recipe at index ${index} is not a valid object.`);
     }
@@ -362,6 +389,27 @@ function formatDuration(minutes) {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return m > 0 ? `${h} hr ${m} min` : `${h} hr`;
+}
+
+function getRecipeCredit(sourceUrl, oembedAuthor) {
+  if (!sourceUrl) return null;
+  try {
+    const url = new URL(sourceUrl);
+    const host = url.hostname.replace(/^www\./, '');
+    if (host.includes('instagram.com') || host.includes('tiktok.com')) {
+      if (oembedAuthor) {
+        return { label: oembedAuthor, prefix: 'Recipe by' };
+      }
+      const platform = host.includes('instagram.com') ? 'Instagram' : 'TikTok';
+      return { label: platform, prefix: 'Recipe from' };
+    }
+    if (host.includes('youtube.com') || host.includes('youtu.be')) {
+      return { label: 'YouTube', prefix: 'Recipe from' };
+    }
+    return { label: host, prefix: 'Recipe from' };
+  } catch {
+    return null;
+  }
 }
 
 function buildEmbedUrl(sourceUrl) {
@@ -511,6 +559,35 @@ function createImageFallbackHandler(title) {
       target.alt = safeTitle ? `${safeTitle} image unavailable` : 'Recipe preview unavailable';
     }
   };
+}
+
+function RecipeThumbnail({ src, alt, onError }) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <>
+      {!loaded && (
+        <Box sx={{ position: 'absolute', inset: 0 }}>
+          <Skeleton variant="rectangular" animation="wave" sx={{ width: '100%', height: '100%' }} />
+        </Box>
+      )}
+      <Box
+        component="img"
+        src={src}
+        alt={alt}
+        loading="lazy"
+        onLoad={() => setLoaded(true)}
+        onError={(e) => { setLoaded(true); onError(e); }}
+        sx={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          opacity: loaded ? 1 : 0
+        }}
+      />
+    </>
+  );
 }
 
 const SOURCE_PROXY_PREFIX = 'https://r.jina.ai/';
@@ -860,6 +937,8 @@ function App() {
     catch { return new Set(); }
   });
   const [sharedRecipeOwnerId, setSharedRecipeOwnerId] = useState(null);
+  const [oembedAuthor, setOembedAuthor] = useState(null);
+  const oembedCacheRef = useRef(new Map());
   const [cookMode, setCookMode] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [recipeMenuAnchor, setRecipeMenuAnchor] = useState(null);
@@ -882,6 +961,94 @@ function App() {
     }
   }, []);
   const wakeLockRef = useRef(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackRating, setFeedbackRating] = useState(null);
+  const [feedbackFrequency, setFeedbackFrequency] = useState('');
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [feedbackEmail, setFeedbackEmail] = useState('');
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackDone, setFeedbackDone] = useState(false);
+
+  // Track visits and decide whether to show the feedback widget.
+  // Logic: hide after submission; re-show after 3 visits within a 14-day window.
+  // Widget only appears after 15 seconds of active browsing/interaction.
+  const feedbackEligible = (() => {
+    try {
+      const now = Date.now();
+      const visits = JSON.parse(localStorage.getItem('feedback_visits') || '[]');
+      const fourteenDaysAgo = now - 14 * 24 * 60 * 60 * 1000;
+      const recentVisits = visits.filter(t => t > fourteenDaysAgo);
+      if (!recentVisits.length || now - recentVisits[recentVisits.length - 1] > 30 * 60 * 1000) {
+        recentVisits.push(now);
+      }
+      localStorage.setItem('feedback_visits', JSON.stringify(recentVisits));
+
+      const submittedAt = localStorage.getItem('feedback_submitted_at');
+      if (!submittedAt) return true;
+
+      const visitsAfterSubmission = recentVisits.filter(t => t > Number(submittedAt));
+      return visitsAfterSubmission.length >= 3;
+    } catch {
+      return true;
+    }
+  })();
+
+  const [showFeedbackWidget, setShowFeedbackWidget] = useState(false);
+
+  useEffect(() => {
+    if (!feedbackEligible) return;
+    let activeMs = 0;
+    let lastActivity = Date.now();
+
+    const onActivity = () => { lastActivity = Date.now(); };
+    const events = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'touchmove'];
+    events.forEach(e => window.addEventListener(e, onActivity, { passive: true }));
+
+    const interval = setInterval(() => {
+      if (Date.now() - lastActivity < 2000) activeMs += 500;
+      if (activeMs >= 15000) {
+        setShowFeedbackWidget(true);
+        clearInterval(interval);
+        events.forEach(e => window.removeEventListener(e, onActivity));
+      }
+    }, 500);
+
+    return () => {
+      clearInterval(interval);
+      events.forEach(e => window.removeEventListener(e, onActivity));
+    };
+  }, [feedbackEligible]);
+
+  const handleSubmitFeedback = async () => {
+    if (!feedbackFrequency) return;
+    setFeedbackSubmitting(true);
+    try {
+      await fetch(`${API_BASE_URL}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: `Usefulness: ${feedbackRating}/5\nFrequency: ${feedbackFrequency}${feedbackMessage.trim() ? `\n\nComments: ${feedbackMessage.trim()}` : ''}`,
+          senderEmail: feedbackEmail
+        })
+      });
+      setFeedbackDone(true);
+      setFeedbackRating(null);
+      setFeedbackFrequency('');
+      setFeedbackMessage('');
+      setFeedbackEmail('');
+      try {
+        localStorage.setItem('feedback_submitted_at', String(Date.now()));
+        // Reset visit counter so the 3-visit window starts fresh
+        localStorage.setItem('feedback_visits', JSON.stringify([Date.now()]));
+      } catch { /* ignore */ }
+      setShowFeedbackWidget(false);
+    } catch {
+      // silently ignore
+    } finally {
+      setFeedbackSubmitting(false);
+    }
+  };
+
   const [snackbarState, setSnackbarState] = useState({
     open: false,
     message: '',
@@ -899,6 +1066,13 @@ function App() {
   }));
   const [hasNewRecipes, setHasNewRecipes] = useState(false);
 
+  // Install prompt state
+  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isIosSafari = isIos && !window.navigator.standalone;
+  const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const deferredInstallPrompt = useRef(null);
+
   // Auth state
   const [session, setSession] = useState(null);
   const [isAuthChecked, setIsAuthChecked] = useState(false);
@@ -912,6 +1086,7 @@ function App() {
   const [friends, setFriends] = useState([]);
   const [friendRequests, setFriendRequests] = useState([]);
   const [sentRequests, setSentRequests] = useState([]);
+  const [sentInvites, setSentInvites] = useState([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [isFriendsDialogOpen, setIsFriendsDialogOpen] = useState(false);
   const [friendsTab, setFriendsTab] = useState(0);
@@ -927,7 +1102,38 @@ function App() {
   const [friendRecipeSearchQuery, setFriendRecipeSearchQuery] = useState('');
   const [friendsDrawerExpanded, setFriendsDrawerExpanded] = useState(false);
   const drawerTouchStartY = useRef(null);
+  const [friendConfirm, setFriendConfirm] = useState({ open: false, title: '', message: '', onConfirm: null });
   const drawerScrollRef = useRef(null);
+
+  // Profile state
+  const [userProfile, setUserProfile] = useState(null);
+  const [isEditNameOpen, setIsEditNameOpen] = useState(false);
+  const [editNameValue, setEditNameValue] = useState('');
+
+  // Dark mode state
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('recifind-dark-mode');
+    if (saved !== null) return saved === 'true';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+  const theme = useMemo(() => createTheme({
+    palette: {
+      mode: darkMode ? 'dark' : 'light',
+      primary: { main: darkMode ? '#5F60FF' : '#6200EA' },
+      ...(darkMode ? { divider: 'rgba(255, 255, 255, 0.13)' } : { background: { default: '#fafafa' } }),
+    },
+    ...(darkMode ? { components: {
+      MuiLink: { defaultProps: { color: 'inherit' }, styleOverrides: { root: { color: '#fff' } } },
+    } } : {}),
+  }), [darkMode]);
+
+  const toggleDarkMode = () => {
+    setDarkMode(prev => {
+      const next = !prev;
+      localStorage.setItem('recifind-dark-mode', String(next));
+      return next;
+    });
+  };
 
   // Get access token from session
   const accessToken = session?.access_token || null;
@@ -943,15 +1149,47 @@ function App() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setIsAuthChecked(true);
+      if (window.gtag && session?.user?.id) {
+        window.gtag('config', 'G-W2LEPNDMF0', { user_id: session.user.id });
+      }
     });
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      if (window.gtag) {
+        window.gtag('config', 'G-W2LEPNDMF0', { user_id: session?.user?.id ?? undefined });
+      }
     });
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // ── Profile API functions ─────────────────────────────────────────
+
+  const fetchProfile = useCallback(async () => {
+    if (!accessToken) return;
+    try {
+      const res = await callRecipesApi('/profile', {}, accessToken);
+      if (res) setUserProfile(res);
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+    }
+  }, [accessToken]);
+
+  const updateDisplayName = async (name) => {
+    try {
+      await callRecipesApi('/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({ displayName: name })
+      }, accessToken);
+      setUserProfile(prev => prev ? { ...prev, displayName: name } : prev);
+      setIsEditNameOpen(false);
+      setSnackbarState({ open: true, message: 'Display name updated.', severity: 'success' });
+    } catch (error) {
+      setSnackbarState({ open: true, message: 'Failed to update name.', severity: 'error' });
+    }
+  };
 
   // ── Friends API functions ──────────────────────────────────────────
 
@@ -968,12 +1206,14 @@ function App() {
   const fetchFriendRequests = useCallback(async () => {
     if (!accessToken) return;
     try {
-      const [incomingRes, sentRes] = await Promise.all([
+      const [incomingRes, sentRes, invitesRes] = await Promise.all([
         callRecipesApi('/friends/requests', {}, accessToken),
-        callRecipesApi('/friends/requests/sent', {}, accessToken)
+        callRecipesApi('/friends/requests/sent', {}, accessToken),
+        callRecipesApi('/friends/invites/sent', {}, accessToken),
       ]);
       setFriendRequests(incomingRes?.requests ?? []);
       setSentRequests(sentRes?.sent ?? []);
+      setSentInvites(invitesRes?.invites ?? []);
     } catch (error) {
       console.error('Error fetching friend requests:', error);
     }
@@ -992,12 +1232,13 @@ function App() {
   const sendFriendRequest = async (email) => {
     setAddFriendLoading(true);
     try {
-      await callRecipesApi('/friends/request', {
+      const res = await callRecipesApi('/friends/request', {
         method: 'POST',
         body: JSON.stringify({ email })
       }, accessToken);
       trackEvent('send_friend_request');
-      setSnackbarState({ open: true, message: 'Friend request sent!', severity: 'success' });
+      const message = res?.invited ? 'Invite sent! They\'ll get an email to join ReciFind.' : 'Friend request sent!';
+      setSnackbarState({ open: true, message, severity: 'success' });
       setAddFriendEmail('');
       setIsAddFriendOpen(false);
       await fetchFriendRequests();
@@ -1005,13 +1246,29 @@ function App() {
       const msg = error.message || '';
       const isAlreadyFriends = msg.includes('already friends');
       const isPending = msg.includes('already sent') || msg.includes('already sent you');
+      const isAlreadyInvited = msg.includes('already invited');
       setSnackbarState({
         open: true,
-        message: isAlreadyFriends ? 'Already connected.' : isPending ? 'Request sent. Pending acceptance.' : msg || 'Failed to send friend request',
-        severity: isAlreadyFriends || isPending ? 'info' : 'error'
+        message: isAlreadyFriends ? 'Already connected.' : isPending ? 'Request sent. Pending acceptance.' : isAlreadyInvited ? 'Invite already sent to this person.' : msg || 'Failed to send friend request',
+        severity: isAlreadyFriends || isPending || isAlreadyInvited ? 'info' : 'error'
       });
     } finally {
       setAddFriendLoading(false);
+    }
+  };
+
+
+  const handleInviteByText = async () => {
+    try {
+      const contacts = await navigator.contacts.select(['name', 'tel'], { multiple: false });
+      if (contacts.length > 0 && contacts[0].tel?.length > 0) {
+        const phone = contacts[0].tel[0];
+        const name = contacts[0].name?.[0] ? ` ${contacts[0].name[0]}` : '';
+        const msg = encodeURIComponent(`Hey${name}! Join me on ReciFind to share recipes: https://recifind.elisawidjaja.com`);
+        window.open(`sms:${phone}?body=${msg}`);
+      }
+    } catch (err) {
+      console.error('Contact picker error:', err);
     }
   };
 
@@ -1053,6 +1310,18 @@ function App() {
     }
   };
 
+  const cancelInvite = async (inviteId) => {
+    try {
+      await callRecipesApi(`/friends/invites/${encodeURIComponent(inviteId)}`, {
+        method: 'DELETE'
+      }, accessToken);
+      setSnackbarState({ open: true, message: 'Invite cancelled', severity: 'info' });
+      await fetchFriendRequests();
+    } catch (error) {
+      setSnackbarState({ open: true, message: 'Failed to cancel invite', severity: 'error' });
+    }
+  };
+
   const removeFriend = async (friendId) => {
     try {
       await callRecipesApi(`/friends/${encodeURIComponent(friendId)}`, {
@@ -1085,10 +1354,11 @@ function App() {
     }
   };
 
-  // Fetch friends data on login and poll for new requests
+  // Fetch profile + friends data on login and poll for new requests
   useEffect(() => {
     if (!session?.user?.id || !accessToken) return;
 
+    fetchProfile();
     fetchFriends();
     fetchFriendRequests();
     fetchNotifications();
@@ -1099,7 +1369,7 @@ function App() {
     }, 300000); // 5 minutes to stay within KV list() daily limits
 
     return () => clearInterval(pollInterval);
-  }, [session?.user?.id, accessToken, fetchFriends, fetchFriendRequests, fetchNotifications]);
+  }, [session?.user?.id, accessToken, fetchProfile, fetchFriends, fetchFriendRequests, fetchNotifications]);
 
   // Lazy-load more friend recipes when sentinel scrolls into view
   useEffect(() => {
@@ -1148,9 +1418,16 @@ function App() {
     setAuthError('');
     try {
       const pendingId = sessionStorage.getItem('pending_accept_friend');
+      const pendingInvite = sessionStorage.getItem('pending_invite_token');
+      const pendingShareToken = sessionStorage.getItem('pending_share_token');
+      const pendingSaveShare = sessionStorage.getItem('pending_save_share');
       const redirectTo = pendingId
         ? `${window.location.origin}?accept_friend=${encodeURIComponent(pendingId)}`
-        : window.location.origin;
+        : pendingInvite
+          ? `${window.location.origin}?invite_token=${encodeURIComponent(pendingInvite)}`
+          : (pendingShareToken && pendingSaveShare)
+            ? `${window.location.origin}?share=${encodeURIComponent(pendingShareToken)}`
+            : window.location.origin;
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo }
@@ -1181,9 +1458,16 @@ function App() {
 
     try {
       const pendingId = sessionStorage.getItem('pending_accept_friend');
+      const pendingInvite = sessionStorage.getItem('pending_invite_token');
+      const pendingShareToken = sessionStorage.getItem('pending_share_token');
+      const pendingSaveShare = sessionStorage.getItem('pending_save_share');
       const emailRedirectTo = pendingId
         ? `${window.location.origin}?accept_friend=${encodeURIComponent(pendingId)}`
-        : window.location.origin;
+        : pendingInvite
+          ? `${window.location.origin}?invite_token=${encodeURIComponent(pendingInvite)}`
+          : (pendingShareToken && pendingSaveShare)
+            ? `${window.location.origin}?share=${encodeURIComponent(pendingShareToken)}`
+            : window.location.origin;
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: { emailRedirectTo }
@@ -1488,6 +1772,50 @@ function App() {
     setVisibleCount(RESULTS_PAGE_SIZE);
   }, [selectedMealType, normalizedIngredientsKey, recipes]);
 
+  // Capture Chrome/Android install prompt
+  useEffect(() => {
+    if (isStandalone) return;
+    if (localStorage.getItem('recifind-install-banner-dismissed')) return;
+    if (sessionStorage.getItem('pending_invite_token')) return;
+    let timer;
+    const handler = (e) => {
+      e.preventDefault();
+      deferredInstallPrompt.current = e;
+      timer = setTimeout(() => setShowInstallBanner(true), 3000);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+      clearTimeout(timer);
+    };
+  }, []);
+
+  // Show install banner on iOS as soon as auth check completes (no login required)
+  useEffect(() => {
+    if (!isAuthChecked) return;
+    if (!isIosSafari) return;
+    if (isStandalone) return;
+    if (localStorage.getItem('recifind-install-banner-dismissed')) return;
+    if (sessionStorage.getItem('pending_invite_token')) return;
+    const timer = setTimeout(() => setShowInstallBanner(true), 3000);
+    return () => clearTimeout(timer);
+  }, [isAuthChecked, session]);
+
+  // Handle Web Share Target: open add dialog pre-filled with shared URL
+  useEffect(() => {
+    if (!isAuthChecked) return;
+    const params = new URLSearchParams(window.location.search);
+    const sharedUrl = params.get('url') || params.get('text');
+    if (!sharedUrl) return;
+    // Clean the URL so refreshing doesn't re-trigger
+    window.history.replaceState({}, '', window.location.pathname);
+    setNewRecipeForm({ ...NEW_RECIPE_TEMPLATE, sourceUrl: sharedUrl });
+    setNewRecipeErrors({});
+    setNewRecipePrefillInfo({ matched: false, hasIngredients: false, hasSteps: false });
+    setSourceParseState({ status: 'idle', message: '' });
+    setIsAddDialogOpen(true);
+  }, [isAuthChecked]);
+
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel) {
@@ -1634,6 +1962,7 @@ function App() {
       return;
     }
     setActiveRecipe(recipe);
+    setIsEditMode(false);
     trackEvent('view_recipe', { recipe_title: recipe.title });
     setIsDeleteConfirmOpen(false);
     setActiveRecipeDraft({
@@ -1725,14 +2054,40 @@ function App() {
     }
   }, [recipes, activeRecipe, handleOpenRecipeDetails, session]);
 
+  // Fetch oEmbed author for Instagram/TikTok recipes when dialog opens
+  useEffect(() => {
+    const sourceUrl = activeRecipe?.sourceUrl;
+    if (!sourceUrl) { setOembedAuthor(null); return; }
+    try {
+      const host = new URL(sourceUrl).hostname;
+      if (!host.includes('instagram.com') && !host.includes('tiktok.com')) {
+        setOembedAuthor(null);
+        return;
+      }
+    } catch { setOembedAuthor(null); return; }
+    const cached = oembedCacheRef.current.get(sourceUrl);
+    if (cached !== undefined) { setOembedAuthor(cached); return; }
+    setOembedAuthor(null);
+    fetch(`${API_BASE_URL}/public/oembed-author?url=${encodeURIComponent(sourceUrl)}`)
+      .then((res) => res.ok ? res.json() : { author: null })
+      .then(({ author }) => {
+        oembedCacheRef.current.set(sourceUrl, author);
+        setOembedAuthor(author);
+      })
+      .catch(() => {});
+  }, [activeRecipe?.sourceUrl]);
+
   // Handle pending friend request accept (URL param captured at module load)
   useEffect(() => {
     if (!isAuthChecked) return;
 
     const pendingId = sessionStorage.getItem('pending_accept_friend');
+    const pendingInviteCheck = sessionStorage.getItem('pending_invite_token');
 
     if (!accessToken) {
-      if (pendingId) setIsAuthDialogOpen(true);
+      if (pendingInviteCheck || pendingId) {
+        setIsAuthDialogOpen(true);
+      }
       return;
     }
 
@@ -1750,6 +2105,102 @@ function App() {
         setSnackbarState({ open: true, message: 'Could not accept the friend request. It may have been cancelled.', severity: 'error' });
       });
     }
+
+    const pendingInviteToken = sessionStorage.getItem('pending_invite_token');
+    if (pendingInviteToken) {
+      sessionStorage.removeItem('pending_invite_token');
+      callRecipesApi('/friends/accept-invite', { method: 'POST', body: JSON.stringify({ token: pendingInviteToken }) }, accessToken)
+        .then(() => {
+          setIsAuthDialogOpen(false);
+          setSnackbarState({ open: true, message: "You're now connected with your friend on ReciFind!", severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
+          fetchFriends();
+          if (!isStandalone && !localStorage.getItem('recifind-install-banner-dismissed')) {
+            setTimeout(() => setShowInstallBanner(true), 3000);
+          }
+        })
+        .catch(() => {
+          setSnackbarState({ open: true, message: 'Could not process invite. It may have already been used.', severity: 'error' });
+        });
+    }
+
+    // Handle pending shared recipe save (user clicked "Save to my recipes" before login)
+    const pendingShareToken = sessionStorage.getItem('pending_share_token');
+    const pendingSaveShare = sessionStorage.getItem('pending_save_share');
+    if (pendingShareToken && pendingSaveShare) {
+      sessionStorage.removeItem('pending_share_token');
+      sessionStorage.removeItem('pending_save_share');
+      fetch(`${API_BASE_URL}/public/share/${encodeURIComponent(pendingShareToken)}`)
+        .then((res) => {
+          if (!res.ok) throw new Error('Recipe not found');
+          return res.json();
+        })
+        .then((recipe) => {
+          if (!recipe || !recipe.title) throw new Error('Invalid recipe data');
+          const newRecipe = {
+            title: recipe.title,
+            sourceUrl: recipe.sourceUrl || '',
+            imageUrl: recipe.imageUrl || '',
+            mealTypes: recipe.mealTypes || [],
+            ingredients: recipe.ingredients || [],
+            steps: recipe.steps || null,
+            durationMinutes: recipe.durationMinutes || null,
+            notes: recipe.notes || ''
+          };
+          return fetch(`${API_BASE_URL}/recipes`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`
+            },
+            body: JSON.stringify(newRecipe)
+          }).then((saveRes) => {
+            if (!saveRes.ok) throw new Error('Failed to save recipe');
+            return saveRes.json().then(({ recipe: savedRecipe }) => {
+              setRecipes((prev) => {
+                const updated = [savedRecipe, ...prev.filter((r) => r.id !== savedRecipe.id)];
+                const userId = session?.user?.id || null;
+                saveRecipesToCache(updated, userId, serverVersionRef.current);
+                return updated;
+              });
+              setSavedSharedRecipeIds((prev) => {
+                const next = new Set(prev);
+                next.add(recipe.id);
+                try { localStorage.setItem('saved_shared_recipe_ids', JSON.stringify([...next])); } catch {}
+                return next;
+              });
+              setIsAuthDialogOpen(false);
+              setSnackbarState({
+                open: true,
+                message: `"${recipe.title}" saved to your recipes!`,
+                severity: 'success',
+                anchorOrigin: { vertical: 'top', horizontal: 'center' }
+              });
+            });
+          });
+        })
+        .catch((err) => {
+          console.error('Error auto-saving shared recipe after login:', err);
+          setSnackbarState({
+            open: true,
+            message: 'Could not save the shared recipe. Please try again from the share link.',
+            severity: 'error'
+          });
+        });
+    }
+
+    // Server-side fallback: check for any pending invites matching this user's email
+    // Works even if the invite_token was lost during OAuth redirect
+    callRecipesApi('/friends/check-invites', { method: 'POST' }, accessToken)
+      .then((res) => {
+        if (res?.connected?.length > 0) {
+          setSnackbarState({ open: true, message: `You're now connected with ${res.connected.join(', ')}!`, severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
+          fetchFriends();
+          if (!isStandalone && !localStorage.getItem('recifind-install-banner-dismissed')) {
+            setTimeout(() => setShowInstallBanner(true), 3000);
+          }
+        }
+      })
+      .catch(() => { /* silent - best effort */ });
   }, [accessToken, isAuthChecked]);
 
   const handleVideoThumbnailClick = (event, recipe) => {
@@ -1914,6 +2365,7 @@ function App() {
   };
 
   const handleEnhanceActiveRecipe = useCallback(async () => {
+    trackEvent('autofill_click', { context: 'edit_recipe' });
     if (!activeRecipeDraft) {
       return;
     }
@@ -2017,6 +2469,7 @@ function App() {
   }, [activeRecipeDraft, isRemoteEnabled]);
 
   const handleEnhanceNewRecipe = async () => {
+    trackEvent('autofill_click', { context: 'new_recipe' });
     if (!isRemoteEnabled) {
       setSnackbarState({
         open: true,
@@ -2154,6 +2607,7 @@ function App() {
   };
 
   const closeDialog = () => {
+    sessionStorage.removeItem('pending_save_share');
     setActiveRecipe(null);
     setActiveRecipeDraft(null);
     setIsDeleteConfirmOpen(false);
@@ -2213,6 +2667,10 @@ function App() {
   const handleSaveSharedRecipe = async () => {
     if (!activeRecipe || !isSharedRecipeView) return;
     if (!session?.user?.id) {
+      const pendingToken = sessionStorage.getItem('pending_share_token');
+      if (pendingToken) {
+        sessionStorage.setItem('pending_save_share', 'true');
+      }
       setIsAuthDialogOpen(true);
       return;
     }
@@ -2468,7 +2926,7 @@ function App() {
           lastParseResultRef.current = { url: sourceUrl, status: 'error' };
           setSourceParseState({
             status: 'error',
-            message: 'Unable to parse recipe from that link. Save now and enhance later.'
+            message: 'Unable to parse recipe from that link. Keep trying! Save now and enhance later.'
           });
           return;
         }
@@ -2545,7 +3003,7 @@ function App() {
         } else {
           setSourceParseState({
             status: 'error',
-            message: 'Unable to parse recipe from that link. Save now and enhance later.'
+            message: 'Unable to parse recipe from that link. Keep trying! Save now and enhance later.'
           });
         }
       })
@@ -2558,7 +3016,7 @@ function App() {
           lastParseResultRef.current = { url: sourceUrl, status: 'error' };
           setSourceParseState({
             status: 'error',
-            message: error?.message || 'Unable to parse recipe from that link. Save now and enhance later.'
+            message: error?.message || 'Unable to parse recipe from that link. Keep trying! Save now and enhance later.'
           });
         }
       });
@@ -2675,7 +3133,8 @@ function App() {
       mealTypes,
       ingredients,
       steps: steps.length > 0 ? steps : null,
-      durationMinutes
+      durationMinutes,
+      sharedWithFriends: newRecipeForm.sharedWithFriends ? 1 : 0
     };
 
     const resetFormState = (message) => {
@@ -2732,9 +3191,10 @@ function App() {
   };
 
   return (
-    <>
-      <AppBar position="static" color="inherit" elevation={0}>
-        <Toolbar sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <AppBar position="static" color="inherit" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider', paddingTop: 'env(safe-area-inset-top)' }}>
+        <Toolbar sx={{ display: 'flex', alignItems: 'center', gap: 2, minHeight: { xs: '50px', sm: 'calc(64px - 16px)' } }}>
           <IconButton
             onClick={() => setMobileFilterDrawerOpen(true)}
             sx={{ display: { xs: 'flex', sm: 'none' }, mr: -1 }}
@@ -2742,7 +3202,7 @@ function App() {
           >
             <FilterListIcon />
           </IconButton>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+          <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 700 }}>
             ReciFind
           </Typography>
           <Stack direction="row" spacing="6px" alignItems="center">
@@ -2810,14 +3270,40 @@ function App() {
                     anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
                     transformOrigin={{ vertical: 'top', horizontal: 'right' }}
                   >
-                    <Box sx={{ px: 2, py: 1.5, minWidth: 220 }}>
-                      <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
-                        Email
+                    <Box sx={{ px: 2, pt: 2, pb: 1.5, minWidth: 240 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                        <Avatar sx={{ bgcolor: 'primary.main', width: 40, height: 40 }}>
+                          {(userProfile?.displayName || session.user?.email || 'U').charAt(0).toUpperCase()}
+                        </Avatar>
+                        <IconButton size="small" onClick={() => { setAccountMenuAnchor(null); setEditNameValue(userProfile?.displayName || ''); setIsEditNameOpen(true); }}>
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
+                      <Typography variant="subtitle1" fontWeight="bold" noWrap>
+                        {userProfile?.displayName || session.user?.email?.split('@')[0] || 'User'}
                       </Typography>
-                      <Typography variant="body2" noWrap>
+                      <Typography variant="body2" color="text.secondary" noWrap>
                         {session.user?.email || 'Unknown'}
                       </Typography>
                     </Box>
+                    <Divider />
+                    <MenuItem disabled sx={{ opacity: '1 !important', pt: 1, pb: 0.25 }}>
+                      {userProfile?.recipeCount ?? recipes.length} recipes
+                    </MenuItem>
+                    <Divider />
+                    <MenuItem onClick={handleCopyUserId}>
+                      <ListItemIcon>
+                        <ContentCopyIcon fontSize="small" />
+                      </ListItemIcon>
+                      Copy user ID
+                    </MenuItem>
+                    <MenuItem onClick={toggleDarkMode}>
+                      <ListItemIcon>
+                        <DarkModeOutlinedIcon fontSize="small" />
+                      </ListItemIcon>
+                      Dark mode
+                      <Switch size="small" checked={darkMode} sx={{ ml: 'auto' }} />
+                    </MenuItem>
                     <Divider />
                     <MenuItem onClick={handleLogout}>
                       <ListItemIcon>
@@ -2828,7 +3314,7 @@ function App() {
                   </Menu>
                 </>
               ) : (
-                <Button color="primary" variant="text" onClick={openAuthDialog}>
+                <Button color={darkMode ? 'inherit' : 'primary'} variant="text" onClick={openAuthDialog}>
                   Login
                 </Button>
               )
@@ -2866,7 +3352,7 @@ function App() {
                     height: 44,
                     fontWeight: 500,
                     ...(!selected && {
-                      backgroundColor: 'white',
+                      backgroundColor: 'background.paper',
                       borderColor: 'divider'
                     })
                   }}
@@ -2881,11 +3367,11 @@ function App() {
         <Box
           sx={{
             px: { xs: 2, sm: 3, md: 4 },
-            py: { xs: 3, md: 4 }
+            pt: { xs: 2, md: 'calc(32px - 10px)' }, pb: { xs: 3, md: 4 }
           }}
         >
-          <Stack spacing={3}>
-            <Stack spacing={3}>
+          <Stack spacing={1.5}>
+            <Stack spacing={{ xs: 2, sm: 3 }}>
               <Box sx={{ position: 'relative' }}>
                 <TextField
                   inputRef={searchBarRef}
@@ -2907,6 +3393,9 @@ function App() {
                   }}
                   onBlur={() => setIngredientInputFocused(false)}
                   fullWidth
+                  sx={{
+                    '& .MuiOutlinedInput-root': { height: '54px', borderRadius: '6px' }
+                  }}
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
@@ -2982,7 +3471,7 @@ function App() {
                           height: 44,
                           fontWeight: 500,
                           ...(!selected && {
-                            backgroundColor: 'white',
+                            backgroundColor: 'background.paper',
                             borderColor: 'divider'
                           })
                         }}
@@ -3026,7 +3515,7 @@ function App() {
               <Stack spacing={1}>
                 <Stack direction="row" alignItems="center" spacing={1}>
                   <Stack direction="row" alignItems="center" spacing={0.5} sx={{ flexGrow: 1 }}>
-                    <Typography variant="body1" color="text.secondary">
+                    <Typography variant="caption" color="text.secondary">
                       {resultsLabel}
                     </Typography>
                   </Stack>
@@ -3088,16 +3577,11 @@ function App() {
               <Box
                 sx={{
                   width: '100%',
-                  display: 'grid',
-                  justifyItems: 'stretch',
-                  justifyContent: 'center',
-                  gridTemplateColumns: {
-                    xs: 'repeat(1, minmax(0, 1fr))',
-                    sm: 'repeat(2, minmax(0, 1fr))',
-                    md: 'repeat(3, minmax(0, 1fr))',
-                    lg: 'repeat(4, minmax(0, 1fr))'
-                  },
-                  gap: { xs: 1.5, sm: 2, md: 3 }
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: { xs: '10px', sm: '14px' },
+                  maxWidth: 600,
+                  mx: 'auto'
                 }}
               >
                 {displayedRecipes.map((recipe) => {
@@ -3107,13 +3591,11 @@ function App() {
                       key={recipe.id}
                       elevation={0}
                       sx={{
-                        height: '100%',
                         display: 'flex',
-                        flexDirection: 'column',
-                        borderRadius: 1,
+                        borderRadius: '8px',
                         overflow: 'hidden',
-                        border: '1px solid #E5E5E5',
-                        backgroundColor: 'white',
+                        border: 1, borderColor: 'divider',
+                        backgroundColor: 'background.paper',
                         transition: 'box-shadow 200ms ease',
                         '&:hover': {
                           boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05)'
@@ -3123,11 +3605,13 @@ function App() {
                       <CardActionArea
                         onClick={() => handleOpenRecipeDetails(recipe)}
                         sx={{
-                          height: '100%',
                           display: 'flex',
-                          flexDirection: 'column',
                           alignItems: 'stretch',
-                          width: '100%',
+                          pt: '8px',
+                          pb: '8px',
+                          pl: '8px',
+                          pr: 1.5,
+                          gap: '12px',
                           '&:hover .MuiCardActionArea-focusHighlight': {
                             opacity: 0
                           }
@@ -3139,35 +3623,50 @@ function App() {
                           onClick={(event) => handleVideoThumbnailClick(event, recipe)}
                           sx={{
                             position: 'relative',
-                            width: '100%',
-                            aspectRatio: '4 / 3',
+                            width: 90,
+                            height: 90,
+                            flexShrink: 0,
                             cursor: 'pointer',
                             overflow: 'hidden',
-                            borderTopLeftRadius: 4,
-                            borderTopRightRadius: 4
+                            borderRadius: '6px'
                           }}
                         >
-                          <Box
-                            component="img"
+                          <RecipeThumbnail
                             src={displayImageUrl}
                             alt={recipe.title || 'Recipe preview'}
                             onError={createImageFallbackHandler(recipe.title)}
+                          />
+                          <Box
                             sx={{
                               position: 'absolute',
                               inset: 0,
-                              width: '100%',
-                              height: '100%',
-                              objectFit: 'cover'
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              backgroundColor: 'rgba(0,0,0,0.2)'
                             }}
-                          />
+                          >
+                            <PlayArrowIcon sx={{ fontSize: 36, color: 'white', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.4))' }} />
+                          </Box>
                         </Box>
-                        <CardContent sx={{ flexGrow: 1, width: '100%' }}>
-                          <Tooltip title={recipe.title} placement="top">
-                            <Typography variant="h6" component="div" noWrap>
-                              {recipe.title}
-                            </Typography>
-                          </Tooltip>
-                          <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
+                        <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                          <Typography
+                            variant="subtitle1"
+                            component="div"
+                            sx={{
+                              fontWeight: 700,
+                              fontSize: '0.8125rem',
+                              lineHeight: 1.4,
+                              textTransform: 'uppercase',
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden'
+                            }}
+                          >
+                            {recipe.title}
+                          </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
                             {recipe.durationMinutes ? (
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                 <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
@@ -3175,7 +3674,7 @@ function App() {
                                   {formatDuration(recipe.durationMinutes)}
                                 </Typography>
                               </Box>
-                            ) : null}
+                            ) : <Box />}
                             <Box sx={{ flexGrow: 1 }} />
                             <IconButton
                               size="small"
@@ -3183,11 +3682,11 @@ function App() {
                               onTouchStart={(e) => e.stopPropagation()}
                               onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleFavorite(recipe.id); }}
                               aria-label={favorites.has(recipe.id) ? 'Unfavorite recipe' : 'Favorite recipe'}
-                              sx={{ mr: '4px' }}
+                              sx={{ p: 0.5, mr: '9px' }}
                             >
                               {favorites.has(recipe.id)
-                                ? <FavoriteIcon fontSize="small" sx={{ color: '#E53935' }} />
-                                : <FavoriteBorderIcon fontSize="small" sx={{ color: '#9E9E9E' }} />}
+                                ? <FavoriteIcon sx={{ fontSize: 18, color: '#E53935' }} />
+                                : <FavoriteBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />}
                             </IconButton>
                             <IconButton
                               size="small"
@@ -3218,9 +3717,12 @@ function App() {
                                 };
 
                                 try {
-                                  // Try to create share token via API
                                   const accessToken = (await supabase?.auth.getSession())?.data?.session?.access_token;
-                                  if (accessToken && API_BASE_URL) {
+                                  if (!accessToken) {
+                                    setIsAuthDialogOpen(true);
+                                    return;
+                                  }
+                                  if (API_BASE_URL) {
                                     const response = await fetch(`${API_BASE_URL}/recipes/${encodeURIComponent(recipe.id)}/share`, {
                                       method: 'POST',
                                       headers: {
@@ -3235,29 +3737,19 @@ function App() {
                                       return;
                                     }
                                   }
-                                  // Fallback: share the source URL if available
-                                  if (recipe.sourceUrl) {
-                                    await handleShare(recipe.sourceUrl, recipe.title);
-                                  } else {
-                                    setSnackbarState({ open: true, message: 'Unable to share this recipe', severity: 'error' });
-                                  }
+                                  setSnackbarState({ open: true, message: 'Unable to share this recipe', severity: 'error' });
                                 } catch (error) {
                                   console.error('Error sharing:', error);
-                                  // Last resort fallback
-                                  if (recipe.sourceUrl) {
-                                    await handleShare(recipe.sourceUrl, recipe.title);
-                                  } else {
-                                    setSnackbarState({ open: true, message: 'Failed to share', severity: 'error' });
-                                  }
+                                  setSnackbarState({ open: true, message: 'Failed to share', severity: 'error' });
                                 }
                               }}
-                              sx={{ ml: 'auto', flexShrink: 0 }}
+                              sx={{ p: 0.5 }}
                               aria-label="Share recipe"
                             >
-                              <SendIcon fontSize="small" sx={{ color: '#9E9E9E' }} />
+                              <IosShareOutlinedIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
                             </IconButton>
                           </Box>
-                        </CardContent>
+                        </Box>
                       </CardActionArea>
                     </Card>
                   );
@@ -3319,14 +3811,23 @@ function App() {
                     <CloseIcon />
                   </IconButton>
                 </Box>
-                {activeRecipeView.durationMinutes ? (
-                  <Chip
-                    icon={<AccessTimeIcon fontSize="small" />}
-                    label={formatDuration(activeRecipeView.durationMinutes)}
-                    size="small"
-                    color="secondary"
-                    sx={{ mt: 1, alignSelf: 'flex-start' }}
-                  />
+                {isEditMode && !isSharedRecipeView && activeRecipeView.title && (
+                  <Typography
+                    component="button"
+                    type="button"
+                    onClick={() => setActiveRecipeDraft((prev) => (prev ? { ...prev, title: '' } : prev))}
+                    sx={{ background: 'none', border: 'none', cursor: 'pointer', color: 'text.secondary', fontSize: '0.875rem', p: 0, mt: 0.5, textDecoration: 'underline', display: 'block', width: 'fit-content', ml: 'auto', '&:hover': { color: 'text.primary' } }}
+                  >
+                    Clear text
+                  </Typography>
+                )}
+                {!isEditMode && activeRecipeView.durationMinutes ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
+                    <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+                    <Typography variant="caption" color="text.secondary">
+                      {formatDuration(activeRecipeView.durationMinutes)}
+                    </Typography>
+                  </Box>
                 ) : null}
               </DialogTitle>
             )}
@@ -3339,8 +3840,9 @@ function App() {
                 display: 'flex',
                 flexDirection: 'column',
                 overflow: 'auto',
-                WebkitOverflowScrolling: 'touch'
-              } : {}}
+                WebkitOverflowScrolling: 'touch',
+                ...(darkMode ? { backgroundColor: '#121212' } : {})
+              } : { ...(darkMode ? { backgroundColor: '#121212' } : {}) }}
             >
               {/* Thumbnail + cook mode wrapper — sticky on mobile */}
               <Box sx={isMobile ? {
@@ -3348,12 +3850,12 @@ function App() {
                 top: 0,
                 zIndex: 2,
                 flexShrink: 0,
-                backgroundColor: 'white',
+                backgroundColor: 'background.paper',
                 display: 'flex',
                 flexDirection: isStickyStuck ? 'row' : 'column',
                 alignItems: isStickyStuck ? 'center' : 'stretch',
                 transition: 'all 250ms ease',
-                ...(isStickyStuck ? { px: 2, py: 1.5, gap: 2, borderBottom: '1px solid #E5E5E5' } : {})
+                ...(isStickyStuck ? { px: 2, py: 1.5, gap: 2, borderBottom: darkMode ? '1px solid rgba(255, 255, 255, 0.13)' : '1px solid #E5E5E5' } : {})
               } : {}}>
                 {activeRecipeImageUrl && (
                   <Box
@@ -3426,14 +3928,14 @@ function App() {
                           '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.8)' }
                         }}
                       >
-                        <CloseIcon fontSize="small" />
+                        <CloseIcon sx={{ fontSize: 22 }} />
                       </IconButton>
                     )}
                   </Box>
                 )}
 
                 {'wakeLock' in navigator && (
-                  <Box sx={{ display: 'flex', alignItems: 'center', py: isStickyStuck ? 0 : 1.5, ml: 0, px: isMobile && !isStickyStuck ? 3 : 0 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', py: isStickyStuck ? 0 : 1.5, ml: 0, px: isMobile && !isStickyStuck ? 3 : 0, minWidth: 0, flexShrink: 1 }}>
                     <FormControlLabel
                       control={
                         <Switch
@@ -3453,7 +3955,7 @@ function App() {
                             '& .MuiSwitch-thumb': {
                               width: 22,
                               height: 22,
-                              backgroundColor: '#BDBDBD'
+                              backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.4)' : '#BDBDBD'
                             },
                             '& .MuiSwitch-switchBase.Mui-checked .MuiSwitch-thumb': {
                               backgroundColor: 'primary.main'
@@ -3461,23 +3963,46 @@ function App() {
                             '& .MuiSwitch-track': {
                               borderRadius: 16,
                               opacity: '1 !important',
-                              backgroundColor: '#E0E0E0'
+                              backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.2)' : '#E0E0E0'
                             },
                             '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                              backgroundColor: 'rgba(103, 58, 183, 0.2)'
+                              backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.2)' : 'rgba(103, 58, 183, 0.2)'
                             }
                           }}
                         />
                       }
                       label={
-                        <Typography variant="body1" color={cookMode ? 'primary' : 'text.secondary'} sx={{ fontWeight: 500 }}>
+                        <Typography variant="body1" color={darkMode ? 'white' : (cookMode ? 'primary' : 'text.secondary')} sx={{ fontWeight: 500, fontSize: '0.9375rem', whiteSpace: 'nowrap' }}>
                           Cook mode
                         </Typography>
                       }
-                      sx={{ ml: 0, gap: 1.5 }}
+                      sx={{ ml: 0, gap: isStickyStuck ? 1 : 1.5 }}
                     />
-                    {isMobile && !isSharedRecipeView && session && !isEditMode && (
+                    {isMobile && !isStickyStuck && !isSharedRecipeView && session && !isEditMode && (
                       <IconButton onClick={(e) => setRecipeMenuAnchor(e.currentTarget)} aria-label="Recipe options" sx={{ ml: 'auto', mr: -1 }}>
+                        <MoreVertIcon sx={{ color: '#9E9E9E' }} />
+                      </IconButton>
+                    )}
+                  </Box>
+                )}
+
+                {/* Close + contextual menu column — visible only when stuck */}
+                {isMobile && isStickyStuck && (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'center', alignSelf: 'stretch', ml: 'auto', flexShrink: 0, mt: -1.5, mb: -1.5 }}>
+                    <IconButton
+                      aria-label="Close recipe details"
+                      onClick={closeDialog}
+                      size="small"
+                      sx={{ p: 0.5, mt: '4px' }}
+                    >
+                      <CloseIcon fontSize="small" />
+                    </IconButton>
+                    {!isSharedRecipeView && session && !isEditMode && (
+                      <IconButton
+                        onClick={(e) => setRecipeMenuAnchor(e.currentTarget)}
+                        aria-label="Recipe options"
+                        sx={{ mb: '4px' }}
+                      >
                         <MoreVertIcon sx={{ color: '#9E9E9E' }} />
                       </IconButton>
                     )}
@@ -3509,14 +4034,23 @@ function App() {
                       </Typography>
                     )}
                   </Box>
-                  {activeRecipeView.durationMinutes ? (
-                    <Chip
-                      icon={<AccessTimeIcon fontSize="small" />}
-                      label={formatDuration(activeRecipeView.durationMinutes)}
-                      size="small"
-                      color="secondary"
-                      sx={{ mt: 1, alignSelf: 'flex-start' }}
-                    />
+                  {isEditMode && !isSharedRecipeView && activeRecipeView.title && (
+                    <Typography
+                      component="button"
+                      type="button"
+                      onClick={() => setActiveRecipeDraft((prev) => (prev ? { ...prev, title: '' } : prev))}
+                      sx={{ background: 'none', border: 'none', cursor: 'pointer', color: 'text.secondary', fontSize: '0.875rem', p: 0, mt: 0.5, textDecoration: 'underline', display: 'block', width: 'fit-content', ml: 'auto', '&:hover': { color: 'text.primary' } }}
+                    >
+                      Clear text
+                    </Typography>
+                  )}
+                  {!isEditMode && activeRecipeView.durationMinutes ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
+                      <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+                      <Typography variant="caption" color="text.secondary">
+                        {formatDuration(activeRecipeView.durationMinutes)}
+                      </Typography>
+                    </Box>
                   ) : null}
                 </Box>
               )}
@@ -3526,25 +4060,37 @@ function App() {
               <Stack spacing={3}>
                 <Box>
                   {isEditMode && !isSharedRecipeView ? (
-                    <TextField
-                      label="Ingredients"
-                      value={activeRecipeView.ingredients.join('\n')}
-                      onChange={(event) => {
-                        const updated = event.target.value.split(/\r?\n/);
-                        setActiveRecipeDraft((prev) => (prev ? { ...prev, ingredients: updated } : prev));
-                      }}
-                      onBlur={(event) => {
-                        const cleaned = event.target.value
-                          .split(/\r?\n/)
-                          .map((line) => line.trim())
-                          .filter(Boolean);
-                        setActiveRecipeDraft((prev) => (prev ? { ...prev, ingredients: cleaned } : prev));
-                      }}
-                      multiline
-                      minRows={4}
-                      fullWidth
-                      helperText="One ingredient per line."
-                    />
+                    <>
+                      <TextField
+                        label="Ingredients"
+                        value={activeRecipeView.ingredients.join('\n')}
+                        onChange={(event) => {
+                          const updated = event.target.value.split(/\r?\n/);
+                          setActiveRecipeDraft((prev) => (prev ? { ...prev, ingredients: updated } : prev));
+                        }}
+                        onBlur={(event) => {
+                          const cleaned = event.target.value
+                            .split(/\r?\n/)
+                            .map((line) => line.trim())
+                            .filter(Boolean);
+                          setActiveRecipeDraft((prev) => (prev ? { ...prev, ingredients: cleaned } : prev));
+                        }}
+                        multiline
+                        minRows={4}
+                        fullWidth
+                        helperText="One ingredient per line."
+                      />
+                      {activeRecipeView.ingredients.filter(Boolean).length > 0 && (
+                        <Typography
+                          component="button"
+                          type="button"
+                          onClick={() => setActiveRecipeDraft((prev) => (prev ? { ...prev, ingredients: [] } : prev))}
+                          sx={{ background: 'none', border: 'none', cursor: 'pointer', color: 'text.secondary', fontSize: '0.875rem', p: 0, mt: 0.5, textDecoration: 'underline', display: 'block', width: 'fit-content', ml: 'auto', '&:hover': { color: 'text.primary' } }}
+                        >
+                          Clear text
+                        </Typography>
+                      )}
+                    </>
                   ) : (
                     <>
                       <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
@@ -3561,25 +4107,37 @@ function App() {
 
                 <Box>
                   {isEditMode && !isSharedRecipeView ? (
-                    <TextField
-                      label="Steps"
-                      value={(activeRecipeView.steps || []).join('\n')}
-                      onChange={(event) => {
-                        const updated = event.target.value.split(/\r?\n/);
-                        setActiveRecipeDraft((prev) => (prev ? { ...prev, steps: updated } : prev));
-                      }}
-                      onBlur={(event) => {
-                        const cleaned = event.target.value
-                          .split(/\r?\n/)
-                          .map((line) => line.trim())
-                          .filter(Boolean);
-                        setActiveRecipeDraft((prev) => (prev ? { ...prev, steps: cleaned } : prev));
-                      }}
-                      multiline
-                      minRows={4}
-                      fullWidth
-                      helperText="Separate each step with a new line."
-                    />
+                    <>
+                      <TextField
+                        label="Steps"
+                        value={(activeRecipeView.steps || []).join('\n')}
+                        onChange={(event) => {
+                          const updated = event.target.value.split(/\r?\n/);
+                          setActiveRecipeDraft((prev) => (prev ? { ...prev, steps: updated } : prev));
+                        }}
+                        onBlur={(event) => {
+                          const cleaned = event.target.value
+                            .split(/\r?\n/)
+                            .map((line) => line.trim())
+                            .filter(Boolean);
+                          setActiveRecipeDraft((prev) => (prev ? { ...prev, steps: cleaned } : prev));
+                        }}
+                        multiline
+                        minRows={4}
+                        fullWidth
+                        helperText="Separate each step with a new line."
+                      />
+                      {(activeRecipeView.steps || []).filter(Boolean).length > 0 && (
+                        <Typography
+                          component="button"
+                          type="button"
+                          onClick={() => setActiveRecipeDraft((prev) => (prev ? { ...prev, steps: [] } : prev))}
+                          sx={{ background: 'none', border: 'none', cursor: 'pointer', color: 'text.secondary', fontSize: '0.875rem', p: 0, mt: 0.5, textDecoration: 'underline', display: 'block', width: 'fit-content', ml: 'auto', '&:hover': { color: 'text.primary' } }}
+                        >
+                          Clear text
+                        </Typography>
+                      )}
+                    </>
                   ) : (
                     <>
                       <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
@@ -3599,12 +4157,26 @@ function App() {
                     <Link href={activeRecipeView.sourceUrl} target="_blank" rel="noopener" underline="hover">
                       View source
                     </Link>
+                    {!isEditMode && (() => {
+                      const credit = getRecipeCredit(activeRecipeView?.sourceUrl, oembedAuthor);
+                      return credit ? (
+                        <Typography
+                          variant="caption"
+                          sx={{ color: 'text.secondary', mt: 0.5, display: 'block' }}
+                        >
+                          {credit.prefix}{' '}
+                          <Link href={activeRecipeView.sourceUrl} target="_blank" rel="noopener noreferrer" sx={{ color: 'text.secondary' }}>
+                            {credit.label}
+                          </Link>
+                        </Typography>
+                      ) : null;
+                    })()}
                   </Box>
                 )}
 
                 {(isEditMode || (activeRecipeView.mealTypes && activeRecipeView.mealTypes.length > 0)) && (
                   <Box>
-                    <Divider sx={{ borderColor: '#E0E0E0', mb: 3 }} />
+                    <Divider sx={{ borderColor: darkMode ? 'rgba(255, 255, 255, 0.12)' : '#E0E0E0', mb: 3 }} />
                     <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
                       Meal types
                     </Typography>
@@ -3650,52 +4222,71 @@ function App() {
               </Stack>
               </Box>
             </DialogContent>
-            <DialogActions sx={{ justifyContent: isSharedRecipeView ? 'center' : 'flex-end', gap: 1 }}>
+            <DialogActions sx={{ justifyContent: isSharedRecipeView ? 'center' : 'flex-end', gap: 1, ...(isEditMode && !isSharedRecipeView ? { px: 0 } : {}), ...(isEditMode && !isSharedRecipeView ? (darkMode ? { backgroundColor: '#121212', borderTop: '1px solid rgba(255, 255, 255, 0.13)' } : { backgroundColor: '#fff', borderTop: '1px solid rgba(0, 0, 0, 0.12)' }) : (darkMode ? { backgroundColor: '#121212', borderTop: '1px solid rgba(255, 255, 255, 0.13)' } : {})) }}>
               {isSharedRecipeView ? (
                 <Button
                   variant={savedSharedRecipeIds.has(activeRecipe?.id) ? 'outlined' : 'contained'}
                   color="primary"
                   onClick={savedSharedRecipeIds.has(activeRecipe?.id) ? undefined : handleSaveSharedRecipe}
                   startIcon={savedSharedRecipeIds.has(activeRecipe?.id) ? <CheckIcon /> : undefined}
-                  sx={savedSharedRecipeIds.has(activeRecipe?.id) ? { pointerEvents: 'none', borderColor: '#1976d2', color: '#1976d2' } : undefined}
+                  sx={savedSharedRecipeIds.has(activeRecipe?.id) ? { pointerEvents: 'none', border: '1px solid #4caf50', color: '#4caf50' } : undefined}
                 >
                   {savedSharedRecipeIds.has(activeRecipe?.id) ? 'Saved' : 'Save to my recipes'}
                 </Button>
               ) : isEditMode ? (
-                <>
-                  <Button
-                    onClick={openDeleteConfirm}
-                    color="error"
-                    startIcon={<DeleteOutlineIcon />}
-                    variant="outlined"
-                  >
-                    Delete
-                  </Button>
-                  {isRemoteEnabled && activeRecipeDraft?.sourceUrl && (
-                    <Button
-                      onClick={handleEnhanceActiveRecipe}
-                      variant="outlined"
-                      color="secondary"
-                      startIcon={
-                        isActiveRecipeEnhancing ? (
-                          <CircularProgress size={18} />
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', px: isMobile ? 3 : 2 }}>
+                    {isRemoteEnabled && activeRecipeDraft?.sourceUrl ? (
+                      <Typography
+                        component="button"
+                        onClick={isActiveRecipeEnhancing ? undefined : handleEnhanceActiveRecipe}
+                        sx={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 0.5,
+                          background: 'none',
+                          border: 'none',
+                          cursor: isActiveRecipeEnhancing ? 'default' : 'pointer',
+                          color: isActiveRecipeEnhancing ? 'text.disabled' : (darkMode ? '#fff' : 'primary.main'),
+                          fontSize: '0.9375rem',
+                          fontWeight: 500,
+                          p: 0,
+                          '&:hover': isActiveRecipeEnhancing ? {} : { textDecoration: 'underline' },
+                        }}
+                      >
+                        {isActiveRecipeEnhancing ? (
+                          <CircularProgress size={16} />
                         ) : (
-                          <AutoAwesomeIcon fontSize="small" />
-                        )
-                      }
-                      disabled={isActiveRecipeEnhancing}
+                          <AutoAwesomeIcon sx={{ fontSize: 16 }} />
+                        )}
+                        Auto-fill
+                      </Typography>
+                    ) : <Box />}
+                    <Typography
+                      component="button"
+                      onClick={() => { setIsEditMode(false); setActiveRecipeDraft(activeRecipe ? { ...activeRecipe, ingredients: [...(activeRecipe.ingredients || [])], steps: [...(activeRecipe.steps || [])] } : null); }}
+                      sx={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: 'text.primary',
+                        fontSize: '0.9375rem',
+                        fontWeight: 500,
+                        p: 0,
+                        textTransform: 'uppercase',
+                        '&:hover': { textDecoration: 'underline' },
+                      }}
                     >
-                      Enhance
-                    </Button>
-                  )}
+                      Cancel
+                    </Typography>
                   <Button
                     variant={hasUnsavedChanges ? 'contained' : 'outlined'}
                     color="primary"
                     onClick={handleSaveActiveRecipe}
                     disabled={!hasUnsavedChanges}
                     sx={{
+                      px: 'calc(16px + 2px)',
                       '&.Mui-disabled': {
-                        backgroundColor: 'white',
+                        backgroundColor: 'background.paper',
                         borderColor: '#BDBDBD',
                         color: '#BDBDBD'
                       }
@@ -3703,7 +4294,7 @@ function App() {
                   >
                     Save
                   </Button>
-                </>
+                </Box>
               ) : null}
             </DialogActions>
           </>
@@ -3730,6 +4321,10 @@ function App() {
         <MenuItem onClick={() => { setRecipeMenuAnchor(null); setIsEditMode(true); }}>
           <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Edit recipe</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => { setRecipeMenuAnchor(null); openDeleteConfirm(); }}>
+          <ListItemIcon><DeleteOutlineIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Delete</ListItemText>
         </MenuItem>
         <MenuItem onClick={() => { setRecipeMenuAnchor(null); handleToggleSharedWithFriends(); }}>
           <ListItemIcon>
@@ -3809,40 +4404,42 @@ function App() {
               </Typography>
             </Box>
           )}
-          {newRecipeForm.imageUrl && newRecipeForm.imageUrl.trim() && (
-            <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-              <Box
-                component="img"
-                src={newRecipeForm.imageUrl}
-                alt="Recipe preview"
-                sx={{
-                  maxWidth: '100%',
-                  maxHeight: 200,
-                  borderRadius: 1,
-                  objectFit: 'cover'
-                }}
-                onError={(e) => { e.target.style.display = 'none'; }}
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={Boolean(newRecipeForm.sharedWithFriends)}
+                onChange={(e) => setNewRecipeForm((prev) => ({ ...prev, sharedWithFriends: e.target.checked }))}
+                color="primary"
               />
-            </Box>
-          )}
-          {newRecipeForm.mealTypes && newRecipeForm.mealTypes.trim() && (
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-              {newRecipeForm.mealTypes.split(',').map((type) => type.trim()).filter(Boolean).map((type) => (
-                <Chip
-                  key={type}
-                  label={type.charAt(0).toUpperCase() + type.slice(1)}
-                  size="small"
-                  variant="outlined"
-                />
-              ))}
-            </Box>
-          )}
+            }
+            label="Make it public"
+            sx={{ ml: 'calc(-4px - 2px)', mt: 1 }}
+          />
         </DialogContent>
-        <DialogActions>
-          <Button onClick={closeAddDialog}>Cancel</Button>
-          <Button type="submit" variant="contained">
-            Save recipe
-          </Button>
+        <DialogActions sx={{ px: 0, justifyContent: 'space-between' }}>
+          <Box sx={{ px: isMobile ? 3 : 2, display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+            <Typography
+              component="button"
+              type="button"
+              onClick={closeAddDialog}
+              sx={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'text.primary',
+                fontSize: '0.9375rem',
+                fontWeight: 500,
+                p: 0,
+                textTransform: 'uppercase',
+                '&:hover': { textDecoration: 'underline' },
+              }}
+            >
+              Cancel
+            </Typography>
+            <Button type="submit" variant="contained" sx={{ px: 'calc(16px + 2px)' }}>
+              Save recipe
+            </Button>
+          </Box>
         </DialogActions>
       </Dialog>
 
@@ -3863,10 +4460,12 @@ function App() {
         PaperProps={{
           sx: {
             borderRadius: friendsDrawerExpanded ? 0 : '16px 16px 0 0',
-            height: friendsDrawerExpanded ? '100dvh' : '85dvh',
+            height: friendsDrawerExpanded ? '100dvh' : 'calc(85dvh + 20px)',
             display: 'flex',
             flexDirection: 'column',
             transition: 'height 0.3s ease, border-radius 0.3s ease',
+            paddingBottom: 'env(safe-area-inset-bottom)',
+            ...(darkMode ? { backgroundColor: '#212328', backgroundImage: 'none' } : {}),
           }
         }}
       >
@@ -3892,12 +4491,12 @@ function App() {
           }}
           sx={{ display: 'flex', justifyContent: 'center', pt: 1.5, pb: 0.5, flexShrink: 0, cursor: 'grab', touchAction: 'none' }}
         >
-          <Box sx={{ width: 40, height: 4, borderRadius: 2, bgcolor: 'grey.300' }} />
+          <Box sx={{ width: 40, height: 4, borderRadius: 2, bgcolor: darkMode ? 'rgba(255,255,255,0.3)' : 'grey.300' }} />
         </Box>
 
         {/* Header */}
-        <Box sx={{ display: 'flex', alignItems: 'flex-start', px: 2, pt: 0.5, pb: 1, flexShrink: 0 }}>
-          {selectedFriend ? (
+        {selectedFriend && (
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', px: 2, pt: 0.5, pb: 1, flexShrink: 0 }}>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, flex: 1 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 <IconButton onClick={() => { setSelectedFriend(null); setFriendRecipes([]); setFriendRecipeSearchOpen(false); setFriendRecipeSearchQuery(''); }} size="small" edge="start">
@@ -3915,17 +4514,23 @@ function App() {
                 {selectedFriend.friendName}
               </Typography>
             </Box>
-          ) : (
-            <Typography variant="h6" sx={{ flex: 1 }}>Friends</Typography>
-          )}
-        </Box>
+          </Box>
+        )}
 
         {!selectedFriend && (
           <Tabs
             value={friendsTab}
             onChange={(e, v) => setFriendsTab(v)}
             variant="fullWidth"
-            sx={{ borderBottom: 1, borderColor: 'divider', flexShrink: 0 }}
+            sx={(theme) => ({
+              borderBottom: 1,
+              borderColor: 'divider',
+              flexShrink: 0,
+              ...(theme.palette.mode === 'dark' && {
+                '& .MuiTab-root.Mui-selected': { color: '#7A7BFF' },
+                '& .MuiTabs-indicator': { backgroundColor: '#7A7BFF' }
+              })
+            })}
           >
             <Tab label="Friends" />
             <Tab label={
@@ -3959,7 +4564,7 @@ function App() {
               }
             }
           }}
-          sx={{ flex: 1, overflowY: 'auto', p: 2, borderTop: '1px solid', borderColor: 'divider' }}
+          sx={{ flex: 1, overflowY: 'auto', pt: 0, px: 2, pb: 2, borderTop: '1px solid', borderColor: 'divider' }}
         >
           {selectedFriend ? (
             friendRecipesLoading ? (
@@ -4016,9 +4621,10 @@ function App() {
                       key={recipe.id}
                       elevation={0}
                       sx={{
-                        border: '1px solid #E5E5E5',
+                        border: 1, borderColor: 'divider',
                         borderRadius: 1,
                         overflow: 'hidden',
+                        ...(darkMode && { backgroundColor: 'transparent' })
                       }}
                     >
                       <CardActionArea
@@ -4072,10 +4678,68 @@ function App() {
                 )}
               </Box>
             )
+          ) : isAddFriendOpen ? (
+            <Box sx={{ mt: '24px' }}>
+              <Typography variant="subtitle2" gutterBottom sx={{ fontSize: { xs: '13px', sm: '0.875rem' } }}>Add a friend by email</Typography>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <TextField
+                  fullWidth
+                  placeholder="friend@example.com"
+                  type="email"
+                  autoComplete="email"
+                  value={addFriendEmail}
+                  sx={{ '& .MuiOutlinedInput-root': { height: '46px' } }}
+                  onChange={(e) => setAddFriendEmail(e.target.value)}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && addFriendEmail.trim()) {
+                      e.preventDefault();
+                      sendFriendRequest(addFriendEmail.trim());
+                    }
+                  }}
+                />
+                <IconButton
+                  disabled={!addFriendEmail.trim() || addFriendLoading}
+                  onClick={() => sendFriendRequest(addFriendEmail.trim())}
+                  color="primary"
+                >
+                  {addFriendLoading ? <CircularProgress size={22} /> : <SendIcon />}
+                </IconButton>
+              </Stack>
+              <Divider sx={{ my: 1.5 }}>
+                <Typography variant="caption" color="text.secondary">or</Typography>
+              </Divider>
+              <Button
+                fullWidth
+                variant="outlined"
+                color="primary"
+                onClick={() => {
+                  const msg = encodeURIComponent('Hey! Join me on ReciFind to share recipes: https://recifind.elisawidjaja.com');
+                  window.open(`sms:?body=${msg}`);
+                }}
+                sx={(theme) => ({
+                  borderRadius: '6px',
+                  py: 1.25,
+                  bgcolor: 'transparent',
+                  textTransform: 'none',
+                  fontSize: '0.9375rem',
+                  fontWeight: 500,
+                  gap: 1,
+                  ...(theme.palette.mode === 'dark' && {
+                    color: '#fff',
+                    borderColor: 'rgba(255,255,255,0.2)',
+                    '&:hover': { borderColor: 'rgba(255,255,255,0.2)', bgcolor: 'rgba(255,255,255,0.08)' },
+                  }),
+                })}
+              >
+                <SmsIcon fontSize="small" />
+                Invite by text message
+              </Button>
+            </Box>
           ) : friendsTab === 0 ? (
             friends.length === 0 ? (
-              <Typography color="text.secondary" align="center" sx={{ py: 4 }}>
-                No friends yet. Tap &quot;Add Friend&quot; to get started.
+              <Typography variant="body2" color="text.secondary" align="center" sx={{ pt: '14px', pb: 1 }}>
+                Tap &ldquo;Add Friend&rdquo; to get started
               </Typography>
             ) : (
               <List disablePadding>
@@ -4097,7 +4761,12 @@ function App() {
                       edge="end"
                       onClick={(e) => {
                         e.stopPropagation();
-                        removeFriend(friend.friendId);
+                        setFriendConfirm({
+                          open: true,
+                          title: 'Remove friend',
+                          message: `Remove ${friend.friendName || friend.friendEmail} from your friends?`,
+                          onConfirm: () => removeFriend(friend.friendId)
+                        });
                       }}
                       size="small"
                       sx={{ mr: -3 }}
@@ -4109,16 +4778,16 @@ function App() {
               </List>
             )
           ) : (
-            friendRequests.length === 0 && sentRequests.length === 0 ? (
-              <Typography color="text.secondary" align="center" sx={{ py: 4 }}>
+            friendRequests.length === 0 && sentRequests.length === 0 && sentInvites.length === 0 ? (
+              <Typography variant="body2" color="text.secondary" align="center" sx={{ pt: '14px', pb: 1 }}>
                 No pending friend requests
               </Typography>
             ) : (
               <List disablePadding>
                 {friendRequests.map((req, index) => (
                   <Fragment key={req.fromUserId}>
-                    {index > 0 && <Divider sx={{ borderColor: 'grey.200' }} />}
-                    <ListItem sx={{ pl: 0, alignItems: 'flex-start' }}>
+                    {index > 0 && <Divider />}
+                    <ListItem sx={{ pl: 0, alignItems: 'flex-start', pb: '20px' }}>
                       <ListItemAvatar>
                         <Avatar sx={{ bgcolor: 'secondary.main' }}>
                           {(req.fromName || req.fromEmail || '?')[0].toUpperCase()}
@@ -4129,10 +4798,19 @@ function App() {
                         <Stack direction="row" spacing={1} sx={{ mt: '10px' }}>
                           <Button
                             size="small"
-                            variant="contained"
+                            variant="outlined"
                             color="primary"
                             onClick={() => acceptFriendRequest(req.fromUserId)}
                             startIcon={<CheckIcon />}
+                            sx={(theme) => ({
+                              flex: 1,
+                              bgcolor: 'transparent',
+                              ...(theme.palette.mode === 'dark' && {
+                                color: 'white',
+                                borderColor: 'white',
+                                '& .MuiButton-startIcon': { color: 'white' },
+                              }),
+                            })}
                           >
                             Accept
                           </Button>
@@ -4141,6 +4819,14 @@ function App() {
                             variant="outlined"
                             color="inherit"
                             onClick={() => declineFriendRequest(req.fromUserId)}
+                            startIcon={<CloseIcon />}
+                            sx={(theme) => ({
+                              flex: 1,
+                              color: theme.palette.mode === 'dark' ? '#f28b82' : 'error.main',
+                              borderColor: theme.palette.mode === 'dark' ? '#f28b82' : 'error.main',
+                              '& .MuiButton-startIcon': { color: 'inherit' },
+                              '&:hover': { borderColor: 'inherit', bgcolor: 'transparent' },
+                            })}
                           >
                             Decline
                           </Button>
@@ -4149,7 +4835,7 @@ function App() {
                     </ListItem>
                   </Fragment>
                 ))}
-                {sentRequests.length > 0 && (
+                {(sentRequests.length > 0 || sentInvites.length > 0) && (
                   <>
                     {friendRequests.length > 0 && <Divider sx={{ my: 1 }} />}
                     <Typography variant="caption" color="text.secondary" sx={{ pl: 0, pt: '10px', pb: '4px', display: 'block', fontWeight: 'bold', textTransform: 'uppercase' }}>
@@ -4162,7 +4848,12 @@ function App() {
                         secondaryAction={
                           <IconButton
                             size="small"
-                            onClick={() => cancelSentFriendRequest(req.toUserId)}
+                            onClick={() => setFriendConfirm({
+                              open: true,
+                              title: 'Cancel request',
+                              message: `Cancel your friend request to ${req.toEmail}?`,
+                              onConfirm: () => cancelSentFriendRequest(req.toUserId)
+                            })}
                             aria-label="Cancel request"
                           >
                             <CloseIcon fontSize="small" />
@@ -4181,58 +4872,81 @@ function App() {
                         />
                       </ListItem>
                     ))}
+                    {sentInvites.map((inv) => (
+                      <ListItem
+                        key={inv.inviteId}
+                        sx={{ pl: 0, '& .MuiListItemSecondaryAction-root': { right: -8 } }}
+                        secondaryAction={
+                          <IconButton
+                            size="small"
+                            onClick={() => setFriendConfirm({
+                              open: true,
+                              title: 'Cancel invite',
+                              message: `Cancel your invite to ${inv.toEmail}?`,
+                              onConfirm: () => cancelInvite(inv.inviteId)
+                            })}
+                            aria-label="Cancel invite"
+                          >
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
+                        }
+                      >
+                        <ListItemAvatar>
+                          <Avatar sx={{ bgcolor: 'grey.300' }}>
+                            {(inv.toEmail || '?')[0].toUpperCase()}
+                          </Avatar>
+                        </ListItemAvatar>
+                        <ListItemText
+                          primary={inv.toEmail}
+                          secondary="Invited — not on ReciFind yet"
+                          sx={{ pr: 8 }}
+                        />
+                      </ListItem>
+                    ))}
                   </>
                 )}
               </List>
             )
           )}
 
-          {isAddFriendOpen && !selectedFriend && (
-            <Box sx={{ mt: 2, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
-              <Typography variant="subtitle2" gutterBottom>Add a friend by email</Typography>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <TextField
-                  size="small"
-                  fullWidth
-                  placeholder="friend@example.com"
-                  type="email"
-                  value={addFriendEmail}
-                  onChange={(e) => setAddFriendEmail(e.target.value)}
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && addFriendEmail.trim()) {
-                      e.preventDefault();
-                      sendFriendRequest(addFriendEmail.trim());
-                    }
-                  }}
-                />
-                <Button
-                  variant="contained"
-                  disabled={!addFriendEmail.trim() || addFriendLoading}
-                  onClick={() => sendFriendRequest(addFriendEmail.trim())}
-                  sx={{ minWidth: 'auto', px: 2 }}
-                >
-                  {addFriendLoading ? <CircularProgress size={20} /> : <SendIcon fontSize="small" />}
-                </Button>
-              </Stack>
-            </Box>
-          )}
         </Box>
 
         {!selectedFriend && (
-          <Box sx={{ px: 2, py: 1.5, borderTop: '1px solid', borderColor: 'divider', flexShrink: 0 }}>
+          <Box sx={{ px: 2, py: 1.5, borderTop: '1px solid', borderColor: 'divider', flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
             <Button
               startIcon={isAddFriendOpen ? <CloseIcon /> : <PersonAddIcon />}
               onClick={() => {
                 setIsAddFriendOpen(!isAddFriendOpen);
                 setAddFriendEmail('');
               }}
+              sx={(theme) => ({
+                ...(theme.palette.mode === 'dark' && { color: '#fff' })
+              })}
             >
               {isAddFriendOpen ? 'Cancel' : 'Add Friend'}
             </Button>
           </Box>
         )}
       </Drawer>
+
+      <Dialog open={friendConfirm.open} onClose={() => setFriendConfirm(s => ({ ...s, open: false }))} maxWidth="xs" fullWidth>
+        <DialogTitle>{friendConfirm.title}</DialogTitle>
+        <DialogContent>
+          <Typography>{friendConfirm.message}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setFriendConfirm(s => ({ ...s, open: false }))} sx={(theme) => ({ ...(theme.palette.mode === 'dark' && { color: '#fff' }) })}>Cancel</Button>
+          <Button
+            color="error"
+            onClick={() => {
+              friendConfirm.onConfirm?.();
+              setFriendConfirm(s => ({ ...s, open: false }));
+            }}
+          >
+            Confirm
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar
         open={snackbarState.open}
@@ -4244,6 +4958,124 @@ function App() {
           {snackbarState.message}
         </Alert>
       </Snackbar>
+
+      <Drawer
+        anchor="bottom"
+        open={showInstallBanner && isMobile}
+        onClose={() => setShowInstallBanner(false)}
+        PaperProps={{
+          sx: {
+            borderRadius: 0,
+            px: 2,
+            pt: 2,
+            pb: 3,
+            boxShadow: '0 -4px 20px rgba(0,0,0,0.12)',
+          }
+        }}
+      >
+        {/* Header row */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+          <Box
+            component="img"
+            src="/icon-192.png"
+            alt="ReciFind"
+            sx={{ width: 44, height: 44, borderRadius: 2, flexShrink: 0 }}
+          />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+            <ArrowForwardIcon sx={{ color: 'text.secondary', fontSize: 18 }} />
+            <Typography variant="body1" fontWeight={700}>Add to Home Screen</Typography>
+          </Box>
+          <IconButton
+            size="small"
+            onClick={() => setShowInstallBanner(false)}
+          >
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </Box>
+
+        {isIos ? (
+          /* iOS step-by-step */
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {[
+              { step: '1', content: <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>Tap the <IosShareOutlinedIcon sx={{ fontSize: 18, color: (theme) => theme.palette.mode === 'dark' ? 'white' : 'primary.main', mx: 0.25 }} /> Share button</Box> },
+              { step: '2', content: 'Scroll down and tap More' },
+              { step: '3', content: 'Tap Add to Home Screen' },
+            ].map(({ step, content }) => (
+              <Box key={step} sx={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
+                  Step {step}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">{content}</Typography>
+              </Box>
+            ))}
+          </Box>
+        ) : (
+          /* Android/Chrome install button */
+          <Button
+            fullWidth
+            variant="contained"
+            disableElevation
+            onClick={async () => {
+              deferredInstallPrompt.current.prompt();
+              const { outcome } = await deferredInstallPrompt.current.userChoice;
+              if (outcome === 'accepted') {
+                setShowInstallBanner(false);
+                localStorage.setItem('recifind-install-banner-dismissed', '1');
+              }
+            }}
+          >
+            Install App
+          </Button>
+        )}
+
+        <Divider sx={{ mt: 2 }} />
+
+        {/* Don't show again */}
+        <Box
+          sx={{ mt: 1.5, cursor: 'pointer', textAlign: 'center' }}
+          onClick={() => {
+            setShowInstallBanner(false);
+            localStorage.setItem('recifind-install-banner-dismissed', '1');
+          }}
+        >
+          <Typography variant="body2" color="text.secondary">Dismiss and don't show again</Typography>
+        </Box>
+      </Drawer>
+
+      <Dialog
+        open={isEditNameOpen}
+        onClose={() => setIsEditNameOpen(false)}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>Edit display name</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            margin="dense"
+            label="Display name"
+            value={editNameValue}
+            onChange={(e) => setEditNameValue(e.target.value)}
+            inputProps={{ maxLength: 50 }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && editNameValue.trim()) {
+                updateDisplayName(editNameValue.trim());
+              }
+            }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ justifyContent: 'flex-end', px: 3, pb: 2 }}>
+          <Button color={darkMode ? 'inherit' : 'primary'} onClick={() => setIsEditNameOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!editNameValue.trim()}
+            onClick={() => updateDisplayName(editNameValue.trim())}
+          >
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={isAuthDialogOpen}
@@ -4324,10 +5156,177 @@ function App() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={closeAuthDialog}>Cancel</Button>
+          <Button onClick={closeAuthDialog} sx={(theme) => ({ ...(theme.palette.mode === 'dark' && { color: '#fff' }) })}>Cancel</Button>
         </DialogActions>
       </Dialog>
-    </>
+      {/* Feedback widget */}
+      {showFeedbackWidget && <Box sx={{ position: 'fixed', bottom: 'calc(20px + env(safe-area-inset-bottom))', right: 20, zIndex: 1300 }}>
+        <Tooltip title="Send feedback" placement="left">
+          <IconButton
+            onClick={() => { setFeedbackOpen(true); setFeedbackDone(false); }}
+            sx={{
+              bgcolor: darkMode ? 'rgba(98,0,234,0.35)' : 'rgba(98,0,234,0.12)',
+              color: darkMode ? '#ce93d8' : '#6200EA',
+              width: 48,
+              height: 48,
+              '&:hover': { bgcolor: darkMode ? 'rgba(98,0,234,0.5)' : 'rgba(98,0,234,0.2)' }
+            }}
+          >
+            <FeedbackOutlinedIcon />
+          </IconButton>
+        </Tooltip>
+      </Box>}
+      <Dialog open={feedbackOpen} onClose={() => setFeedbackOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ pb: 1, p: 0, position: 'relative', minHeight: 40 }}>
+          <Typography variant="subtitle1" fontWeight={600} sx={{ pt: 1.5, pb: 1.5, pl: '20px', pr: 5 }}>
+            {feedbackDone ? 'Feedback sent' : 'Send feedback'}
+          </Typography>
+          <IconButton onClick={() => setFeedbackOpen(false)} size="small" sx={{ position: 'absolute', right: 12, top: 8, color: 'text.secondary' }}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ px: '20px' }}>
+          {feedbackDone ? (
+            <Typography sx={{ py: 1, color: darkMode ? '#fff' : 'success.main' }}>Thanks for your feedback!</Typography>
+          ) : (
+            <Stack spacing={3} sx={{ pt: 0.5 }}>
+              {/* Q1: Rating 1–5 as selectable rows */}
+              <Box>
+                <Typography variant="body2" fontWeight={500} gutterBottom>How useful is this app for you?</Typography>
+                <Stack spacing={0.75}>
+                  {[
+                    [1, "Not useful at all"],
+                    [2, "Somewhat useful"],
+                    [3, "Useful"],
+                    [4, "Very useful"],
+                    [5, "Can't live without"],
+                  ].map(([num, label]) => {
+                    const selected = feedbackRating === num;
+                    return (
+                      <Box
+                        key={num}
+                        onClick={() => setFeedbackRating(num)}
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 1.5,
+                          px: 1.5,
+                          py: 1,
+                          borderRadius: 1,
+                          cursor: 'pointer',
+                          border: '1px solid',
+                          borderColor: selected ? 'primary.main' : (darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'),
+                          bgcolor: selected ? (darkMode ? 'rgba(98,0,234,0.18)' : 'rgba(98,0,234,0.06)') : 'transparent',
+                          '&:hover': { borderColor: 'primary.main', bgcolor: darkMode ? 'rgba(98,0,234,0.12)' : 'rgba(98,0,234,0.04)' },
+                          transition: 'all 0.15s',
+                        }}
+                      >
+                        <Box sx={{
+                          width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          bgcolor: selected ? 'primary.main' : (darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'),
+                          color: selected ? '#fff' : 'text.secondary',
+                          fontSize: '0.8rem', fontWeight: 600,
+                        }}>
+                          {num}
+                        </Box>
+                        <Typography variant="body2" color={selected ? (darkMode ? '#fff' : 'primary.main') : 'text.primary'} fontWeight={selected ? 500 : 400}>
+                          {label}
+                        </Typography>
+                      </Box>
+                    );
+                  })}
+                </Stack>
+              </Box>
+
+              {/* Q2: Frequency as selectable rows */}
+              <Box>
+                <Typography variant="body2" fontWeight={500} gutterBottom>How often will you use it?</Typography>
+                <Stack spacing={0.75}>
+                  {[
+                    ['Daily', 'Every day'],
+                    ['Weekly', 'A few times a week'],
+                    ['Monthly', 'A few times a month'],
+                    ['Rarely', 'Rarely'],
+                  ].map(([val, label]) => {
+                    const selected = feedbackFrequency === val;
+                    return (
+                      <Box
+                        key={val}
+                        onClick={() => setFeedbackFrequency(val)}
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 1.5,
+                          px: 1.5,
+                          py: 1,
+                          borderRadius: 1,
+                          cursor: 'pointer',
+                          border: '1px solid',
+                          borderColor: selected ? 'primary.main' : (darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'),
+                          bgcolor: selected ? (darkMode ? 'rgba(98,0,234,0.18)' : 'rgba(98,0,234,0.06)') : 'transparent',
+                          '&:hover': { borderColor: 'primary.main', bgcolor: darkMode ? 'rgba(98,0,234,0.12)' : 'rgba(98,0,234,0.04)' },
+                          transition: 'all 0.15s',
+                        }}
+                      >
+                        <Box sx={{
+                          width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          bgcolor: selected ? 'primary.main' : (darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'),
+                          color: selected ? '#fff' : 'text.secondary',
+                        }}>
+                          <CheckIcon sx={{ fontSize: '0.9rem' }} />
+                        </Box>
+                        <Typography variant="body2" color={selected ? (darkMode ? '#fff' : 'primary.main') : 'text.primary'} fontWeight={selected ? 500 : 400}>
+                          {label}
+                        </Typography>
+                      </Box>
+                    );
+                  })}
+                </Stack>
+              </Box>
+
+              {/* Q3: Open text */}
+              <Box>
+                <Typography variant="body2" fontWeight={500} gutterBottom>Other comments</Typography>
+                <TextField
+                  multiline
+                  rows={3}
+                  placeholder="Optional comments..."
+                  value={feedbackMessage}
+                  onChange={(e) => setFeedbackMessage(e.target.value)}
+                  fullWidth
+                  size="small"
+                />
+              </Box>
+
+              <TextField
+                placeholder="Your email (optional)"
+                value={feedbackEmail}
+                onChange={(e) => setFeedbackEmail(e.target.value)}
+                fullWidth
+                size="small"
+                type="email"
+              />
+            </Stack>
+          )}
+        </DialogContent>
+        {!feedbackDone && (
+          <DialogActions sx={{ justifyContent: 'space-between', px: '20px', pb: 3 }}>
+            <Button onClick={() => setFeedbackOpen(false)} sx={{ color: 'text.primary' }}>
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              onClick={handleSubmitFeedback}
+              disabled={feedbackSubmitting || !feedbackFrequency || !feedbackRating}
+            >
+              {feedbackSubmitting ? <CircularProgress size={18} /> : 'Send'}
+            </Button>
+          </DialogActions>
+        )}
+      </Dialog>
+    </ThemeProvider>
   );
 }
 

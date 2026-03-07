@@ -217,6 +217,33 @@ export default {
         return new Response('ok', { headers: withCors() });
       }
 
+      // Public endpoint to get recipe credit/author from source URL via oEmbed
+      if (url.pathname === '/public/oembed-author' && request.method === 'GET') {
+        return await handleOembedAuthor(url);
+      }
+
+      // Public endpoint to submit user feedback
+      if (url.pathname === '/feedback' && request.method === 'POST') {
+        const body = await request.json() as { message?: string; senderEmail?: string };
+        if (!body.message || typeof body.message !== 'string' || !body.message.trim()) {
+          return json({ error: 'Message is required' }, 400, withCors());
+        }
+        const message = body.message.trim().slice(0, 2000);
+        const senderEmail = typeof body.senderEmail === 'string' ? body.senderEmail.trim() : '';
+        const replyLine = senderEmail ? `<p style="margin: 0 0 8px; color: #555;"><strong>Reply to:</strong> ${senderEmail}</p>` : '';
+        await sendEmailNotification(
+          env,
+          'elisa.widjaja@gmail.com',
+          'New ReciFind feedback',
+          `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
+            <h2 style="margin: 0 0 16px; font-size: 20px; color: #1a1a1a;">New feedback</h2>
+            ${replyLine}
+            <p style="margin: 0; font-size: 16px; line-height: 1.6; color: #333; white-space: pre-wrap;">${message.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
+          </div>`
+        );
+        return json({ ok: true }, 200, withCors());
+      }
+
       // Public endpoint to get shared recipe by token (no auth required)
       const shareTokenMatch = url.pathname.match(/^\/public\/share\/([^/]+)$/);
       if (shareTokenMatch && request.method === 'GET') {
@@ -305,6 +332,16 @@ export default {
         return methodNotAllowed(['GET', 'PUT', 'PATCH', 'DELETE']);
       }
 
+      // ── Profile routes ─────────────────────────────────────────────
+      if (url.pathname === '/profile' && request.method === 'GET') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return await handleGetProfile(env, user);
+      }
+      if (url.pathname === '/profile' && request.method === 'PATCH') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return await handleUpdateProfile(request, env, user);
+      }
+
       // ── Friends routes ─────────────────────────────────────────────
       if (url.pathname === '/friends' && request.method === 'GET') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
@@ -321,6 +358,24 @@ export default {
       if (url.pathname === '/friends/requests/sent' && request.method === 'GET') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
         return await handleListSentFriendRequests(env, user);
+      }
+      if (url.pathname === '/friends/invites/sent' && request.method === 'GET') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return await handleListSentInvites(env, user);
+      }
+      if (url.pathname === '/friends/accept-invite' && request.method === 'POST') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return await handleAcceptInvite(request, env, user, ctx);
+      }
+      if (url.pathname === '/friends/check-invites' && request.method === 'POST') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return await handleCheckInvites(env, user, ctx);
+      }
+      const cancelInviteMatch = url.pathname.match(/^\/friends\/invites\/([^/]+)$/);
+      if (cancelInviteMatch && request.method === 'DELETE') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        const inviteId = decodeURIComponent(cancelInviteMatch[1]);
+        return await handleCancelInvite(env, user, inviteId);
       }
       if (url.pathname === '/friends/notifications' && request.method === 'GET') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
@@ -644,6 +699,32 @@ async function handleRecipeCount(request: Request, env: Env, user: Authenticated
   }, 200, cacheHeaders({ visibility: 'private', maxAge: 0, etag }));
 }
 
+async function handleGetProfile(env: Env, user: AuthenticatedUser) {
+  const profile = await getOrCreateProfile(env, user.userId, user.email);
+  const meta = await getCollectionMeta(env, user.userId);
+  return json({
+    displayName: profile.displayName,
+    email: profile.email,
+    createdAt: profile.createdAt,
+    recipeCount: meta?.count ?? 0,
+  });
+}
+
+async function handleUpdateProfile(request: Request, env: Env, user: AuthenticatedUser) {
+  const body = await request.json() as { displayName?: string };
+  const displayName = body.displayName?.trim();
+  if (!displayName || displayName.length === 0) {
+    throw new HttpError(400, 'Display name is required');
+  }
+  if (displayName.length > 50) {
+    throw new HttpError(400, 'Display name must be 50 characters or less');
+  }
+  await env.DB.prepare(
+    'UPDATE profiles SET display_name = ? WHERE user_id = ?'
+  ).bind(displayName, user.userId).run();
+  return json({ displayName });
+}
+
 async function handleGetRecipe(request: Request, env: Env, user: AuthenticatedUser, recipeId: string) {
   const recipe = await loadRecipe(env, user.userId, recipeId);
   const lastModified = new Date(recipe.updatedAt);
@@ -684,6 +765,82 @@ async function handleCreateShareLink(env: Env, user: AuthenticatedUser, recipeId
   ).bind(token, user.userId, recipeId, new Date().toISOString()).run();
 
   return json({ token }, 201, withCors());
+}
+
+async function handleOembedAuthor(url: URL) {
+  const sourceUrl = url.searchParams.get('url');
+  if (!sourceUrl) {
+    return json({ author: null }, 400, withCors());
+  }
+  try {
+    const parsed = new URL(sourceUrl);
+    const host = parsed.hostname.toLowerCase();
+
+    // Try TikTok oEmbed (works reliably)
+    if (host.includes('tiktok.com')) {
+      const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(sourceUrl)}`;
+      const res = await fetch(oembedUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)', 'Accept': 'application/json' }
+      });
+      if (res.ok) {
+        const payload = await res.json() as { author_name?: string };
+        if (payload.author_name) {
+          return json({ author: payload.author_name }, 200, {
+            ...withCors(), 'Cache-Control': 'public, max-age=86400'
+          });
+        }
+      }
+    }
+
+    // For Instagram, try multiple strategies to get the author
+    if (host.includes('instagram.com')) {
+      // Strategy 1: Fetch HTML directly and parse og:title
+      try {
+        const htmlRes = await fetch(sourceUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; RecipeWorker/1.0)',
+            'Accept': 'text/html,application/xhtml+xml'
+          },
+          redirect: 'follow',
+          cf: { cacheTtl: 86400 }
+        });
+        if (htmlRes.ok) {
+          const html = await htmlRes.text();
+          const ogTitle = extractMetaContent(html, 'property', 'og:title');
+          if (ogTitle) {
+            const match = ogTitle.match(/^(.+?)\s+on\s+Instagram/i);
+            if (match) {
+              return json({ author: match[1].trim() }, 200, {
+                ...withCors(), 'Cache-Control': 'public, max-age=86400'
+              });
+            }
+          }
+        }
+      } catch { /* fall through */ }
+
+      // Strategy 2: Use Jina proxy (handles JS-rendered pages)
+      try {
+        const jinaRes = await fetch(`https://r.jina.ai/${sourceUrl}`, {
+          headers: { 'User-Agent': 'RecipeWorker/1.0' }
+        });
+        if (jinaRes.ok) {
+          const text = await jinaRes.text();
+          // Jina markdown output often includes "By AuthorName" or "AuthorName on Instagram"
+          const match = text.match(/^Title:\s*(.+?)\s+on\s+Instagram/im) ||
+                        text.match(/(.+?)\s+on\s+Instagram/i);
+          if (match) {
+            return json({ author: match[1].trim() }, 200, {
+              ...withCors(), 'Cache-Control': 'public, max-age=86400'
+            });
+          }
+        }
+      } catch { /* fall through */ }
+    }
+
+    return json({ author: null }, 200, withCors());
+  } catch {
+    return json({ author: null }, 200, withCors());
+  }
 }
 
 async function handleGetSharedRecipe(request: Request, env: Env, token: string) {
@@ -844,7 +1001,7 @@ async function handleEnrichRecipe(request: Request, env: Env) {
   ]);
 
   if (!rawText) {
-    throw new HttpError(502, 'Failed to fetch content from source URL');
+    throw new HttpError(502, 'Failed to fetch content from source URL. Please keep trying.');
   }
 
   const recipe: Recipe = {
@@ -1008,7 +1165,31 @@ async function handleSendFriendRequest(request: Request, env: Env, user: Authent
 
   const targetUser = await lookupUserByEmail(env, email);
   if (!targetUser) {
-    throw new HttpError(404, 'No account found for that email. They need to sign up first.');
+    // User not on ReciFind yet — send an invite instead
+    const existingInvite = await env.DB.prepare(
+      'SELECT 1 FROM pending_invites WHERE inviter_user_id = ? AND invited_email = ?'
+    ).bind(user.userId, email).first();
+    if (existingInvite) {
+      throw new HttpError(409, 'You already invited this person');
+    }
+    const senderProfile = await getOrCreateProfile(env, user.userId, user.email);
+    const inviteId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      'INSERT INTO pending_invites (id, inviter_user_id, inviter_email, inviter_name, invited_email, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).bind(inviteId, user.userId, user.email || '', senderProfile.displayName, email, now).run();
+    ctx.waitUntil(sendEmailNotification(
+      env,
+      email,
+      `${senderProfile.displayName} invited you to ReciFind`,
+      `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
+        <h2 style="margin: 0 0 16px; font-size: 20px; color: #1a1a1a;">You're invited to ReciFind!</h2>
+        <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;"><strong>${senderProfile.displayName}</strong> invited you to join <a href="https://recifind.elisawidjaja.com" style="color: #6200EA; text-decoration: none;">ReciFind</a> and share recipes together.</p>
+        <a href="https://recifind.elisawidjaja.com?invite_token=${inviteId}" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Join ReciFind</a>
+        <p style="margin: 24px 0 0; font-size: 13px; color: #999;">Once you create an account, you'll automatically be connected with ${senderProfile.displayName}.</p>
+      </div>`
+    ));
+    return json({ success: true, invited: true, message: 'Invite sent' }, 201);
   }
 
   const existingFriend = await env.DB.prepare(
@@ -1099,6 +1280,116 @@ async function handleListSentFriendRequests(env: Env, user: AuthenticatedUser) {
   }));
 
   return json({ sent });
+}
+
+async function handleListSentInvites(env: Env, user: AuthenticatedUser) {
+  const result = await env.DB.prepare(
+    'SELECT id, invited_email, created_at FROM pending_invites WHERE inviter_user_id = ? ORDER BY created_at DESC LIMIT 100'
+  ).bind(user.userId).all();
+
+  const invites = (result.results || []).map((row) => ({
+    inviteId: row.id as string,
+    toEmail: row.invited_email as string,
+    createdAt: row.created_at as string,
+  }));
+
+  return json({ invites });
+}
+
+async function handleAcceptInvite(request: Request, env: Env, user: AuthenticatedUser, ctx: ExecutionContext) {
+  const body = await readJsonBody(request);
+  const token = typeof body.token === 'string' ? body.token.trim() : '';
+  if (!token) throw new HttpError(400, 'Invite token is required');
+
+  const invite = await env.DB.prepare(
+    'SELECT * FROM pending_invites WHERE id = ?'
+  ).bind(token).first();
+  if (!invite) throw new HttpError(404, 'Invite not found or already used');
+
+  // Verify the current user's email matches the invited email
+  if (user.email?.toLowerCase() !== (invite.invited_email as string).toLowerCase()) {
+    throw new HttpError(403, 'This invite was sent to a different email address');
+  }
+
+  const inviterUserId = invite.inviter_user_id as string;
+  const now = new Date().toISOString();
+
+  // Fetch profiles for both users to populate friend_email/friend_name
+  const newUserProfile = await getOrCreateProfile(env, user.userId, user.email);
+  const inviterProfile = await getOrCreateProfile(env, inviterUserId, invite.inviter_email as string);
+
+  // Create bilateral friend connection directly (no accept step needed)
+  await env.DB.batch([
+    env.DB.prepare('INSERT OR IGNORE INTO friends (user_id, friend_id, friend_email, friend_name, connected_at) VALUES (?, ?, ?, ?, ?)').bind(inviterUserId, user.userId, newUserProfile.email, newUserProfile.displayName, now),
+    env.DB.prepare('INSERT OR IGNORE INTO friends (user_id, friend_id, friend_email, friend_name, connected_at) VALUES (?, ?, ?, ?, ?)').bind(user.userId, inviterUserId, inviterProfile.email, inviterProfile.displayName, now),
+    env.DB.prepare('DELETE FROM pending_invites WHERE id = ?').bind(token),
+  ]);
+  ctx.waitUntil(addNotification(env, inviterUserId, {
+    type: 'friend_request',
+    message: `${newUserProfile.displayName} accepted your invite and joined ReciFind!`,
+    data: { fromUserId: user.userId, fromEmail: user.email || '' },
+    createdAt: now,
+  }));
+
+  return json({ success: true, message: 'You are now connected!' });
+}
+
+async function handleCheckInvites(env: Env, user: AuthenticatedUser, ctx: ExecutionContext) {
+  if (!user.email) return json({ connected: [] });
+
+  const result = await env.DB.prepare(
+    'SELECT * FROM pending_invites WHERE LOWER(invited_email) = LOWER(?)'
+  ).bind(user.email).all();
+
+  const invites = result.results || [];
+  if (invites.length === 0) return json({ connected: [] });
+
+  const now = new Date().toISOString();
+  const newUserProfile = await getOrCreateProfile(env, user.userId, user.email);
+  const connected: string[] = [];
+
+  for (const invite of invites) {
+    const inviterUserId = invite.inviter_user_id as string;
+
+    // Skip if already friends
+    const existing = await env.DB.prepare(
+      'SELECT 1 FROM friends WHERE user_id = ? AND friend_id = ?'
+    ).bind(user.userId, inviterUserId).first();
+    if (existing) {
+      // Clean up the stale invite
+      await env.DB.prepare('DELETE FROM pending_invites WHERE id = ?').bind(invite.id).run();
+      continue;
+    }
+
+    const inviterProfile = await getOrCreateProfile(env, inviterUserId, invite.inviter_email as string);
+
+    await env.DB.batch([
+      env.DB.prepare('INSERT OR IGNORE INTO friends (user_id, friend_id, friend_email, friend_name, connected_at) VALUES (?, ?, ?, ?, ?)').bind(inviterUserId, user.userId, newUserProfile.email, newUserProfile.displayName, now),
+      env.DB.prepare('INSERT OR IGNORE INTO friends (user_id, friend_id, friend_email, friend_name, connected_at) VALUES (?, ?, ?, ?, ?)').bind(user.userId, inviterUserId, inviterProfile.email, inviterProfile.displayName, now),
+      env.DB.prepare('DELETE FROM pending_invites WHERE id = ?').bind(invite.id),
+    ]);
+
+    connected.push(inviterProfile.displayName);
+
+    ctx.waitUntil(addNotification(env, inviterUserId, {
+      type: 'friend_request',
+      message: `${newUserProfile.displayName} accepted your invite and joined ReciFind!`,
+      data: { fromUserId: user.userId, fromEmail: user.email || '' },
+      createdAt: now,
+    }));
+  }
+
+  return json({ connected });
+}
+
+async function handleCancelInvite(env: Env, user: AuthenticatedUser, inviteId: string) {
+  const invite = await env.DB.prepare(
+    'SELECT * FROM pending_invites WHERE id = ? AND inviter_user_id = ?'
+  ).bind(inviteId, user.userId).first();
+  if (!invite) throw new HttpError(404, 'Invite not found');
+
+  await env.DB.prepare('DELETE FROM pending_invites WHERE id = ?').bind(inviteId).run();
+  return json({ success: true });
 }
 
 async function handleAcceptFriendRequest(_request: Request, env: Env, user: AuthenticatedUser, fromUserId: string, ctx: ExecutionContext) {
