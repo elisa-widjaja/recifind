@@ -78,6 +78,8 @@ import SmsIcon from '@mui/icons-material/Sms';
 import CheckIcon from '@mui/icons-material/Check';
 import FavoriteIcon from '@mui/icons-material/Favorite';
 import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
+import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
+import BookmarkIcon from '@mui/icons-material/Bookmark';
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
 import SoupKitchenOutlinedIcon from '@mui/icons-material/SoupKitchenOutlined';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
@@ -2916,110 +2918,132 @@ function App() {
     const controller = new AbortController();
     setSourceParseState({ status: 'loading', message: 'Parsing recipe details…' });
 
-    fetchRecipeDetailsFromSource(sourceUrl, { signal: controller.signal, token: accessToken })
-      .then((localResult) => {
-        if (!isActive) {
-          return;
-        }
+    (async () => {
+      // Step 1: fast parse — og: tags, structured data, no Gemini
+      let localResult = null;
+      try {
+        localResult = await fetchRecipeDetailsFromSource(sourceUrl, { signal: controller.signal, token: accessToken });
+      } catch (error) {
+        if (!isActive || error?.name === 'AbortError') return;
+        console.error('Unable to parse recipe from URL.', error);
+      }
 
-        if (!localResult) {
-          lastParseResultRef.current = { url: sourceUrl, status: 'error' };
-          setSourceParseState({
-            status: 'error',
-            message: 'Unable to parse recipe from that link. Keep trying! Save now and enhance later.'
-          });
-          return;
-        }
+      if (!isActive) return;
 
-        lastParseResultRef.current = { url: sourceUrl, status: 'success' };
-
+      // Populate form with whatever parse returned
+      if (localResult) {
         setNewRecipeForm((prev) => {
           const next = { ...prev };
           let changed = false;
-
-          if (!next.title && localResult.title) {
-            next.title = localResult.title;
-            changed = true;
-          }
-          if (localResult.imageUrl) {
-            next.imageUrl = localResult.imageUrl;
-            changed = true;
-          }
+          if (!next.title && localResult.title) { next.title = localResult.title; changed = true; }
+          if (localResult.imageUrl) { next.imageUrl = localResult.imageUrl; changed = true; }
           if ((!next.ingredients || !next.ingredients.trim()) && localResult.ingredients.length > 0) {
-            next.ingredients = localResult.ingredients.join('\n');
-            changed = true;
+            next.ingredients = localResult.ingredients.join('\n'); changed = true;
           }
           if ((!next.steps || !next.steps.trim()) && localResult.steps.length > 0) {
-            next.steps = localResult.steps.join('\n');
-            changed = true;
+            next.steps = localResult.steps.join('\n'); changed = true;
           }
           if ((!next.mealTypes || !next.mealTypes.trim()) && localResult.mealTypes.length > 0) {
-            next.mealTypes = localResult.mealTypes.join(', ');
-            changed = true;
+            next.mealTypes = localResult.mealTypes.join(', '); changed = true;
           }
           if (!next.durationMinutes && typeof localResult.durationMinutes === 'number') {
-            next.durationMinutes = String(localResult.durationMinutes);
-            changed = true;
+            next.durationMinutes = String(localResult.durationMinutes); changed = true;
           }
-
           return changed ? next : prev;
         });
+        setNewRecipeErrors((prev) => (prev && Object.keys(prev).length > 0 ? {} : prev));
+      }
 
-        setNewRecipeErrors((prev) => {
-          if (!prev || Object.keys(prev).length === 0) {
-            return prev;
-          }
-          return {};
-        });
+      const hasIngredients = Array.isArray(localResult?.ingredients) && localResult.ingredients.length > 0;
+      const hasSteps = Array.isArray(localResult?.steps) && localResult.steps.length > 0;
 
-        const hasIngredients = Array.isArray(localResult.ingredients) && localResult.ingredients.length > 0;
-        const hasSteps = Array.isArray(localResult.steps) && localResult.steps.length > 0;
+      setNewRecipePrefillInfo((prev) => {
+        const nextInfo = {
+          matched: prev.matched || Boolean(localResult?.title || localResult?.imageUrl || hasIngredients || hasSteps),
+          hasIngredients: prev.hasIngredients || hasIngredients,
+          hasSteps: prev.hasSteps || hasSteps
+        };
+        if (nextInfo.matched === prev.matched && nextInfo.hasIngredients === prev.hasIngredients && nextInfo.hasSteps === prev.hasSteps) {
+          return prev;
+        }
+        return nextInfo;
+      });
 
-        setNewRecipePrefillInfo((prev) => {
-          const nextInfo = {
-            matched:
-              prev.matched ||
-              Boolean(localResult.title || localResult.imageUrl || hasIngredients || hasSteps),
-            hasIngredients: prev.hasIngredients || hasIngredients,
-            hasSteps: prev.hasSteps || hasSteps
-          };
-          if (
-            nextInfo.matched === prev.matched &&
-            nextInfo.hasIngredients === prev.hasIngredients &&
-            nextInfo.hasSteps === prev.hasSteps
-          ) {
-            return prev;
-          }
-          return nextInfo;
-        });
+      // If parse already got ingredients/steps, we're done
+      if (hasIngredients || hasSteps) {
+        lastParseResultRef.current = { url: sourceUrl, status: 'success' };
+        setSourceParseState({ status: 'success', message: 'Recipe details parsed from source.' });
+        return;
+      }
 
-        if (hasIngredients || hasSteps) {
-          setSourceParseState({ status: 'success', message: 'Recipe details parsed from source.' });
-        } else if (localResult.title || localResult.imageUrl) {
+      // Step 2: no ingredients/steps from parse — fetch from Gemini immediately
+      setSourceParseState({ status: 'loading', message: 'Fetching ingredients and steps with AI…' });
+
+      try {
+        const enrichTitle = localResult?.title || newRecipeForm.title.trim() || '';
+        const enrichResponse = await callRecipesApi('/recipes/enrich', {
+          method: 'POST',
+          body: JSON.stringify({ sourceUrl, title: enrichTitle })
+        }, accessToken);
+
+        if (!isActive) return;
+
+        const enriched = enrichResponse?.enriched;
+        if (enriched) {
+          setNewRecipeForm((prev) => {
+            const next = { ...prev };
+            let changed = false;
+            if ((!next.title || !next.title.trim()) && enriched.title) { next.title = enriched.title; changed = true; }
+            if ((!next.imageUrl || next.imageUrl.startsWith('data:image/svg')) && enriched.imageUrl) { next.imageUrl = enriched.imageUrl; changed = true; }
+            if ((!next.ingredients || !next.ingredients.trim()) && Array.isArray(enriched.ingredients) && enriched.ingredients.length > 0) {
+              next.ingredients = enriched.ingredients.join('\n'); changed = true;
+            }
+            if ((!next.steps || !next.steps.trim()) && Array.isArray(enriched.steps) && enriched.steps.length > 0) {
+              next.steps = enriched.steps.join('\n'); changed = true;
+            }
+            if ((!next.mealTypes || !next.mealTypes.trim()) && Array.isArray(enriched.mealTypes) && enriched.mealTypes.length > 0) {
+              next.mealTypes = enriched.mealTypes.join(', '); changed = true;
+            }
+            if (!next.durationMinutes && enriched.durationMinutes) {
+              next.durationMinutes = String(enriched.durationMinutes); changed = true;
+            }
+            return changed ? next : prev;
+          });
+
+          const enrichedHasIngredients = Array.isArray(enriched.ingredients) && enriched.ingredients.length > 0;
+          const enrichedHasSteps = Array.isArray(enriched.steps) && enriched.steps.length > 0;
+          setNewRecipePrefillInfo((prev) => ({
+            matched: prev.matched || Boolean(enriched.title || enriched.imageUrl || enrichedHasIngredients || enrichedHasSteps),
+            hasIngredients: prev.hasIngredients || enrichedHasIngredients,
+            hasSteps: prev.hasSteps || enrichedHasSteps
+          }));
+
+          lastParseResultRef.current = { url: sourceUrl, status: 'success' };
           setSourceParseState({
             status: 'success',
-            message: 'Recipe title and preview parsed. Add details manually or enhance later.'
+            message: enrichedHasIngredients || enrichedHasSteps
+              ? 'Recipe details filled in with AI.'
+              : 'Recipe title and preview parsed. Add details manually or enhance later.'
           });
         } else {
-          setSourceParseState({
-            status: 'error',
-            message: 'Unable to parse recipe from that link. Keep trying! Save now and enhance later.'
-          });
+          lastParseResultRef.current = { url: sourceUrl, status: localResult ? 'success' : 'error' };
+          setSourceParseState(
+            localResult?.title || localResult?.imageUrl
+              ? { status: 'success', message: 'Recipe title and preview parsed. Add details manually or enhance later.' }
+              : { status: 'error', message: 'Unable to parse recipe from that link. Keep trying! Save now and enhance later.' }
+          );
         }
-      })
-      .catch((error) => {
-        if (!isActive && error?.name === 'AbortError') {
-          return;
-        }
-        console.error('Unable to parse recipe from URL.', error);
-        if (isActive) {
-          lastParseResultRef.current = { url: sourceUrl, status: 'error' };
-          setSourceParseState({
-            status: 'error',
-            message: error?.message || 'Unable to parse recipe from that link. Keep trying! Save now and enhance later.'
-          });
-        }
-      });
+      } catch (err) {
+        if (!isActive) return;
+        console.error('Auto-enrichment failed:', err);
+        lastParseResultRef.current = { url: sourceUrl, status: localResult ? 'success' : 'error' };
+        setSourceParseState(
+          localResult?.title || localResult?.imageUrl
+            ? { status: 'success', message: 'Recipe title and preview parsed. Add details manually or enhance later.' }
+            : { status: 'error', message: 'Unable to parse recipe from that link. Keep trying! Save now and enhance later.' }
+        );
+      }
+    })();
 
     return () => {
       isActive = false;
@@ -3680,13 +3704,18 @@ function App() {
                               size="small"
                               onMouseDown={(e) => e.stopPropagation()}
                               onTouchStart={(e) => e.stopPropagation()}
-                              onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleFavorite(recipe.id); }}
-                              aria-label={favorites.has(recipe.id) ? 'Unfavorite recipe' : 'Favorite recipe'}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                if (!session) { openAuthDialog(); return; }
+                                toggleFavorite(recipe.id);
+                              }}
+                              aria-label={session && favorites.has(recipe.id) ? 'Unsave recipe' : 'Save recipe'}
                               sx={{ p: 0.5, mr: '9px' }}
                             >
-                              {favorites.has(recipe.id)
-                                ? <FavoriteIcon sx={{ fontSize: 18, color: '#E53935' }} />
-                                : <FavoriteBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />}
+                              {session && favorites.has(recipe.id)
+                                ? <BookmarkIcon sx={{ fontSize: 18, color: 'primary.main' }} />
+                                : <BookmarkBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />}
                             </IconButton>
                             <IconButton
                               size="small"
@@ -3768,6 +3797,7 @@ function App() {
         fullWidth={!isMobile}
         maxWidth={isMobile ? false : 'md'}
         aria-labelledby="recipe-dialog-title"
+        data-testid="recipe-detail-dialog"
         slotProps={{
           backdrop: isMobile ? { sx: { backgroundColor: 'transparent' } } : {}
         }}
@@ -4093,11 +4123,11 @@ function App() {
                     </>
                   ) : (
                     <>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                         Ingredients
                       </Typography>
                       {activeRecipeView.ingredients.map((item, i) => (
-                        <Typography key={i} variant="body1" sx={{ py: 0.25 }}>
+                        <Typography key={i} variant="body1" sx={{ mb: 1 }}>
                           {item}
                         </Typography>
                       ))}
@@ -4105,11 +4135,15 @@ function App() {
                   )}
                 </Box>
 
+                <Box sx={{ mt: '0 !important', pt: '20px', pb: '4px' }}>
+                  <Divider />
+                </Box>
+
                 <Box>
                   {isEditMode && !isSharedRecipeView ? (
                     <>
                       <TextField
-                        label="Steps"
+                        label="Instructions"
                         value={(activeRecipeView.steps || []).join('\n')}
                         onChange={(event) => {
                           const updated = event.target.value.split(/\r?\n/);
@@ -4140,14 +4174,22 @@ function App() {
                     </>
                   ) : (
                     <>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
-                        Steps
+                      <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                        Instructions
                       </Typography>
-                      {(activeRecipeView.steps || []).map((step, i) => (
-                        <Typography key={i} variant="body1" sx={{ py: 0.25 }}>
-                          {i + 1}. {step}
-                        </Typography>
-                      ))}
+                      {(activeRecipeView.steps || []).map((step, i) => {
+                        const stepText = step.replace(/^(?:step\s*\d+[:.)\s]+|\d+[:.)\s]+)/i, '').trim();
+                        return (
+                          <Box key={i} sx={{ mb: 2 }}>
+                            <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                              Step {i + 1}
+                            </Typography>
+                            <Typography variant="body1">
+                              {stepText}
+                            </Typography>
+                          </Box>
+                        );
+                      })}
                     </>
                   )}
                 </Box>
@@ -4177,7 +4219,7 @@ function App() {
                 {(isEditMode || (activeRecipeView.mealTypes && activeRecipeView.mealTypes.length > 0)) && (
                   <Box>
                     <Divider sx={{ borderColor: darkMode ? 'rgba(255, 255, 255, 0.12)' : '#E0E0E0', mb: 3 }} />
-                    <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                       Meal types
                     </Typography>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
@@ -4222,17 +4264,70 @@ function App() {
               </Stack>
               </Box>
             </DialogContent>
-            <DialogActions sx={{ justifyContent: isSharedRecipeView ? 'center' : 'flex-end', gap: 1, ...(isEditMode && !isSharedRecipeView ? { px: 0 } : {}), ...(isEditMode && !isSharedRecipeView ? (darkMode ? { backgroundColor: '#121212', borderTop: '1px solid rgba(255, 255, 255, 0.13)' } : { backgroundColor: '#fff', borderTop: '1px solid rgba(0, 0, 0, 0.12)' }) : (darkMode ? { backgroundColor: '#121212', borderTop: '1px solid rgba(255, 255, 255, 0.13)' } : {})) }}>
+            <DialogActions sx={{ justifyContent: (isSharedRecipeView || !session) ? 'center' : 'flex-end', gap: 1, ...(isEditMode && !isSharedRecipeView ? { px: 0 } : {}), ...(isEditMode && !isSharedRecipeView ? (darkMode ? { backgroundColor: '#121212', borderTop: '1px solid rgba(255, 255, 255, 0.13)' } : { backgroundColor: '#fff', borderTop: '1px solid rgba(0, 0, 0, 0.12)' }) : (darkMode ? { backgroundColor: '#121212', borderTop: '1px solid rgba(255, 255, 255, 0.13)' } : {})) }}>
               {isSharedRecipeView ? (
-                <Button
-                  variant={savedSharedRecipeIds.has(activeRecipe?.id) ? 'outlined' : 'contained'}
-                  color="primary"
-                  onClick={savedSharedRecipeIds.has(activeRecipe?.id) ? undefined : handleSaveSharedRecipe}
-                  startIcon={savedSharedRecipeIds.has(activeRecipe?.id) ? <CheckIcon /> : undefined}
-                  sx={savedSharedRecipeIds.has(activeRecipe?.id) ? { pointerEvents: 'none', border: '1px solid #4caf50', color: '#4caf50' } : undefined}
-                >
-                  {savedSharedRecipeIds.has(activeRecipe?.id) ? 'Saved' : 'Save to my recipes'}
-                </Button>
+                <>
+                  <Button
+                    variant="outlined"
+                    color="inherit"
+                    startIcon={<IosShareOutlinedIcon />}
+                    onClick={async () => {
+                      const title = activeRecipe?.title || 'Recipe';
+                      // Use share token URL if present, otherwise fall back to sourceUrl
+                      const hasShareToken = window.location.search.includes('share=');
+                      const shareUrl = hasShareToken
+                        ? window.location.href
+                        : (activeRecipe?.sourceUrl || window.location.href);
+                      if (navigator.share) {
+                        try { await navigator.share({ title, url: shareUrl }); return; } catch (err) { if (err.name === 'AbortError') return; }
+                      }
+                      try {
+                        await navigator.clipboard.writeText(shareUrl);
+                        setSnackbarState({ open: true, message: 'Link copied to clipboard', severity: 'success' });
+                      } catch { /* ignore */ }
+                    }}
+                  >
+                    Share
+                  </Button>
+                  <Button
+                    variant={savedSharedRecipeIds.has(activeRecipe?.id) ? 'outlined' : 'contained'}
+                    color="primary"
+                    onClick={savedSharedRecipeIds.has(activeRecipe?.id) ? undefined : handleSaveSharedRecipe}
+                    startIcon={savedSharedRecipeIds.has(activeRecipe?.id) ? <CheckIcon /> : <BookmarkBorderIcon />}
+                    sx={savedSharedRecipeIds.has(activeRecipe?.id) ? { pointerEvents: 'none', border: '1px solid #4caf50', color: '#4caf50' } : undefined}
+                  >
+                    {savedSharedRecipeIds.has(activeRecipe?.id) ? 'Saved' : 'Save'}
+                  </Button>
+                </>
+              ) : !session && !isEditMode ? (
+                <>
+                  <Button
+                    variant="outlined"
+                    color="inherit"
+                    startIcon={<IosShareOutlinedIcon />}
+                    onClick={async () => {
+                      const title = activeRecipe?.title || 'Recipe';
+                      const shareUrl = activeRecipe?.sourceUrl || window.location.href;
+                      if (navigator.share) {
+                        try { await navigator.share({ title, url: shareUrl }); return; } catch (err) { if (err.name === 'AbortError') return; }
+                      }
+                      try {
+                        await navigator.clipboard.writeText(shareUrl);
+                        setSnackbarState({ open: true, message: 'Link copied to clipboard', severity: 'success' });
+                      } catch { /* ignore */ }
+                    }}
+                  >
+                    Share
+                  </Button>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    startIcon={<BookmarkBorderIcon />}
+                    onClick={openAuthDialog}
+                  >
+                    Save
+                  </Button>
+                </>
               ) : isEditMode ? (
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', px: isMobile ? 3 : 2 }}>
                     {isRemoteEnabled && activeRecipeDraft?.sourceUrl ? (
@@ -4340,6 +4435,7 @@ function App() {
         open={isDeleteConfirmOpen}
         onClose={closeDeleteConfirm}
         aria-labelledby="delete-recipe-dialog-title"
+        data-testid="delete-confirm-dialog"
       >
         <DialogTitle id="delete-recipe-dialog-title">Delete recipe?</DialogTitle>
         <DialogContent>
@@ -4366,6 +4462,7 @@ function App() {
         fullWidth={!isMobile}
         maxWidth={isMobile ? false : 'sm'}
         aria-labelledby="add-recipe-dialog-title"
+        data-testid="add-recipe-dialog"
         component="form"
         onSubmit={handleAddRecipeSubmit}
         slotProps={{
@@ -4447,6 +4544,7 @@ function App() {
       <Drawer
         anchor="bottom"
         open={isFriendsDialogOpen}
+        data-testid="friends-drawer"
         onClose={() => {
           setIsFriendsDialogOpen(false);
           setSelectedFriend(null);
