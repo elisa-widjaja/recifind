@@ -1532,6 +1532,16 @@ async function handleCreateOpenInvite(
   env: Env,
   user: AuthenticatedUser
 ): Promise<Response> {
+  // Reuse existing token if one was created in the last 24 hours
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const existing = await env.DB.prepare(
+    'SELECT token FROM open_invites WHERE inviter_user_id = ? AND created_at > ? LIMIT 1'
+  ).bind(user.userId, cutoff).first();
+
+  if (existing) {
+    return json({ token: existing.token as string });
+  }
+
   const profile = await getOrCreateProfile(env, user.userId, user.email);
   const token = crypto.randomUUID();
   const now = new Date().toISOString();
