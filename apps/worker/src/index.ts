@@ -375,6 +375,10 @@ export default {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
         return await handleCreateOpenInvite(request, env, user);
       }
+      if (url.pathname === '/friends/open-invite/regenerate' && request.method === 'POST') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return await handleRegenerateOpenInvite(request, env, user);
+      }
       if (url.pathname === '/friends/open-invite' && request.method === 'DELETE') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
         return await handleDeleteOpenInvite(env, user);
@@ -1556,14 +1560,39 @@ async function handleCreateOpenInvite(
   env: Env,
   user: AuthenticatedUser
 ): Promise<Response> {
-  // Reuse existing token if one was created in the last 24 hours
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  // Return existing token if one exists (permanent until explicitly regenerated)
   const existing = await env.DB.prepare(
-    'SELECT token FROM open_invites WHERE inviter_user_id = ? AND created_at > ? LIMIT 1'
-  ).bind(user.userId, cutoff).first();
+    'SELECT token FROM open_invites WHERE inviter_user_id = ? LIMIT 1'
+  ).bind(user.userId).first();
 
   if (existing) {
     return json({ token: existing.token as string });
+  }
+
+  const profile = await getOrCreateProfile(env, user.userId, user.email);
+  const token = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  await env.DB.prepare(
+    'INSERT INTO open_invites (token, inviter_user_id, inviter_name, created_at) VALUES (?, ?, ?, ?)'
+  ).bind(token, user.userId, profile.displayName || null, now).run();
+
+  return json({ token });
+}
+
+async function handleRegenerateOpenInvite(
+  request: Request,
+  env: Env,
+  user: AuthenticatedUser
+): Promise<Response> {
+  const body = await request.json() as { generateNew?: boolean };
+  const generateNew = body.generateNew !== false; // default true
+
+  // Delete existing token
+  await env.DB.prepare('DELETE FROM open_invites WHERE inviter_user_id = ?').bind(user.userId).run();
+
+  if (!generateNew) {
+    return json({ token: null });
   }
 
   const profile = await getOrCreateProfile(env, user.userId, user.email);
