@@ -1105,6 +1105,7 @@ function App() {
   const [isFriendsDialogOpen, setIsFriendsDialogOpen] = useState(false);
   const [friendsTab, setFriendsTab] = useState(0);
   const [isAddFriendOpen, setIsAddFriendOpen] = useState(false);
+  const [inviteSent, setInviteSent] = useState(false);
   const [addFriendEmail, setAddFriendEmail] = useState('');
   const [addFriendLoading, setAddFriendLoading] = useState(false);
   const [selectedFriend, setSelectedFriend] = useState(null);
@@ -4639,6 +4640,7 @@ function App() {
           setSelectedFriend(null);
           setFriendRecipes([]);
           setIsAddFriendOpen(false);
+          setInviteSent(false);
           setAddFriendEmail('');
           setFriendRecipeSearchOpen(false);
           setFriendRecipeSearchQuery('');
@@ -4870,48 +4872,68 @@ function App() {
               <Typography variant="subtitle2" gutterBottom sx={{ fontSize: { xs: '13px', sm: '0.875rem' } }}>
                 Invite a friend
               </Typography>
-              <Stack spacing={1.5}>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  startIcon={<EmailOutlinedIcon />}
-                  onClick={async () => {
-                    const inviteUrl = await generateOpenInviteUrl();
-                    if (!inviteUrl) return;
-                    const subject = encodeURIComponent('Join me on ReciFind!');
-                    const body = encodeURIComponent(
-                      `Hey! I'd love to share recipes with you on ReciFind.\n\nJoin me here: ${inviteUrl}`
-                    );
-                    window.location.href = `mailto:?subject=${subject}&body=${body}`;
-                    trackEvent('invite_friend', { method: 'email' });
-                  }}
-                >
-                  Invite by Email
-                </Button>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  startIcon={<SmsIcon />}
-                  onClick={async () => {
-                    const inviteUrl = await generateOpenInviteUrl();
-                    if (!inviteUrl) return;
-                    const text = `Hey! I'd love to share recipes with you on ReciFind. Join me here: ${inviteUrl}`;
-                    if (navigator.share) {
-                      try {
-                        await navigator.share({ text, url: inviteUrl });
-                        trackEvent('invite_friend', { method: 'native_share' });
-                        return;
-                      } catch (err) {
-                        if (err.name === 'AbortError') return;
+              {inviteSent ? (
+                <Box sx={{ textAlign: 'center', py: 1 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Invite sent! Pending acceptance.
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="text"
+                    sx={{ mt: 0.5 }}
+                    onClick={() => setInviteSent(false)}
+                  >
+                    Send another invite
+                  </Button>
+                </Box>
+              ) : (
+                <Stack spacing={1.5}>
+                  <Button
+                    fullWidth
+                    variant="outlined"
+                    startIcon={<EmailOutlinedIcon />}
+                    onClick={async () => {
+                      const inviteUrl = await generateOpenInviteUrl();
+                      if (!inviteUrl) return;
+                      setInviteSent(true);
+                      setSnackbarState({ open: true, message: 'Invite sent! Pending acceptance.', severity: 'success' });
+                      const subject = encodeURIComponent('Join me on ReciFind!');
+                      const body = encodeURIComponent(
+                        `Hey! I'd love to share recipes with you on ReciFind.\n\nJoin me here: ${inviteUrl}`
+                      );
+                      window.location.href = `mailto:?subject=${subject}&body=${body}`;
+                      trackEvent('invite_friend', { method: 'email' });
+                    }}
+                  >
+                    Invite by Email
+                  </Button>
+                  <Button
+                    fullWidth
+                    variant="outlined"
+                    startIcon={<SmsIcon />}
+                    onClick={async () => {
+                      const inviteUrl = await generateOpenInviteUrl();
+                      if (!inviteUrl) return;
+                      setInviteSent(true);
+                      setSnackbarState({ open: true, message: 'Invite sent! Pending acceptance.', severity: 'success' });
+                      const text = `Hey! I'd love to share recipes with you on ReciFind. Join me here: ${inviteUrl}`;
+                      if (navigator.share) {
+                        try {
+                          await navigator.share({ text, url: inviteUrl });
+                          trackEvent('invite_friend', { method: 'native_share' });
+                          return;
+                        } catch (err) {
+                          if (err.name === 'AbortError') return;
+                        }
                       }
-                    }
-                    window.open(`sms:?body=${encodeURIComponent(text)}`);
-                    trackEvent('invite_friend', { method: 'sms' });
-                  }}
-                >
-                  Invite by Text
-                </Button>
-              </Stack>
+                      window.open(`sms:?body=${encodeURIComponent(text)}`);
+                      trackEvent('invite_friend', { method: 'sms' });
+                    }}
+                  >
+                    Invite by Text
+                  </Button>
+                </Stack>
+              )}
             </Box>
           ) : friendsTab === 0 ? (
             friends.length === 0 ? (
