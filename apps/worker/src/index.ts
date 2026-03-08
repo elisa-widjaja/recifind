@@ -375,10 +375,7 @@ export default {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
         return await handleCreateOpenInvite(request, env, user);
       }
-      if (url.pathname === '/friends/open-invite' && request.method === 'DELETE') {
-        if (!user) throw new HttpError(401, 'Missing Authorization header');
-        return await handleDeleteOpenInvite(env, user);
-      }
+
       if (url.pathname === '/friends/accept-open-invite' && request.method === 'POST') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
         return await handleAcceptOpenInvite(request, env, user);
@@ -1327,37 +1324,17 @@ async function handleListSentFriendRequests(env: Env, user: AuthenticatedUser) {
 }
 
 async function handleListSentInvites(env: Env, user: AuthenticatedUser) {
-  const [emailResult, openInvite] = await Promise.all([
-    env.DB.prepare(
-      'SELECT id, invited_email, created_at FROM pending_invites WHERE inviter_user_id = ? ORDER BY created_at DESC LIMIT 100'
-    ).bind(user.userId).all(),
-    env.DB.prepare(
-      'SELECT token, created_at FROM open_invites WHERE inviter_user_id = ? ORDER BY created_at DESC LIMIT 1'
-    ).bind(user.userId).first(),
-  ]);
+  const result = await env.DB.prepare(
+    'SELECT id, invited_email, created_at FROM pending_invites WHERE inviter_user_id = ? ORDER BY created_at DESC LIMIT 100'
+  ).bind(user.userId).all();
 
-  const invites: Array<{ inviteId: string; toEmail: string | null; createdAt: string; isOpenInvite: boolean }> = (emailResult.results || []).map((row) => ({
+  const invites = (result.results || []).map((row) => ({
     inviteId: row.id as string,
     toEmail: row.invited_email as string,
     createdAt: row.created_at as string,
-    isOpenInvite: false,
   }));
 
-  if (openInvite) {
-    invites.unshift({
-      inviteId: 'open-invite',
-      toEmail: null,
-      createdAt: openInvite.created_at as string,
-      isOpenInvite: true,
-    });
-  }
-
   return json({ invites });
-}
-
-async function handleDeleteOpenInvite(env: Env, user: AuthenticatedUser) {
-  await env.DB.prepare('DELETE FROM open_invites WHERE inviter_user_id = ?').bind(user.userId).run();
-  return json({ success: true });
 }
 
 async function handleAcceptInvite(request: Request, env: Env, user: AuthenticatedUser, ctx: ExecutionContext) {
