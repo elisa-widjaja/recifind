@@ -55,7 +55,7 @@ describe('callGemini', () => {
     expect(parsedBody.contents[0].parts[0].text).toBe(prompt);
     expect(parsedBody.generationConfig).toEqual({
       temperature: 0.2,
-      maxOutputTokens: 1024,
+      maxOutputTokens: 4096,
       thinkingConfig: { thinkingBudget: 0 }
     });
     expect(JSON.parse(result)).toEqual({ title: 'Test' });
