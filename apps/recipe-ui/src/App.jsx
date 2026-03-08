@@ -2170,17 +2170,20 @@ function App() {
       }, accessToken)
         .then((result) => {
           setIsAuthDialogOpen(false);
-          const name = result?.inviterName;
-          setSnackbarState({
-            open: true,
-            message: name ? `You're connected with ${name}!` : "You're now connected with your friend on ReciFind!",
-            severity: 'success',
-            anchorOrigin: { vertical: 'top', horizontal: 'center' }
-          });
-          fetchFriends();
+          if (result?.message === 'Connected!') {
+            const name = result?.inviterName;
+            setSnackbarState({
+              open: true,
+              message: name ? `You're connected with ${name}!` : "You're now connected with your friend on ReciFind!",
+              severity: 'success',
+              anchorOrigin: { vertical: 'top', horizontal: 'center' }
+            });
+            fetchFriends();
+          }
         })
         .catch((err) => {
           console.error('Error accepting open invite:', err);
+          setSnackbarState({ open: true, message: 'Could not process invite. It may have already been used.', severity: 'error' });
         });
     }
 
@@ -4894,13 +4897,14 @@ function App() {
                     onClick={async () => {
                       const inviteUrl = await generateOpenInviteUrl();
                       if (!inviteUrl) return;
-                      setInviteSent(true);
-                      setSnackbarState({ open: true, message: 'Invite sent! Pending acceptance.', severity: 'success' });
                       const subject = encodeURIComponent('Join me on ReciFind!');
                       const body = encodeURIComponent(
                         `Hey! I'd love to share recipes with you on ReciFind.\n\nJoin me here: ${inviteUrl}`
                       );
                       window.location.href = `mailto:?subject=${subject}&body=${body}`;
+                      setInviteSent(true);
+                      setSnackbarState({ open: true, message: 'Invite sent! Pending acceptance.', severity: 'success' });
+                      fetchFriendRequests();
                       trackEvent('invite_friend', { method: 'email' });
                     }}
                   >
@@ -4913,12 +4917,13 @@ function App() {
                     onClick={async () => {
                       const inviteUrl = await generateOpenInviteUrl();
                       if (!inviteUrl) return;
-                      setInviteSent(true);
-                      setSnackbarState({ open: true, message: 'Invite sent! Pending acceptance.', severity: 'success' });
                       const text = `Hey! I'd love to share recipes with you on ReciFind. Join me here: ${inviteUrl}`;
                       if (navigator.share) {
                         try {
                           await navigator.share({ text, url: inviteUrl });
+                          setInviteSent(true);
+                          setSnackbarState({ open: true, message: 'Invite sent! Pending acceptance.', severity: 'success' });
+                          fetchFriendRequests();
                           trackEvent('invite_friend', { method: 'native_share' });
                           return;
                         } catch (err) {
@@ -4926,6 +4931,9 @@ function App() {
                         }
                       }
                       window.open(`sms:?body=${encodeURIComponent(text)}`);
+                      setInviteSent(true);
+                      setSnackbarState({ open: true, message: 'Invite sent! Pending acceptance.', severity: 'success' });
+                      fetchFriendRequests();
                       trackEvent('invite_friend', { method: 'sms' });
                     }}
                   >
@@ -5080,8 +5088,14 @@ function App() {
                             onClick={() => setFriendConfirm({
                               open: true,
                               title: 'Cancel invite',
-                              message: `Cancel your invite to ${inv.toEmail}?`,
-                              onConfirm: () => cancelInvite(inv.inviteId)
+                              message: inv.isOpenInvite
+                                ? 'Cancel your shareable invite link? Anyone with the link will no longer be able to connect.'
+                                : `Cancel your invite to ${inv.toEmail}?`,
+                              onConfirm: inv.isOpenInvite
+                                ? () => callRecipesApi('/friends/open-invite', { method: 'DELETE' }, accessToken)
+                                    .then(() => { fetchFriendRequests(); setInviteSent(false); })
+                                    .catch(() => setSnackbarState({ open: true, message: 'Could not cancel invite.', severity: 'error' }))
+                                : () => cancelInvite(inv.inviteId)
                             })}
                             aria-label="Cancel invite"
                           >
@@ -5090,13 +5104,13 @@ function App() {
                         }
                       >
                         <ListItemAvatar>
-                          <Avatar sx={{ bgcolor: 'grey.300' }}>
-                            {(inv.toEmail || '?')[0].toUpperCase()}
+                          <Avatar sx={{ bgcolor: inv.isOpenInvite ? 'primary.light' : 'grey.300' }}>
+                            {inv.isOpenInvite ? '🔗' : (inv.toEmail || '?')[0].toUpperCase()}
                           </Avatar>
                         </ListItemAvatar>
                         <ListItemText
-                          primary={inv.toEmail}
-                          secondary="Invited — not on ReciFind yet"
+                          primary={inv.isOpenInvite ? 'Shareable invite link' : inv.toEmail}
+                          secondary="Invited — pending acceptance"
                           sx={{ pr: 8 }}
                         />
                       </ListItem>
