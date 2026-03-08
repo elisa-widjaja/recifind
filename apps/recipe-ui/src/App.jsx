@@ -2145,6 +2145,25 @@ function App() {
         });
     }
 
+    // Handle open invite (token-based, no email required)
+    const pendingOpenInviteToken = sessionStorage.getItem('pending_open_invite');
+    if (pendingOpenInviteToken) {
+      sessionStorage.removeItem('pending_open_invite');
+      try {
+        await callRecipesApi('/friends/accept-open-invite', {
+          method: 'POST',
+          body: JSON.stringify({ token: pendingOpenInviteToken })
+        }, session.access_token);
+        setSnackbarState({
+          open: true,
+          message: "You're now connected with your friend on ReciFind!",
+          severity: 'success'
+        });
+      } catch (err) {
+        console.error('Error accepting open invite:', err);
+      }
+    }
+
     // Handle pending shared recipe save (user clicked "Save to my recipes" before login)
     const pendingShareToken = sessionStorage.getItem('pending_share_token');
     const pendingSaveShare = sessionStorage.getItem('pending_save_share');
