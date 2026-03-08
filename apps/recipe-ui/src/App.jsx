@@ -155,6 +155,7 @@ function clearRecipesCache() {
   const _openInvite = _url.searchParams.get('invite');
   if (_openInvite) {
     sessionStorage.setItem('pending_open_invite', _openInvite);
+    sessionStorage.setItem('invite_entry', '1');
     _url.searchParams.delete('invite');
     window.history.replaceState({}, '', _url.toString());
   }
@@ -2115,7 +2116,9 @@ function App() {
     const pendingInviteCheck = sessionStorage.getItem('pending_invite_token');
 
     if (!accessToken) {
-      if (pendingInviteCheck || pendingId) {
+      const pendingOpenInviteCheck = sessionStorage.getItem('pending_open_invite');
+      if (pendingInviteCheck || pendingId || pendingOpenInviteCheck) {
+        sessionStorage.removeItem('invite_entry');
         setIsAuthDialogOpen(true);
       }
       return;
