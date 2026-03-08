@@ -371,6 +371,14 @@ export default {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
         return await handleCheckInvites(env, user, ctx);
       }
+      if (url.pathname === '/friends/open-invite' && request.method === 'POST') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return await handleCreateOpenInvite(request, env, user);
+      }
+      if (url.pathname === '/friends/accept-open-invite' && request.method === 'POST') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return await handleAcceptOpenInvite(request, env, user);
+      }
       const cancelInviteMatch = url.pathname.match(/^\/friends\/invites\/([^/]+)$/);
       if (cancelInviteMatch && request.method === 'DELETE') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
@@ -407,6 +415,14 @@ export default {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
         const friendId = decodeURIComponent(friendRecipesMatch[1]);
         return await handleGetFriendRecipes(request, env, user, friendId);
+      }
+
+      const friendRecipeShareMatch = url.pathname.match(/^\/friends\/([^/]+)\/recipes\/([^/]+)\/share$/);
+      if (friendRecipeShareMatch && request.method === 'POST') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        const friendId = decodeURIComponent(friendRecipeShareMatch[1]);
+        const recipeId = decodeURIComponent(friendRecipeShareMatch[2]);
+        return await handleCreateFriendShareLink(env, friendId, recipeId);
       }
       const friendMatch = url.pathname.match(/^\/friends\/([^/]+)$/);
       if (friendMatch && request.method === 'DELETE') {
@@ -763,6 +779,30 @@ async function handleCreateShareLink(env: Env, user: AuthenticatedUser, recipeId
   await env.DB.prepare(
     'INSERT INTO share_links (token, user_id, recipe_id, created_at) VALUES (?, ?, ?, ?)'
   ).bind(token, user.userId, recipeId, new Date().toISOString()).run();
+
+  return json({ token }, 201, withCors());
+}
+
+async function handleCreateFriendShareLink(env: Env, friendId: string, recipeId: string) {
+  // Only share if the recipe is shared with friends
+  const recipe = await env.DB.prepare(
+    'SELECT id FROM recipes WHERE user_id = ? AND id = ? AND shared_with_friends = 1'
+  ).bind(friendId, recipeId).first();
+  if (!recipe) {
+    return json({ error: 'Recipe not found or not shared' }, 404, withCors());
+  }
+
+  const existing = await env.DB.prepare(
+    'SELECT token FROM share_links WHERE user_id = ? AND recipe_id = ?'
+  ).bind(friendId, recipeId).first<{ token: string }>();
+  if (existing) {
+    return json({ token: existing.token }, 200, withCors());
+  }
+
+  const token = generateShareToken();
+  await env.DB.prepare(
+    'INSERT INTO share_links (token, user_id, recipe_id, created_at) VALUES (?, ?, ?, ?)'
+  ).bind(token, friendId, recipeId, new Date().toISOString()).run();
 
   return json({ token }, 201, withCors());
 }
@@ -1485,6 +1525,83 @@ async function handleListFriends(env: Env, user: AuthenticatedUser) {
   }));
 
   return json({ friends });
+}
+
+async function handleCreateOpenInvite(
+  request: Request,
+  env: Env,
+  user: AuthenticatedUser
+): Promise<Response> {
+  const profile = await getOrCreateProfile(env, user.userId, user.email);
+  const token = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  await env.DB.prepare(
+    'INSERT INTO open_invites (token, inviter_user_id, inviter_name, created_at) VALUES (?, ?, ?, ?)'
+  ).bind(token, user.userId, profile.displayName || null, now).run();
+
+  return json({ token });
+}
+
+async function handleAcceptOpenInvite(
+  request: Request,
+  env: Env,
+  user: AuthenticatedUser
+): Promise<Response> {
+  const body = await request.json() as { token?: string };
+  const token = typeof body.token === 'string' ? body.token.trim() : '';
+  if (!token) throw new HttpError(400, 'Token is required');
+
+  const invite = await env.DB.prepare(
+    'SELECT * FROM open_invites WHERE token = ?'
+  ).bind(token).first();
+
+  if (!invite) throw new HttpError(404, 'Invite not found or already used');
+
+  const inviterUserId = invite.inviter_user_id as string;
+
+  // Prevent self-connection
+  if (inviterUserId === user.userId) {
+    return json({ message: 'Cannot accept your own invite' });
+  }
+
+  // Check if already friends
+  const existing = await env.DB.prepare(
+    'SELECT 1 FROM friends WHERE user_id = ? AND friend_id = ?'
+  ).bind(user.userId, inviterUserId).first();
+
+  if (existing) {
+    await env.DB.prepare('DELETE FROM open_invites WHERE token = ?').bind(token).run();
+    return json({ message: 'Already friends' });
+  }
+
+  const accepterProfile = await getOrCreateProfile(env, user.userId, user.email);
+  const inviterProfile = await getOrCreateProfile(env, inviterUserId, '');
+  const now = new Date().toISOString();
+
+  await env.DB.batch([
+    env.DB.prepare(
+      'INSERT OR IGNORE INTO friends (user_id, friend_id, friend_email, friend_name, connected_at) VALUES (?, ?, ?, ?, ?)'
+    ).bind(inviterUserId, user.userId, accepterProfile.email, accepterProfile.displayName, now),
+    env.DB.prepare(
+      'INSERT OR IGNORE INTO friends (user_id, friend_id, friend_email, friend_name, connected_at) VALUES (?, ?, ?, ?, ?)'
+    ).bind(user.userId, inviterUserId, inviterProfile.email, inviterProfile.displayName, now),
+    env.DB.prepare('DELETE FROM open_invites WHERE token = ?').bind(token),
+  ]);
+
+  // Notify the inviter
+  const notifId = crypto.randomUUID();
+  await env.DB.prepare(
+    'INSERT INTO notifications (id, user_id, type, data, created_at, read) VALUES (?, ?, ?, ?, ?, 0)'
+  ).bind(
+    notifId,
+    inviterUserId,
+    'invite_accepted',
+    JSON.stringify({ fromUserId: user.userId, fromName: accepterProfile.displayName }),
+    now
+  ).run();
+
+  return json({ message: 'Connected!' });
 }
 
 async function handleRemoveFriend(env: Env, user: AuthenticatedUser, friendId: string) {
@@ -2797,7 +2914,7 @@ Rules:
 - For ingredients: If the text contains explicit ingredients, use them. Otherwise, use your culinary knowledge to provide the typical/standard ingredients for this dish based on its name and any hints in the text (like comments mentioning "balsamic cream").
 - ingredients should be unique lines with quantity + item (e.g., "4 slices prosciutto", "2 tbsp balsamic glaze").
 - For steps: If explicit instructions exist, use them. Otherwise, provide typical preparation steps for this dish based on your knowledge.
-- steps must be an ordered list of clear instructions.
+- steps must be an ordered list of clear instructions. Do NOT include step numbers or prefixes like "1.", "Step 1:", etc. — just the instruction text itself.
 - mealTypes should be appropriate for this type of dish.
 - durationMinutes should be estimated if not explicitly mentioned.
 - notes should include any tips, serving suggestions, or context from the text.
