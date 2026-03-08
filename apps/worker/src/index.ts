@@ -1579,6 +1579,8 @@ async function handleAcceptOpenInvite(
   const inviterProfile = await getOrCreateProfile(env, inviterUserId, '');
   const now = new Date().toISOString();
 
+  const inviterName = (invite.inviter_name as string | null) || null;
+
   await env.DB.batch([
     env.DB.prepare(
       'INSERT OR IGNORE INTO friends (user_id, friend_id, friend_email, friend_name, connected_at) VALUES (?, ?, ?, ?, ?)'
@@ -1601,7 +1603,7 @@ async function handleAcceptOpenInvite(
     now
   ).run();
 
-  return json({ message: 'Connected!' });
+  return json({ message: 'Connected!', inviterName });
 }
 
 async function handleRemoveFriend(env: Env, user: AuthenticatedUser, friendId: string) {
