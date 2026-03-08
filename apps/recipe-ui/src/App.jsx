@@ -63,6 +63,7 @@ import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import SendIcon from '@mui/icons-material/Send';
 import IosShareOutlinedIcon from '@mui/icons-material/IosShareOutlined';
+import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
 import AddIcon from '@mui/icons-material/Add';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
@@ -149,6 +150,12 @@ function clearRecipesCache() {
   if (_inviteToken) {
     sessionStorage.setItem('pending_invite_token', _inviteToken);
     _url.searchParams.delete('invite_token');
+    window.history.replaceState({}, '', _url.toString());
+  }
+  const _openInvite = _url.searchParams.get('invite');
+  if (_openInvite) {
+    sessionStorage.setItem('pending_open_invite', _openInvite);
+    _url.searchParams.delete('invite');
     window.history.replaceState({}, '', _url.toString());
   }
   const _shareToken = _url.searchParams.get('share');
@@ -1057,6 +1064,7 @@ function App() {
     severity: 'success',
     anchorOrigin: { vertical: 'bottom', horizontal: 'center' }
   });
+  const [shareMenuState, setShareMenuState] = useState(null); // { anchorEl, url, title }
   const sentinelRef = useRef(null);
   const searchBarRef = useRef(null);
   const lastParseResultRef = useRef({ url: '', status: '' });
@@ -1074,6 +1082,9 @@ function App() {
   const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const deferredInstallPrompt = useRef(null);
+  const isPwaInstalled = () =>
+    localStorage.getItem('recifind-pwa-used') ||
+    document.cookie.includes('recifind-pwa-installed=1');
 
   // Auth state
   const [session, setSession] = useState(null);
@@ -1421,15 +1432,18 @@ function App() {
     try {
       const pendingId = sessionStorage.getItem('pending_accept_friend');
       const pendingInvite = sessionStorage.getItem('pending_invite_token');
+      const pendingOpenInvite = sessionStorage.getItem('pending_open_invite');
       const pendingShareToken = sessionStorage.getItem('pending_share_token');
       const pendingSaveShare = sessionStorage.getItem('pending_save_share');
       const redirectTo = pendingId
         ? `${window.location.origin}?accept_friend=${encodeURIComponent(pendingId)}`
         : pendingInvite
           ? `${window.location.origin}?invite_token=${encodeURIComponent(pendingInvite)}`
-          : (pendingShareToken && pendingSaveShare)
-            ? `${window.location.origin}?share=${encodeURIComponent(pendingShareToken)}`
-            : window.location.origin;
+          : pendingOpenInvite
+            ? `${window.location.origin}?invite=${encodeURIComponent(pendingOpenInvite)}`
+            : (pendingShareToken && pendingSaveShare)
+              ? `${window.location.origin}?share=${encodeURIComponent(pendingShareToken)}`
+              : window.location.origin;
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo }
@@ -1461,15 +1475,18 @@ function App() {
     try {
       const pendingId = sessionStorage.getItem('pending_accept_friend');
       const pendingInvite = sessionStorage.getItem('pending_invite_token');
+      const pendingOpenInvite = sessionStorage.getItem('pending_open_invite');
       const pendingShareToken = sessionStorage.getItem('pending_share_token');
       const pendingSaveShare = sessionStorage.getItem('pending_save_share');
       const emailRedirectTo = pendingId
         ? `${window.location.origin}?accept_friend=${encodeURIComponent(pendingId)}`
         : pendingInvite
           ? `${window.location.origin}?invite_token=${encodeURIComponent(pendingInvite)}`
-          : (pendingShareToken && pendingSaveShare)
-            ? `${window.location.origin}?share=${encodeURIComponent(pendingShareToken)}`
-            : window.location.origin;
+          : pendingOpenInvite
+            ? `${window.location.origin}?invite=${encodeURIComponent(pendingOpenInvite)}`
+            : (pendingShareToken && pendingSaveShare)
+              ? `${window.location.origin}?share=${encodeURIComponent(pendingShareToken)}`
+              : window.location.origin;
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: { emailRedirectTo }
@@ -1777,6 +1794,7 @@ function App() {
   // Capture Chrome/Android install prompt
   useEffect(() => {
     if (isStandalone) return;
+    if (isPwaInstalled()) return;
     if (localStorage.getItem('recifind-install-banner-dismissed')) return;
     if (sessionStorage.getItem('pending_invite_token')) return;
     let timer;
@@ -1792,11 +1810,13 @@ function App() {
     };
   }, []);
 
+
   // Show install banner on iOS as soon as auth check completes (no login required)
   useEffect(() => {
     if (!isAuthChecked) return;
     if (!isIosSafari) return;
     if (isStandalone) return;
+    if (isPwaInstalled()) return;
     if (localStorage.getItem('recifind-install-banner-dismissed')) return;
     if (sessionStorage.getItem('pending_invite_token')) return;
     const timer = setTimeout(() => setShowInstallBanner(true), 3000);
@@ -2116,7 +2136,7 @@ function App() {
           setIsAuthDialogOpen(false);
           setSnackbarState({ open: true, message: "You're now connected with your friend on ReciFind!", severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
           fetchFriends();
-          if (!isStandalone && !localStorage.getItem('recifind-install-banner-dismissed')) {
+          if (!isStandalone && !isPwaInstalled() && !localStorage.getItem('recifind-install-banner-dismissed')) {
             setTimeout(() => setShowInstallBanner(true), 3000);
           }
         })
@@ -2197,7 +2217,7 @@ function App() {
         if (res?.connected?.length > 0) {
           setSnackbarState({ open: true, message: `You're now connected with ${res.connected.join(', ')}!`, severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
           fetchFriends();
-          if (!isStandalone && !localStorage.getItem('recifind-install-banner-dismissed')) {
+          if (!isStandalone && !isPwaInstalled() && !localStorage.getItem('recifind-install-banner-dismissed')) {
             setTimeout(() => setShowInstallBanner(true), 3000);
           }
         }
@@ -3724,27 +3744,7 @@ function App() {
                               onClick={async (e) => {
                                 e.stopPropagation();
                                 e.preventDefault();
-
-                                const handleShare = async (url, title) => {
-                                  if (navigator.share) {
-                                    try {
-                                      await navigator.share({ title, url });
-                                      trackEvent('share_recipe', { method: 'native_share' });
-                                      return true;
-                                    } catch (err) {
-                                      if (err.name === 'AbortError') return true;
-                                    }
-                                  }
-                                  try {
-                                    await navigator.clipboard.writeText(url);
-                                    trackEvent('share_recipe', { method: 'clipboard' });
-                                    setSnackbarState({ open: true, message: 'Link copied to clipboard', severity: 'success' });
-                                    return true;
-                                  } catch {
-                                    return false;
-                                  }
-                                };
-
+                                const anchorEl = e.currentTarget;
                                 try {
                                   const accessToken = (await supabase?.auth.getSession())?.data?.session?.access_token;
                                   if (!accessToken) {
@@ -3762,7 +3762,7 @@ function App() {
                                     if (response.ok) {
                                       const { token } = await response.json();
                                       const shareUrl = `${window.location.origin}?share=${token}`;
-                                      await handleShare(shareUrl, recipe.title);
+                                      setShareMenuState({ anchorEl, url: shareUrl, title: recipe.title });
                                       return;
                                     }
                                   }
@@ -3789,6 +3789,47 @@ function App() {
           </Stack>
         </Box>
       </Container>
+
+      <Menu
+        anchorEl={shareMenuState?.anchorEl}
+        open={Boolean(shareMenuState)}
+        onClose={() => setShareMenuState(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <MenuItem onClick={async () => {
+          const { url, title } = shareMenuState;
+          setShareMenuState(null);
+          if (navigator.share) {
+            try {
+              await navigator.share({ title, text: `Check out this recipe on ReciFind: ${title}`, url });
+              trackEvent('share_recipe', { method: 'native_share' });
+              return;
+            } catch (err) {
+              if (err.name === 'AbortError') return;
+            }
+          }
+          try {
+            await navigator.clipboard.writeText(url);
+            trackEvent('share_recipe', { method: 'clipboard' });
+            setSnackbarState({ open: true, message: 'Link copied to clipboard', severity: 'success' });
+          } catch {}
+        }}>
+          <ListItemIcon><IosShareOutlinedIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Share</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => {
+          const { url, title } = shareMenuState;
+          setShareMenuState(null);
+          const subject = encodeURIComponent(`Check out this recipe: ${title}`);
+          const body = encodeURIComponent(`Check out this recipe on ReciFind: ${title}\n\n${url}`);
+          window.location.href = `mailto:?subject=${subject}&body=${body}`;
+          trackEvent('share_recipe', { method: 'email' });
+        }}>
+          <ListItemIcon><EmailOutlinedIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Email</ListItemText>
+        </MenuItem>
+      </Menu>
 
       <Dialog
         open={Boolean(activeRecipeView)}
@@ -3874,6 +3915,7 @@ function App() {
                 ...(darkMode ? { backgroundColor: '#121212' } : {})
               } : { ...(darkMode ? { backgroundColor: '#121212' } : {}) }}
             >
+
               {/* Thumbnail + cook mode wrapper — sticky on mobile */}
               <Box sx={isMobile ? {
                 position: 'sticky',
@@ -4273,18 +4315,36 @@ function App() {
                     startIcon={<IosShareOutlinedIcon />}
                     onClick={async () => {
                       const title = activeRecipe?.title || 'Recipe';
-                      // Use share token URL if present, otherwise fall back to sourceUrl
-                      const hasShareToken = window.location.search.includes('share=');
-                      const shareUrl = hasShareToken
-                        ? window.location.href
-                        : (activeRecipe?.sourceUrl || window.location.href);
-                      if (navigator.share) {
-                        try { await navigator.share({ title, url: shareUrl }); return; } catch (err) { if (err.name === 'AbortError') return; }
+                      const doShare = async (url) => {
+                        if (navigator.share) {
+                          try { await navigator.share({ title, url }); return; } catch (err) { if (err.name === 'AbortError') return; }
+                        }
+                        try {
+                          await navigator.clipboard.writeText(url);
+                          setSnackbarState({ open: true, message: 'Link copied to clipboard', severity: 'success' });
+                        } catch { /* ignore */ }
+                      };
+                      // If opened via a share token URL, share that directly
+                      if (window.location.search.includes('share=')) {
+                        await doShare(window.location.href);
+                        return;
                       }
-                      try {
-                        await navigator.clipboard.writeText(shareUrl);
-                        setSnackbarState({ open: true, message: 'Link copied to clipboard', severity: 'success' });
-                      } catch { /* ignore */ }
+                      // Friend recipe from drawer — generate a ReciFind share link
+                      if (selectedFriend && activeRecipe?.id && API_BASE_URL) {
+                        try {
+                          const resp = await fetch(
+                            `${API_BASE_URL}/friends/${encodeURIComponent(selectedFriend.friendId)}/recipes/${encodeURIComponent(activeRecipe.id)}/share`,
+                            { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }
+                          );
+                          if (resp.ok) {
+                            const { token } = await resp.json();
+                            await doShare(`${window.location.origin}?share=${token}`);
+                            return;
+                          }
+                        } catch { /* fall through */ }
+                      }
+                      // Fallback: share the source URL if available
+                      await doShare(activeRecipe?.sourceUrl || window.location.href);
                     }}
                   >
                     Share
@@ -4305,17 +4365,7 @@ function App() {
                     variant="outlined"
                     color="inherit"
                     startIcon={<IosShareOutlinedIcon />}
-                    onClick={async () => {
-                      const title = activeRecipe?.title || 'Recipe';
-                      const shareUrl = activeRecipe?.sourceUrl || window.location.href;
-                      if (navigator.share) {
-                        try { await navigator.share({ title, url: shareUrl }); return; } catch (err) { if (err.name === 'AbortError') return; }
-                      }
-                      try {
-                        await navigator.clipboard.writeText(shareUrl);
-                        setSnackbarState({ open: true, message: 'Link copied to clipboard', severity: 'success' });
-                      } catch { /* ignore */ }
-                    }}
+                    onClick={openAuthDialog}
                   >
                     Share
                   </Button>
@@ -5096,7 +5146,7 @@ function App() {
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
             {[
               { step: '1', content: <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>Tap the <IosShareOutlinedIcon sx={{ fontSize: 18, color: (theme) => theme.palette.mode === 'dark' ? 'white' : 'primary.main', mx: 0.25 }} /> Share button</Box> },
-              { step: '2', content: 'Scroll down and tap More' },
+              { step: '2', content: 'Tap More and scroll down' },
               { step: '3', content: 'Tap Add to Home Screen' },
             ].map(({ step, content }) => (
               <Box key={step} sx={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
