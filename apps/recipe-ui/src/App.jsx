@@ -2168,12 +2168,14 @@ function App() {
         method: 'POST',
         body: JSON.stringify({ token: pendingOpenInviteToken })
       }, accessToken)
-        .then(() => {
+        .then((result) => {
           setIsAuthDialogOpen(false);
+          const name = result?.inviterName;
           setSnackbarState({
             open: true,
-            message: "You're now connected with your friend on ReciFind!",
-            severity: 'success'
+            message: name ? `You're connected with ${name}!` : "You're now connected with your friend on ReciFind!",
+            severity: 'success',
+            anchorOrigin: { vertical: 'top', horizontal: 'center' }
           });
           fetchFriends();
         })
