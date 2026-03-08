@@ -2123,7 +2123,6 @@ function App() {
     if (!accessToken) {
       const pendingOpenInviteCheck = sessionStorage.getItem('pending_open_invite');
       if (pendingInviteCheck || pendingId || pendingOpenInviteCheck) {
-        sessionStorage.removeItem('invite_entry');
         setIsAuthDialogOpen(true);
       }
       return;
