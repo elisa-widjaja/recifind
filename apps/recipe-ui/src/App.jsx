@@ -1810,7 +1810,11 @@ function App() {
     const handler = (e) => {
       e.preventDefault();
       deferredInstallPrompt.current = e;
-      timer = setTimeout(() => setShowInstallBanner(true), 3000);
+      timer = setTimeout(() => {
+        if (!sessionStorage.getItem('invite_entry')) {
+          setShowInstallBanner(true);
+        }
+      }, 3000);
     };
     window.addEventListener('beforeinstallprompt', handler);
     return () => {
