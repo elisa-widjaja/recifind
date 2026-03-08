@@ -5061,35 +5061,50 @@ function App() {
                         key={inv.inviteId}
                         sx={{ pl: 0, '& .MuiListItemSecondaryAction-root': { right: -8 } }}
                         secondaryAction={
-                          <IconButton
-                            size="small"
-                            onClick={() => setFriendConfirm({
-                              open: true,
-                              title: 'Cancel invite',
-                              message: inv.isOpenInvite
-                                ? 'Cancel your shareable invite link?'
-                                : `Cancel your invite to ${inv.toEmail}?`,
-                              onConfirm: inv.isOpenInvite
-                                ? () => callRecipesApi('/friends/open-invite', { method: 'DELETE' }, accessToken)
-                                    .then(() => fetchFriendRequests())
-                                    .catch(() => setSnackbarState({ open: true, message: 'Could not cancel invite.', severity: 'error' }))
-                                : () => cancelInvite(inv.inviteId)
-                            })}
-                            aria-label="Cancel invite"
-                          >
-                            <CloseIcon fontSize="small" />
-                          </IconButton>
+                          <Box sx={{ display: 'flex', gap: 0.5 }}>
+                            {inv.isOpenInvite && (
+                              <IconButton
+                                size="small"
+                                aria-label="Copy invite link"
+                                onClick={() => {
+                                  const url = `${window.location.origin}?invite=${inv.inviteId}`;
+                                  navigator.clipboard.writeText(url);
+                                  setSnackbarState({ open: true, message: 'Invite link copied!', severity: 'success' });
+                                }}
+                              >
+                                <ContentCopyIcon fontSize="small" />
+                              </IconButton>
+                            )}
+                            <IconButton
+                              size="small"
+                              onClick={() => setFriendConfirm({
+                                open: true,
+                                title: 'Cancel invite',
+                                message: inv.isOpenInvite
+                                  ? 'Cancel your shareable invite link?'
+                                  : `Cancel your invite to ${inv.toEmail}?`,
+                                onConfirm: inv.isOpenInvite
+                                  ? () => callRecipesApi('/friends/open-invite', { method: 'DELETE' }, accessToken)
+                                      .then(() => fetchFriendRequests())
+                                      .catch(() => setSnackbarState({ open: true, message: 'Could not cancel invite.', severity: 'error' }))
+                                  : () => cancelInvite(inv.inviteId)
+                              })}
+                              aria-label="Cancel invite"
+                            >
+                              <CloseIcon fontSize="small" />
+                            </IconButton>
+                          </Box>
                         }
                       >
                         <ListItemAvatar>
                           <Avatar sx={{ bgcolor: 'grey.300' }}>
-                            {inv.isOpenInvite ? '🔗' : (inv.toEmail || '?')[0].toUpperCase()}
+                            {inv.isOpenInvite ? '?' : (inv.toEmail || '?')[0].toUpperCase()}
                           </Avatar>
                         </ListItemAvatar>
                         <ListItemText
                           primary={inv.isOpenInvite ? 'Shareable invite link' : inv.toEmail}
                           secondary="Invited — pending acceptance"
-                          sx={{ pr: 8 }}
+                          sx={{ pr: inv.isOpenInvite ? 10 : 8 }}
                         />
                       </ListItem>
                     ))}

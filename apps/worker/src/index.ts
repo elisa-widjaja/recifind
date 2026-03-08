@@ -1345,7 +1345,7 @@ async function handleListSentInvites(env: Env, user: AuthenticatedUser) {
 
   if (openInvite) {
     invites.unshift({
-      inviteId: 'open-invite',
+      inviteId: openInvite.token as string,
       toEmail: null,
       createdAt: openInvite.created_at as string,
       isOpenInvite: true,
