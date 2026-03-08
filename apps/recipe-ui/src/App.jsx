@@ -1832,6 +1832,7 @@ function App() {
     if (isPwaInstalled()) return;
     if (localStorage.getItem('recifind-install-banner-dismissed')) return;
     if (sessionStorage.getItem('pending_invite_token')) return;
+    if (sessionStorage.getItem('invite_entry')) return;
     const timer = setTimeout(() => setShowInstallBanner(true), 3000);
     return () => clearTimeout(timer);
   }, [isAuthChecked, session]);
@@ -4885,6 +4886,8 @@ function App() {
                       `Hey! I'd love to share recipes with you on ReciFind.\n\nJoin me here: ${inviteUrl}`
                     );
                     window.location.href = `mailto:?subject=${subject}&body=${body}`;
+                    setSnackbarState({ open: true, message: 'Invite sent! Pending acceptance.', severity: 'success' });
+                    fetchFriendRequests();
                     trackEvent('invite_friend', { method: 'email' });
                   }}
                 >
@@ -5063,8 +5066,14 @@ function App() {
                             onClick={() => setFriendConfirm({
                               open: true,
                               title: 'Cancel invite',
-                              message: `Cancel your invite to ${inv.toEmail}?`,
-                              onConfirm: () => cancelInvite(inv.inviteId)
+                              message: inv.isOpenInvite
+                                ? 'Cancel your shareable invite link?'
+                                : `Cancel your invite to ${inv.toEmail}?`,
+                              onConfirm: inv.isOpenInvite
+                                ? () => callRecipesApi('/friends/open-invite', { method: 'DELETE' }, accessToken)
+                                    .then(() => fetchFriendRequests())
+                                    .catch(() => setSnackbarState({ open: true, message: 'Could not cancel invite.', severity: 'error' }))
+                                : () => cancelInvite(inv.inviteId)
                             })}
                             aria-label="Cancel invite"
                           >
@@ -5074,12 +5083,12 @@ function App() {
                       >
                         <ListItemAvatar>
                           <Avatar sx={{ bgcolor: 'grey.300' }}>
-                            {(inv.toEmail || '?')[0].toUpperCase()}
+                            {inv.isOpenInvite ? '🔗' : (inv.toEmail || '?')[0].toUpperCase()}
                           </Avatar>
                         </ListItemAvatar>
                         <ListItemText
-                          primary={inv.toEmail}
-                          secondary="Invited — not on ReciFind yet"
+                          primary={inv.isOpenInvite ? 'Shareable invite link' : inv.toEmail}
+                          secondary="Invited — pending acceptance"
                           sx={{ pr: 8 }}
                         />
                       </ListItem>
