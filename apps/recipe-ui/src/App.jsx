@@ -5140,50 +5140,29 @@ function App() {
                         key={inv.inviteId}
                         sx={{ pl: 0, '& .MuiListItemSecondaryAction-root': { right: -8 } }}
                         secondaryAction={
-                          <Box sx={{ display: 'flex', gap: 0.5 }}>
-                            {inv.isOpenInvite && (
-                              <IconButton
-                                size="small"
-                                aria-label="Copy invite link"
-                                onClick={() => {
-                                  const url = `${window.location.origin}?invite=${inv.inviteId}`;
-                                  navigator.clipboard.writeText(url);
-                                  setSnackbarState({ open: true, message: 'Invite link copied!', severity: 'success' });
-                                }}
-                              >
-                                <ContentCopyIcon fontSize="small" />
-                              </IconButton>
-                            )}
-                            <IconButton
-                              size="small"
-                              onClick={() => setFriendConfirm({
-                                open: true,
-                                title: 'Cancel invite',
-                                message: inv.isOpenInvite
-                                  ? 'Cancel your shareable invite link?'
-                                  : `Cancel your invite to ${inv.toEmail}?`,
-                                onConfirm: inv.isOpenInvite
-                                  ? () => callRecipesApi('/friends/open-invite', { method: 'DELETE' }, accessToken)
-                                      .then(() => fetchFriendRequests())
-                                      .catch(() => setSnackbarState({ open: true, message: 'Could not cancel invite.', severity: 'error' }))
-                                  : () => cancelInvite(inv.inviteId)
-                              })}
-                              aria-label="Cancel invite"
-                            >
-                              <CloseIcon fontSize="small" />
-                            </IconButton>
-                          </Box>
+                          <IconButton
+                            size="small"
+                            onClick={() => setFriendConfirm({
+                              open: true,
+                              title: 'Cancel invite',
+                              message: `Cancel your invite to ${inv.toEmail}?`,
+                              onConfirm: () => cancelInvite(inv.inviteId)
+                            })}
+                            aria-label="Cancel invite"
+                          >
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
                         }
                       >
                         <ListItemAvatar>
                           <Avatar sx={{ bgcolor: 'grey.300' }}>
-                            {inv.isOpenInvite ? '?' : (inv.toEmail || '?')[0].toUpperCase()}
+                            {(inv.toEmail || '?')[0].toUpperCase()}
                           </Avatar>
                         </ListItemAvatar>
                         <ListItemText
-                          primary={inv.isOpenInvite ? 'Shareable invite link' : inv.toEmail}
-                          secondary="Invited — pending acceptance"
-                          sx={{ pr: inv.isOpenInvite ? 10 : 8 }}
+                          primary={inv.toEmail}
+                          secondary="Invited — not on ReciFind yet"
+                          sx={{ pr: 8 }}
                         />
                       </ListItem>
                     ))}
