@@ -5228,6 +5228,65 @@ function App() {
         )}
       </Drawer>
 
+      <Dialog
+        open={openInviteRegenerateOpen}
+        onClose={() => { setOpenInviteRegenerateOpen(false); setOpenInviteDeactivate(false); }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Regenerate invite link?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            Your current link will stop working. Anyone who hasn&apos;t accepted it yet won&apos;t be able to connect.
+          </Typography>
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={openInviteDeactivate}
+                onChange={(e) => setOpenInviteDeactivate(e.target.checked)}
+                size="small"
+              />
+            }
+            label={
+              <Typography variant="body2">Deactivate without generating a new link</Typography>
+            }
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setOpenInviteRegenerateOpen(false); setOpenInviteDeactivate(false); }}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={async () => {
+              const deactivate = openInviteDeactivate;
+              setOpenInviteRegenerateOpen(false);
+              setOpenInviteDeactivate(false);
+              setOpenInviteLinkLoading(true);
+              try {
+                const res = await callRecipesApi('/friends/open-invite/regenerate', {
+                  method: 'POST',
+                  body: JSON.stringify({ generateNew: !deactivate })
+                }, accessToken);
+                setOpenInviteLink(res?.token || null);
+                setOpenInviteLinkLoaded(true);
+                setSnackbarState({
+                  open: true,
+                  message: deactivate ? 'Invite link deactivated.' : 'Invite link regenerated.',
+                  severity: 'success'
+                });
+              } catch {
+                setSnackbarState({ open: true, message: 'Could not regenerate link.', severity: 'error' });
+              } finally {
+                setOpenInviteLinkLoading(false);
+              }
+            }}
+          >
+            Confirm
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={friendConfirm.open} onClose={() => setFriendConfirm(s => ({ ...s, open: false }))} maxWidth="xs" fullWidth>
         <DialogTitle>{friendConfirm.title}</DialogTitle>
         <DialogContent>
