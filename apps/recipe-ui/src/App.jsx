@@ -1271,6 +1271,14 @@ function App() {
   };
 
 
+  const generateOpenInviteUrl = async () => {
+    const accessToken = (await supabase?.auth.getSession())?.data?.session?.access_token;
+    if (!accessToken) { openAuthDialog(); return null; }
+    const res = await callRecipesApi('/friends/open-invite', { method: 'POST' }, accessToken);
+    if (!res?.token) return null;
+    return `${window.location.origin}?invite=${res.token}`;
+  };
+
   const handleInviteByText = async () => {
     try {
       const contacts = await navigator.contacts.select(['name', 'tel'], { multiple: false });
@@ -2149,19 +2157,22 @@ function App() {
     const pendingOpenInviteToken = sessionStorage.getItem('pending_open_invite');
     if (pendingOpenInviteToken) {
       sessionStorage.removeItem('pending_open_invite');
-      try {
-        await callRecipesApi('/friends/accept-open-invite', {
-          method: 'POST',
-          body: JSON.stringify({ token: pendingOpenInviteToken })
-        }, session.access_token);
-        setSnackbarState({
-          open: true,
-          message: "You're now connected with your friend on ReciFind!",
-          severity: 'success'
+      callRecipesApi('/friends/accept-open-invite', {
+        method: 'POST',
+        body: JSON.stringify({ token: pendingOpenInviteToken })
+      }, accessToken)
+        .then(() => {
+          setIsAuthDialogOpen(false);
+          setSnackbarState({
+            open: true,
+            message: "You're now connected with your friend on ReciFind!",
+            severity: 'success'
+          });
+          fetchFriends();
+        })
+        .catch((err) => {
+          console.error('Error accepting open invite:', err);
         });
-      } catch (err) {
-        console.error('Error accepting open invite:', err);
-      }
     }
 
     // Handle pending shared recipe save (user clicked "Save to my recipes" before login)
@@ -4847,61 +4858,51 @@ function App() {
             )
           ) : isAddFriendOpen ? (
             <Box sx={{ mt: '24px' }}>
-              <Typography variant="subtitle2" gutterBottom sx={{ fontSize: { xs: '13px', sm: '0.875rem' } }}>Add a friend by email</Typography>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <TextField
+              <Typography variant="subtitle2" gutterBottom sx={{ fontSize: { xs: '13px', sm: '0.875rem' } }}>
+                Invite a friend
+              </Typography>
+              <Stack spacing={1.5}>
+                <Button
                   fullWidth
-                  placeholder="friend@example.com"
-                  type="email"
-                  autoComplete="email"
-                  value={addFriendEmail}
-                  sx={{ '& .MuiOutlinedInput-root': { height: '46px' } }}
-                  onChange={(e) => setAddFriendEmail(e.target.value)}
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && addFriendEmail.trim()) {
-                      e.preventDefault();
-                      sendFriendRequest(addFriendEmail.trim());
-                    }
+                  variant="outlined"
+                  startIcon={<EmailOutlinedIcon />}
+                  onClick={async () => {
+                    const inviteUrl = await generateOpenInviteUrl();
+                    if (!inviteUrl) return;
+                    const subject = encodeURIComponent('Join me on ReciFind!');
+                    const body = encodeURIComponent(
+                      `Hey! I'd love to share recipes with you on ReciFind.\n\nJoin me here: ${inviteUrl}`
+                    );
+                    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+                    trackEvent('invite_friend', { method: 'email' });
                   }}
-                />
-                <IconButton
-                  disabled={!addFriendEmail.trim() || addFriendLoading}
-                  onClick={() => sendFriendRequest(addFriendEmail.trim())}
-                  color="primary"
                 >
-                  {addFriendLoading ? <CircularProgress size={22} /> : <SendIcon />}
-                </IconButton>
+                  Invite by Email
+                </Button>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  startIcon={<SmsIcon />}
+                  onClick={async () => {
+                    const inviteUrl = await generateOpenInviteUrl();
+                    if (!inviteUrl) return;
+                    const text = `Hey! I'd love to share recipes with you on ReciFind. Join me here: ${inviteUrl}`;
+                    if (navigator.share) {
+                      try {
+                        await navigator.share({ text, url: inviteUrl });
+                        trackEvent('invite_friend', { method: 'native_share' });
+                        return;
+                      } catch (err) {
+                        if (err.name === 'AbortError') return;
+                      }
+                    }
+                    window.open(`sms:?body=${encodeURIComponent(text)}`);
+                    trackEvent('invite_friend', { method: 'sms' });
+                  }}
+                >
+                  Invite by Text
+                </Button>
               </Stack>
-              <Divider sx={{ my: 1.5 }}>
-                <Typography variant="caption" color="text.secondary">or</Typography>
-              </Divider>
-              <Button
-                fullWidth
-                variant="outlined"
-                color="primary"
-                onClick={() => {
-                  const msg = encodeURIComponent('Hey! Join me on ReciFind to share recipes: https://recifind.elisawidjaja.com');
-                  window.open(`sms:?body=${msg}`);
-                }}
-                sx={(theme) => ({
-                  borderRadius: '6px',
-                  py: 1.25,
-                  bgcolor: 'transparent',
-                  textTransform: 'none',
-                  fontSize: '0.9375rem',
-                  fontWeight: 500,
-                  gap: 1,
-                  ...(theme.palette.mode === 'dark' && {
-                    color: '#fff',
-                    borderColor: 'rgba(255,255,255,0.2)',
-                    '&:hover': { borderColor: 'rgba(255,255,255,0.2)', bgcolor: 'rgba(255,255,255,0.08)' },
-                  }),
-                })}
-              >
-                <SmsIcon fontSize="small" />
-                Invite by text message
-              </Button>
             </Box>
           ) : friendsTab === 0 ? (
             friends.length === 0 ? (
