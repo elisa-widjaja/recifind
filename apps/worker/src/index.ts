@@ -1605,8 +1605,16 @@ async function handleAcceptOpenInvite(
   ).bind(user.userId, inviterUserId).first();
 
   if (existing) {
-    await env.DB.prepare('DELETE FROM open_invites WHERE token = ?').bind(token).run();
     return json({ message: 'Already friends' });
+  }
+
+  // Block re-accept: if accepter has previously used this inviter's link, deny
+  const previouslyUsed = await env.DB.prepare(
+    'SELECT 1 FROM open_invite_used WHERE inviter_user_id = ? AND accepter_user_id = ?'
+  ).bind(inviterUserId, user.userId).first();
+
+  if (previouslyUsed) {
+    return json({ message: 'Already used' });
   }
 
   const accepterProfile = await getOrCreateProfile(env, user.userId, user.email);
@@ -1622,8 +1630,11 @@ async function handleAcceptOpenInvite(
     env.DB.prepare(
       'INSERT OR IGNORE INTO friends (user_id, friend_id, friend_email, friend_name, connected_at) VALUES (?, ?, ?, ?, ?)'
     ).bind(user.userId, inviterUserId, inviterProfile.email, inviterProfile.displayName, now),
-    env.DB.prepare('DELETE FROM open_invites WHERE token = ?').bind(token),
   ]);
+
+  await env.DB.prepare(
+    'INSERT OR IGNORE INTO open_invite_used (inviter_user_id, accepter_user_id, accepted_at) VALUES (?, ?, ?)'
+  ).bind(inviterUserId, user.userId, now).run();
 
   // Notify the inviter
   const notifId = crypto.randomUUID();
