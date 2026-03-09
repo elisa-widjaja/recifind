@@ -19,9 +19,9 @@ Build and deploy ReciFind to production on Cloudflare, then verify.
    - `both` or no argument → deploy both
 
 2. **Frontend deploy** (when applicable):
-   Run from the project root:
+   MUST run from `apps/recipe-ui/` so wrangler picks up the `functions/` directory (Cloudflare Pages Functions / middleware):
    ```bash
-   cd apps/recipe-ui && npm run build && cd ../.. && npx wrangler pages deploy apps/recipe-ui/dist --project-name recifind
+   cd apps/recipe-ui && npm run build && npx wrangler pages deploy dist --project-name recifind
    ```
    If the build fails, stop and show the error — do not deploy.
 

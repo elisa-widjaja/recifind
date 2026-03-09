@@ -83,10 +83,13 @@ export async function onRequest(context) {
   <meta property="og:url" content="${escapeHtml(pageUrl)}" />
   <meta property="og:title" content="${title}" />
   <meta property="og:description" content="${description}" />
-  ${imageUrl ? `<meta property="og:image" content="${escapeHtml(imageUrl)}" />` : ''}
+  <meta property="og:site_name" content="ReciFind" />
+  ${imageUrl ? `<meta property="og:image" content="${escapeHtml(imageUrl)}" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />` : ''}
 
   <!-- Twitter -->
-  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:card" content="${imageUrl ? 'summary_large_image' : 'summary'}" />
   <meta name="twitter:url" content="${escapeHtml(pageUrl)}" />
   <meta name="twitter:title" content="${title}" />
   <meta name="twitter:description" content="${description}" />

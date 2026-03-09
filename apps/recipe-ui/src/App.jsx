@@ -2155,7 +2155,9 @@ function App() {
     }
 
     const pendingInviteToken = sessionStorage.getItem('pending_invite_token');
+    let handledByToken = false;
     if (pendingInviteToken) {
+      handledByToken = true;
       sessionStorage.removeItem('pending_invite_token');
       callRecipesApi('/friends/accept-invite', { method: 'POST', body: JSON.stringify({ token: pendingInviteToken }) }, accessToken)
         .then(() => {
@@ -2167,7 +2169,21 @@ function App() {
           }
         })
         .catch(() => {
-          setSnackbarState({ open: true, message: 'Could not process invite. It may have already been used.', severity: 'error' });
+          // Token-based accept failed (invite may have been consumed already).
+          // Fall back to email match — if we just connected, show success instead of error.
+          callRecipesApi('/friends/check-invites', { method: 'POST' }, accessToken)
+            .then((res) => {
+              if (res?.connected?.length > 0) {
+                setIsAuthDialogOpen(false);
+                setSnackbarState({ open: true, message: `You're now connected with ${res.connected.join(', ')}!`, severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
+                fetchFriends();
+              } else {
+                setSnackbarState({ open: true, message: 'Could not process invite. It may have already been used.', severity: 'error' });
+              }
+            })
+            .catch(() => {
+              setSnackbarState({ open: true, message: 'Could not process invite. It may have already been used.', severity: 'error' });
+            });
         });
     }
 
@@ -2265,7 +2281,10 @@ function App() {
     }
 
     // Server-side fallback: check for any pending invites matching this user's email
-    // Works even if the invite_token was lost during OAuth redirect
+    // Works even if the invite_token was lost during OAuth redirect.
+    // Skip if we already handled via token — avoids a race where check-invites deletes
+    // the invite record before accept-invite can claim it, causing a spurious 404 error.
+    if (handledByToken) return;
     callRecipesApi('/friends/check-invites', { method: 'POST' }, accessToken)
       .then((res) => {
         if (res?.connected?.length > 0) {
