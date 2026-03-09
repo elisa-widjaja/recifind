@@ -1,93 +1,74 @@
 import { test, expect, Page } from '@playwright/test';
-import { getAuthToken, removeFriend, deleteRecipeByTitle } from '../helpers/api';
+import { getAuthToken, getUserId, getEmail, getDisplayName, removeFriend, deleteRecipeByTitle, acceptFriendRequest, sendFriendRequest } from '../helpers/api';
 import path from 'path';
-
+import * as fs from 'fs';
 const ALICE_STATE = path.join(__dirname, '../.auth/alice.json');
 const BOB_STATE = path.join(__dirname, '../.auth/bob.json');
 const API_BASE = 'http://localhost:8787';
 
-async function getEmailFromState(statePath: string): Promise<string> {
-  const fs = await import('fs');
-  const state = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
-  const entries = state.origins?.[0]?.localStorage ?? [];
-  const auth = entries.find((e: { name: string }) => e.name === 'recifind-auth');
-  if (!auth) throw new Error(`No auth in ${statePath}`);
-  const session = JSON.parse(auth.value);
-  return session?.currentSession?.user?.email ?? session?.user?.email ?? '';
-}
 
-async function getUserIdFromState(statePath: string): Promise<string> {
-  const fs = await import('fs');
-  const state = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
-  const entries = state.origins?.[0]?.localStorage ?? [];
-  const auth = entries.find((e: { name: string }) => e.name === 'recifind-auth');
-  if (!auth) throw new Error(`No auth in ${statePath}`);
-  const session = JSON.parse(auth.value);
-  return session?.currentSession?.user?.id ?? session?.user?.id ?? '';
-}
-
-async function openFriendsDialog(page: Page) {
-  // The Friends button uses a Tooltip with title "Friends" wrapping an IconButton with PeopleIcon
+async function openFriendsDrawer(page: Page) {
   await page.getByRole('button', { name: /friends/i }).click();
-  // The friends panel is a Drawer (not a Dialog), wait for the Add Friend button to confirm it's open
   await expect(page.getByRole('button', { name: /add friend/i })).toBeVisible({ timeout: 5_000 });
 }
 
 test.describe('Friends flow', () => {
   let sharedRecipeTitle = '';
 
-  // Tests that run as Alice (matched by alice-friends project)
-  test('Alice sends friend request to Bob', async ({ page }) => {
-    const bobEmail = await getEmailFromState(BOB_STATE);
-    await page.goto('/');
-    await openFriendsDialog(page);
+  // All friends flow tests run as Alice (alice-friends project).
+  // Friend connection setup is done via API — the UI for sending invites changed to
+  // open-link sharing (no email input). UI tests cover the friends list and recipe visibility.
+  test('Alice and Bob connect via API', async ({}, testInfo) => {
+    test.skip(testInfo.project.name !== 'alice-friends', 'Alice-only test');
 
-    // Click "Add Friend" to open the email input form
-    await page.getByRole('button', { name: 'Add Friend' }).click();
+    const aliceToken = await getAuthToken(ALICE_STATE);
+    const aliceId = await getUserId(ALICE_STATE);
+    const bobToken = await getAuthToken(BOB_STATE);
+    const bobEmail = await getEmail(BOB_STATE);
+    const bobId = await getUserId(BOB_STATE);
 
-    // Email input has placeholder "friend@example.com"
-    const emailInput = page.getByPlaceholder('friend@example.com');
-    await emailInput.fill(bobEmail);
+    // sendFriendRequest may return 409 if already friends or request already sent — both are fine
+    try {
+      await sendFriendRequest(aliceToken, bobEmail);
+    } catch (e: any) {
+      if (!e.message?.includes('409')) throw e;
+    }
 
-    // Send is an IconButton (SendIcon) — trigger via Enter key since there's no text button
-    await emailInput.press('Enter');
+    // acceptFriendRequest may return 404 if already friends (no pending request) — fine
+    try {
+      await acceptFriendRequest(aliceId, bobToken);
+    } catch (e: any) {
+      if (!e.message?.includes('404') && !e.message?.includes('409')) throw e;
+    }
 
-    // Success shown via Snackbar: "Friend request sent!" or "Invite sent! They'll get an email to join ReciFind."
-    await expect(page.getByText(/friend request sent|invite sent/i)).toBeVisible({ timeout: 8_000 });
+    // Verify the connection actually exists in D1 before moving on
+    const res = await fetch(`${API_BASE}/friends`, {
+      headers: { Authorization: `Bearer ${aliceToken}` },
+    });
+    const data = await res.json() as { friends: Array<{ friendId: string }> };
+    const connected = data.friends.some(f => f.friendId === bobId);
+    if (!connected) throw new Error(`Friend connection not found after setup. Friends: ${JSON.stringify(data.friends)}`);
   });
 
-  // Tests that run as Bob (matched by bob project)
-  test('Bob accepts Alice friend request', async ({ page }) => {
+  test('Alice sees Bob in friends list', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'alice-friends', 'Alice-only test');
+
+    const bobDisplayName = await getDisplayName(BOB_STATE);
     await page.goto('/');
-    await openFriendsDialog(page);
+    await openFriendsDrawer(page);
 
-    // Switch to the "Requests" tab (tab index 1)
-    await page.getByRole('tab', { name: /requests/i }).click();
-
-    // Accept button with CheckIcon and text "Accept"
-    const acceptBtn = page.getByRole('button', { name: 'Accept' });
-    await expect(acceptBtn).toBeVisible({ timeout: 8_000 });
-    await acceptBtn.click();
-
-    // Snackbar shows "Friend request accepted!"
-    await expect(page.getByText(/friend request accepted/i)).toBeVisible({ timeout: 8_000 });
+    // Friends list shows friendName (display name) or friendEmail
+    await expect(
+      page.getByText(new RegExp(bobDisplayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'))
+    ).toBeVisible({ timeout: 10_000 });
   });
 
-  // Tests that run as Alice (matched by alice-friends project)
-  test('Alice sees Bob in friends list', async ({ page }) => {
-    const bobEmail = await getEmailFromState(BOB_STATE);
-    await page.goto('/');
-    await openFriendsDialog(page);
+  test('Bob shared recipe is visible to Alice in friends tab', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'alice-friends', 'Alice-only test');
 
-    // Friends tab (tab 0) is default — Bob should appear by name or email prefix
-    const bobIdentifier = bobEmail.split('@')[0];
-    await expect(page.getByText(new RegExp(bobIdentifier, 'i'))).toBeVisible({ timeout: 8_000 });
-  });
-
-  // Tests that run as Alice (matched by alice-friends project)
-  test('Bob shared recipe is visible to Alice in friends tab', async ({ page }) => {
     sharedRecipeTitle = '[TEST] Bob Shared Recipe';
     const bobToken = await getAuthToken(BOB_STATE);
+    const bobDisplayName = await getDisplayName(BOB_STATE);
 
     // Create a shared recipe as Bob via API
     await fetch(`${API_BASE}/recipes`, {
@@ -103,29 +84,117 @@ test.describe('Friends flow', () => {
       }),
     });
 
-    const bobEmail = await getEmailFromState(BOB_STATE);
     await page.goto('/');
-    await openFriendsDialog(page);
+    await openFriendsDrawer(page);
 
-    // Click on Bob's entry in the friends list to view his recipes
-    const bobIdentifier = bobEmail.split('@')[0];
-    await page.getByText(new RegExp(bobIdentifier, 'i')).first().click();
-
+    // Click on Bob's entry in the friends list
+    await page.getByText(new RegExp(bobDisplayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')).first().click();
     await expect(page.getByText(sharedRecipeTitle)).toBeVisible({ timeout: 8_000 });
+  });
+
+
+  // Tests that the "You're now connected" snackbar appears when a user logs in with
+  // a pending open invite. Uses route interception to avoid DB state dependencies
+  // (accept-open-invite is mocked to return { message: 'Connected!' }).
+  test('Bob sees "You\'re now connected" snackbar after accepting Alice\'s open invite', async ({ browser }, testInfo) => {
+    test.skip(testInfo.project.name !== 'alice-friends', 'Alice-only test');
+
+    // Alice's display name — used to verify the snackbar message
+    const aliceDisplayName = await getDisplayName(ALICE_STATE);
+
+    // Read Bob's saved session
+    const bobState = JSON.parse(fs.readFileSync(BOB_STATE, 'utf-8'));
+    const bobAuthEntry = bobState.origins?.[0]?.localStorage?.find((e: { name: string }) => e.name === 'recifind-auth');
+    if (!bobAuthEntry) throw new Error('Bob recifind-auth entry not found in .auth/bob.json — re-run test:setup');
+
+    // Placeholder invite token — the real accept-open-invite call is intercepted below
+    const fakeInviteToken = 'e2e-test-invite-token';
+
+    const freshContext = await browser.newContext();
+    const freshPage = await freshContext.newPage();
+
+    const intercepted: string[] = [];
+    freshPage.on('request', req => {
+      if (req.url().includes('friends')) intercepted.push(`REQ ${req.method()} ${req.url()}`);
+    });
+    const consoleLogs: string[] = [];
+    freshPage.on('console', msg => {
+      if (msg.type() === 'error' || msg.text().includes('connect') || msg.text().includes('invite') || msg.text().includes('snack')) {
+        consoleLogs.push(`[${msg.type()}] ${msg.text().slice(0, 200)}`);
+      }
+    });
+
+    try {
+      // Intercept accept-open-invite and return a successful connection response.
+      // This makes the test deterministic regardless of DB state.
+      await freshPage.route('**/friends/accept-open-invite', async route => {
+        intercepted.push('INTERCEPTED accept-open-invite');
+        const responseBody = JSON.stringify({ message: 'Connected!', inviterName: aliceDisplayName });
+        intercepted.push(`RESPONSE BODY: ${responseBody}`);
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: responseBody,
+        });
+      });
+      // Suppress the check-invites fallback so it doesn't trigger a competing snackbar
+      await freshPage.route('**/friends/check-invites', async route => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ connected: [] }),
+        });
+      });
+
+      // Inject session + pending invite via addInitScript so they're present BEFORE
+      // the app's own module-level code runs. page.reload() clears sessionStorage in
+      // Playwright, so this avoids a goto→inject→reload sequence entirely.
+      await freshContext.addInitScript(
+        ({ sessionValue, inviteToken }: { sessionValue: string; inviteToken: string }) => {
+          localStorage.setItem('recifind-auth', sessionValue);
+          sessionStorage.setItem('pending_open_invite', inviteToken);
+          sessionStorage.setItem('invite_entry', '1');
+        },
+        { sessionValue: bobAuthEntry.value, inviteToken: fakeInviteToken }
+      );
+
+      // Single navigation — storage is already primed when the page loads
+      await freshPage.goto('http://localhost:5173');
+
+      // Wait a moment for the API call to be processed and React to re-render
+      await freshPage.waitForTimeout(3000);
+
+      // Debug: check what's in the DOM
+      const snackbarCount = await freshPage.locator('.MuiSnackbar-root').count();
+      const alertEl = freshPage.locator('[role="alert"]');
+      const alertCount = await alertEl.count();
+      const alertText = alertCount > 0 ? await alertEl.first().textContent() : '(none)';
+      const alertVisible = alertCount > 0 ? await alertEl.first().isVisible() : false;
+      console.log(`snackbar: ${snackbarCount}, alerts: ${alertCount}, visible: ${alertVisible}, text: "${alertText}"`);
+
+      // The app should call accept-open-invite (intercepted → Connected!) and show the snackbar
+      await expect(
+        freshPage.getByRole('alert').filter({ hasText: /you.?re( now)? connected/i })
+      ).toBeVisible({ timeout: 5_000 }).catch(err => {
+        console.log('Intercepted requests:', intercepted.join('\n') || '(none)');
+        console.log('Console logs:', consoleLogs.join('\n') || '(none)');
+        throw err;
+      });
+    } finally {
+      await freshContext.close();
+    }
   });
 
   test.afterAll(async () => {
     try {
       const aliceToken = await getAuthToken(ALICE_STATE);
       const bobToken = await getAuthToken(BOB_STATE);
-      const aliceId = await getUserIdFromState(ALICE_STATE);
-      const bobId = await getUserIdFromState(BOB_STATE);
+      const aliceId = await getUserId(ALICE_STATE);
+      const bobId = await getUserId(BOB_STATE);
 
-      // Remove friendship from both sides
       await removeFriend(aliceToken, bobId);
       await removeFriend(bobToken, aliceId);
 
-      // Clean up Bob's shared recipe
       if (sharedRecipeTitle) {
         await deleteRecipeByTitle(bobToken, sharedRecipeTitle);
       }

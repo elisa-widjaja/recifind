@@ -1386,7 +1386,7 @@ async function handleAcceptInvite(request: Request, env: Env, user: Authenticate
     createdAt: now,
   }));
 
-  return json({ success: true, message: 'You are now connected!' });
+  return json({ success: true, message: 'You are now connected!', inviterName: inviterProfile.displayName });
 }
 
 async function handleCheckInvites(env: Env, user: AuthenticatedUser, ctx: ExecutionContext) {

@@ -78,25 +78,24 @@ test.describe('Search & Filter', () => {
     await page.goto('/');
     await page.waitForTimeout(1000);
 
-    // Save Chicken Dinner — locate its card by title text, then find the Save recipe button within
-    const chickenCard = page.locator('*').filter({ hasText: '[TEST] Chicken Dinner' }).last();
-    await chickenCard.getByRole('button', { name: 'Save recipe' }).click();
+    // Save Chicken Dinner — card button's accessible name includes the recipe title
+    const chickenCard = page.getByRole('button', { name: /\[TEST\] Chicken Dinner/ });
+    await chickenCard.getByLabel('Save recipe').click();
     await page.waitForTimeout(500);
 
     // The "Favorites" Chip appears now that favorites.size > 0
     const favChip = page.getByRole('button', { name: 'Favorites' });
-    await expect(favChip).toBeVisible();
+    await expect(favChip).toBeVisible({ timeout: 5_000 });
     await favChip.click();
     await page.waitForTimeout(500);
 
-    await expect(page.getByText('[TEST] Chicken Dinner')).toBeVisible();
+    await expect(page.getByText('[TEST] Chicken Dinner').first()).toBeVisible();
     await expect(page.getByText('[TEST] Banana Breakfast')).not.toBeVisible();
     await expect(page.getByText('[TEST] Garlic Pasta Lunch')).not.toBeVisible();
 
-    // Unsave and turn off favorites filter
-    const chickenCardAgain = page.locator('*').filter({ hasText: '[TEST] Chicken Dinner' }).last();
-    await chickenCardAgain.getByRole('button', { name: 'Unsave recipe' }).click();
-    await favChip.click();
+    // Unsave — favorites.size becomes 0, Favorites chip auto-disappears
+    await chickenCard.getByLabel('Unsave recipe').click();
+    await expect(favChip).not.toBeVisible({ timeout: 5_000 });
   });
 
   test('clearing meal type filter restores full list', async ({ page }) => {

@@ -6,7 +6,7 @@ Recipe-sharing app. Frontend is JavaScript (React + Vite + MUI), backend is Type
 
 - **Production**: Cloudflare Pages — NOT Vercel. Project name: `recifind`
 - **Domain**: recifind.elisawidjaja.com
-- **Frontend deploy** (from project root): `cd apps/recipe-ui && npm run build && cd ../.. && npx wrangler pages deploy apps/recipe-ui/dist --project-name recifind`
+- **Frontend deploy** (must run from `apps/recipe-ui` so wrangler picks up `functions/`): `cd apps/recipe-ui && npm run build && npx wrangler pages deploy dist --project-name recifind`
 - **Worker deploy**: `cd apps/worker && npx wrangler deploy`
 - Git pushes do NOT auto-deploy — always deploy manually with wrangler
 
@@ -55,6 +55,7 @@ Recipe-sharing app. Frontend is JavaScript (React + Vite + MUI), backend is Type
 - **vite** — frontend build/dev server
 - **vitest** — worker tests (`cd apps/worker && npm test`)
 - **playwright** — browser testing (MCP server configured in `.claude/settings.json`)
+- **E2E tests** — see [`apps/e2e/README.md`](apps/e2e/README.md) for full setup and run instructions
 
 ## Key Files
 

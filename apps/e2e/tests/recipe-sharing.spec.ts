@@ -17,7 +17,7 @@ test.describe('Recipe Sharing', () => {
     }
   });
 
-  test('share button is visible on recipe detail', async ({ page }) => {
+  test('share button is visible on recipe card', async ({ page }) => {
     createdRecipeTitle = '[TEST] Share Button Test';
     const token = await getAuthToken(ALICE_STATE);
     await fetch(`${API_BASE}/recipes`, {
@@ -33,10 +33,13 @@ test.describe('Recipe Sharing', () => {
     });
 
     await page.goto('/');
-    await page.waitForTimeout(1000);
-    await page.getByText(createdRecipeTitle).first().click();
+    // Wait for the recipe card to appear before checking the share button
+    await expect(page.getByText(createdRecipeTitle).first()).toBeVisible({ timeout: 10_000 });
 
-    const shareBtn = sel.shareBtn(page);
+    // The Share recipe button is an IconButton on the card (aria-label="Share recipe")
+    // It lives on the card itself, not inside the detail dialog
+    const card = page.getByRole('button').filter({ hasText: createdRecipeTitle });
+    const shareBtn = card.getByLabel('Share recipe');
     await expect(shareBtn).toBeVisible();
   });
 
@@ -74,8 +77,8 @@ test.describe('Recipe Sharing', () => {
     const anonPage = await anonContext.newPage();
     await anonPage.goto(`http://localhost:5173/?share=${shareToken}`);
 
-    await expect(anonPage.getByText(createdRecipeTitle)).toBeVisible({ timeout: 10_000 });
-    await expect(anonPage.getByText('garlic')).toBeVisible();
+    await expect(anonPage.getByText(createdRecipeTitle).first()).toBeVisible({ timeout: 10_000 });
+    await expect(anonPage.getByText('garlic', { exact: true })).toBeVisible();
 
     await anonContext.close();
   });

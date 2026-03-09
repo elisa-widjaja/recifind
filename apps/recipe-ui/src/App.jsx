@@ -1123,6 +1123,7 @@ function App() {
   const [friendRecipesLoading, setFriendRecipesLoading] = useState(false);
   const [visibleRecipeCount, setVisibleRecipeCount] = useState(7);
   const friendRecipesSentinelRef = useRef(null);
+  const inviteAcceptDispatchedRef = useRef(false); // prevents bottom check-invites from racing accept-invite
   const [friendRecipeSearchOpen, setFriendRecipeSearchOpen] = useState(false);
   const [friendRecipeSearchQuery, setFriendRecipeSearchQuery] = useState('');
   const [friendsDrawerExpanded, setFriendsDrawerExpanded] = useState(false);
@@ -1825,7 +1826,7 @@ function App() {
         if (!sessionStorage.getItem('invite_entry')) {
           setShowInstallBanner(true);
         }
-      }, 3000);
+      }, 30000);
     };
     window.addEventListener('beforeinstallprompt', handler);
     return () => {
@@ -1844,7 +1845,7 @@ function App() {
     if (localStorage.getItem('recifind-install-banner-dismissed')) return;
     if (sessionStorage.getItem('pending_invite_token')) return;
     if (sessionStorage.getItem('invite_entry')) return;
-    const timer = setTimeout(() => setShowInstallBanner(true), 3000);
+    const timer = setTimeout(() => setShowInstallBanner(true), 30000);
     return () => clearTimeout(timer);
   }, [isAuthChecked, session]);
 
@@ -2156,32 +2157,47 @@ function App() {
 
     const pendingInviteToken = sessionStorage.getItem('pending_invite_token');
     let handledByToken = false;
+    console.log('[INVITE DEBUG] pendingInviteToken:', pendingInviteToken, 'inviteAcceptDispatchedRef:', inviteAcceptDispatchedRef.current);
     if (pendingInviteToken) {
       handledByToken = true;
+      inviteAcceptDispatchedRef.current = true;
       sessionStorage.removeItem('pending_invite_token');
+      console.log('[INVITE DEBUG] calling accept-invite with token:', pendingInviteToken);
       callRecipesApi('/friends/accept-invite', { method: 'POST', body: JSON.stringify({ token: pendingInviteToken }) }, accessToken)
-        .then(() => {
+        .then((res) => {
+          console.log('[INVITE DEBUG] accept-invite SUCCESS, res:', res);
           setIsAuthDialogOpen(false);
-          setSnackbarState({ open: true, message: "You're now connected with your friend on ReciFind!", severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
+          const name = res?.inviterName;
+          setTimeout(() => {
+            console.log('[INVITE DEBUG] showing snackbar (accept-invite path), name:', name);
+            setSnackbarState({ open: true, message: name ? `You're now connected with ${name}` : "You're now connected!", severity: 'success', duration: 8000, anchorOrigin: { vertical: 'top', horizontal: 'center' } });
+          }, 400);
           fetchFriends();
           if (!isStandalone && !isPwaInstalled() && !localStorage.getItem('recifind-install-banner-dismissed')) {
-            setTimeout(() => setShowInstallBanner(true), 3000);
+            setTimeout(() => setShowInstallBanner(true), 30000);
           }
         })
-        .catch(() => {
+        .catch((err) => {
+          console.log('[INVITE DEBUG] accept-invite FAILED, error:', err?.message);
           // Token-based accept failed (invite may have been consumed already).
           // Fall back to email match — if we just connected, show success instead of error.
           callRecipesApi('/friends/check-invites', { method: 'POST' }, accessToken)
             .then((res) => {
+              console.log('[INVITE DEBUG] check-invites fallback, connected:', res?.connected);
               if (res?.connected?.length > 0) {
                 setIsAuthDialogOpen(false);
-                setSnackbarState({ open: true, message: `You're now connected with ${res.connected.join(', ')}!`, severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
+                setTimeout(() => {
+                  console.log('[INVITE DEBUG] showing snackbar (check-invites fallback path)');
+                  setSnackbarState({ open: true, message: `You're now connected with ${res.connected.join(', ')}`, severity: 'success', duration: 8000, anchorOrigin: { vertical: 'top', horizontal: 'center' } });
+                }, 400);
                 fetchFriends();
               } else {
+                console.log('[INVITE DEBUG] check-invites fallback: no new connections, showing error');
                 setSnackbarState({ open: true, message: 'Could not process invite. It may have already been used.', severity: 'error' });
               }
             })
-            .catch(() => {
+            .catch((err2) => {
+              console.log('[INVITE DEBUG] check-invites fallback FAILED:', err2?.message);
               setSnackbarState({ open: true, message: 'Could not process invite. It may have already been used.', severity: 'error' });
             });
         });
@@ -2284,14 +2300,22 @@ function App() {
     // Works even if the invite_token was lost during OAuth redirect.
     // Skip if we already handled via token — avoids a race where check-invites deletes
     // the invite record before accept-invite can claim it, causing a spurious 404 error.
-    if (handledByToken) return;
+    // Also skip if a token was dispatched earlier this page load (Supabase may fire onAuthStateChange
+    // with a refreshed token, re-running this effect after sessionStorage is already cleared).
+    console.log('[INVITE DEBUG] bottom check-invites guard — handledByToken:', handledByToken, 'dispatched:', inviteAcceptDispatchedRef.current);
+    if (handledByToken || inviteAcceptDispatchedRef.current) return;
+    console.log('[INVITE DEBUG] calling bottom check-invites');
     callRecipesApi('/friends/check-invites', { method: 'POST' }, accessToken)
       .then((res) => {
+        console.log('[INVITE DEBUG] bottom check-invites, connected:', res?.connected);
         if (res?.connected?.length > 0) {
-          setSnackbarState({ open: true, message: `You're now connected with ${res.connected.join(', ')}!`, severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
+          setTimeout(() => {
+            console.log('[INVITE DEBUG] showing snackbar (bottom check-invites path)');
+            setSnackbarState({ open: true, message: `You're now connected with ${res.connected.join(', ')}`, severity: 'success', duration: 8000, anchorOrigin: { vertical: 'top', horizontal: 'center' } });
+          }, 400);
           fetchFriends();
           if (!isStandalone && !isPwaInstalled() && !localStorage.getItem('recifind-install-banner-dismissed')) {
-            setTimeout(() => setShowInstallBanner(true), 3000);
+            setTimeout(() => setShowInstallBanner(true), 30000);
           }
         }
       })
@@ -3833,8 +3857,22 @@ function App() {
                                     setIsAuthDialogOpen(true);
                                     return;
                                   }
+                                  let recipeId = recipe.id;
+                                  // Starter recipes have synthetic IDs like "recipe-0". Save to account first.
+                                  if (typeof recipeId === 'string' && recipeId.startsWith('recipe-')) {
+                                    const payload = await buildApiRecipePayload(recipe);
+                                    const saveRes = await callRecipesApi('/recipes', { method: 'POST', body: JSON.stringify(payload) }, accessToken);
+                                    const savedRecipe = normalizeRecipeFromApi(saveRes?.recipe);
+                                    if (!savedRecipe?.id) throw new Error('Failed to save recipe');
+                                    recipeId = savedRecipe.id;
+                                    setRecipes((prev) => {
+                                      const updated = prev.map((r) => r.id === recipe.id ? savedRecipe : r);
+                                      saveRecipesToCache(updated, session?.user?.id || null, serverVersionRef.current);
+                                      return updated;
+                                    });
+                                  }
                                   if (API_BASE_URL) {
-                                    const response = await fetch(`${API_BASE_URL}/recipes/${encodeURIComponent(recipe.id)}/share`, {
+                                    const response = await fetch(`${API_BASE_URL}/recipes/${encodeURIComponent(recipeId)}/share`, {
                                       method: 'POST',
                                       headers: {
                                         'Content-Type': 'application/json',
@@ -5199,7 +5237,7 @@ function App() {
 
       <Snackbar
         open={snackbarState.open}
-        autoHideDuration={4000}
+        autoHideDuration={snackbarState.duration ?? 4000}
         onClose={handleSnackbarClose}
         anchorOrigin={snackbarState.anchorOrigin}
       >

@@ -1,8 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
-  testDir: './tests',
+  testDir: '.',
   fullyParallel: false,
+  workers: 1,
   retries: 1,
   timeout: 30_000,
   use: {
@@ -16,6 +17,7 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         storageState: undefined,
+        headless: false,
       },
     },
     {
@@ -25,7 +27,7 @@ export default defineConfig({
         storageState: '.auth/alice.json',
       },
       dependencies: [],
-      testIgnore: /friends\.spec\.ts/,
+      testMatch: /tests\/(?!friends).*\.spec\.ts/,
     },
     {
       name: 'bob',
@@ -33,7 +35,7 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         storageState: '.auth/bob.json',
       },
-      dependencies: [],
+      dependencies: ['setup'],
       testMatch: /friends\.spec\.ts/,
     },
     {
@@ -42,7 +44,7 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         storageState: '.auth/alice.json',
       },
-      dependencies: [],
+      dependencies: ['setup'],
       testMatch: /friends\.spec\.ts/,
     },
   ],

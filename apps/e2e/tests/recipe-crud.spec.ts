@@ -30,7 +30,7 @@ test.describe('Recipe CRUD', () => {
     await sel.saveRecipeBtn(page).click();
 
     await expect(dialog).not.toBeVisible();
-    await expect(page.getByText(createdRecipeTitle)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(createdRecipeTitle).first()).toBeVisible({ timeout: 10_000 });
   });
 
   test('view recipe detail', async ({ page }) => {
@@ -56,7 +56,7 @@ test.describe('Recipe CRUD', () => {
     const detail = page.getByRole('dialog');
     await expect(detail).toBeVisible();
     await expect(detail.getByText(createdRecipeTitle)).toBeVisible();
-    await expect(detail.getByText('pasta')).toBeVisible();
+    await expect(detail.getByText('pasta', { exact: true })).toBeVisible();
   });
 
   test('edit recipe title', async ({ page }) => {
@@ -90,7 +90,7 @@ test.describe('Recipe CRUD', () => {
     await titleInput.fill(createdRecipeTitle);
     await detail.getByRole('button', { name: /save/i }).click();
 
-    await expect(page.getByText(createdRecipeTitle)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(createdRecipeTitle).first()).toBeVisible({ timeout: 10_000 });
   });
 
   test('delete recipe', async ({ page }) => {
@@ -120,6 +120,9 @@ test.describe('Recipe CRUD', () => {
     await expect(confirmDialog).toBeVisible();
     await confirmDialog.getByRole('button', { name: /delete/i }).click();
 
-    await expect(page.getByText(titleToDelete)).not.toBeVisible({ timeout: 10_000 });
+    // Wait for both dialogs to close, then verify the card is gone
+    await expect(page.getByTestId('delete-confirm-dialog')).not.toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId('recipe-detail-dialog')).not.toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(titleToDelete)).toHaveCount(0, { timeout: 10_000 });
   });
 });
