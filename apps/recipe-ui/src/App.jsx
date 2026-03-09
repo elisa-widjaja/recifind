@@ -4693,9 +4693,12 @@ function App() {
               }
             }
           }}
-          sx={{ display: 'flex', justifyContent: 'center', pt: 1.5, pb: 0.5, flexShrink: 0, cursor: 'grab', touchAction: 'none' }}
+          sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pt: 1.5, pb: 1, flexShrink: 0, cursor: 'grab', touchAction: 'none' }}
         >
-          <Box sx={{ width: 40, height: 4, borderRadius: 2, bgcolor: darkMode ? 'rgba(255,255,255,0.3)' : 'grey.300' }} />
+          <Box sx={{ width: 40, height: 4, borderRadius: 2, bgcolor: darkMode ? 'rgba(255,255,255,0.3)' : 'grey.300', mb: 1.5 }} />
+          {!selectedFriend && (
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>Friends</Typography>
+          )}
         </Box>
 
         {/* Header */}
@@ -4745,7 +4748,7 @@ function App() {
               }
             }
           }}
-          sx={{ flex: 1, overflowY: 'auto', pt: 0, px: 2, pb: 2, borderTop: '1px solid', borderColor: 'divider' }}
+          sx={{ flex: 1, overflowY: 'auto', pt: 0, px: 2, pb: 2 }}
         >
           {selectedFriend ? (
             friendRecipesLoading ? (
