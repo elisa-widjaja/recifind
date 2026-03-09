@@ -1090,7 +1090,13 @@ function App() {
   // Auth state
   const [session, setSession] = useState(null);
   const [isAuthChecked, setIsAuthChecked] = useState(false);
-  const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(false);
+  const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(
+    () => !!(
+      sessionStorage.getItem('pending_open_invite') ||
+      sessionStorage.getItem('pending_invite_token') ||
+      sessionStorage.getItem('pending_accept_friend')
+    )
+  );
   const [authEmail, setAuthEmail] = useState('');
   const [authError, setAuthError] = useState('');
   const [isAuthLoading, setIsAuthLoading] = useState(false);
@@ -2169,6 +2175,7 @@ function App() {
     const pendingOpenInviteToken = sessionStorage.getItem('pending_open_invite');
     if (pendingOpenInviteToken) {
       sessionStorage.removeItem('pending_open_invite');
+      setIsAuthDialogOpen(false);
       callRecipesApi('/friends/accept-open-invite', {
         method: 'POST',
         body: JSON.stringify({ token: pendingOpenInviteToken })
