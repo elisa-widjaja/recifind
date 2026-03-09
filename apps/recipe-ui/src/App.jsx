@@ -3446,14 +3446,14 @@ function App() {
                     setMobileFilterDrawerOpen(false);
                   }}
                   aria-pressed={selected}
-                  sx={{
+                  sx={(theme) => ({
                     height: 44,
                     fontWeight: 500,
                     ...(!selected && {
-                      backgroundColor: 'background.paper',
+                      backgroundColor: theme.palette.mode === 'dark' ? '#2a2b30' : 'background.paper',
                       borderColor: 'divider'
                     })
-                  }}
+                  })}
                 />
               );
             })}
@@ -3565,14 +3565,14 @@ function App() {
                         variant={selected ? 'filled' : 'outlined'}
                         onClick={() => handleMealTypeSelect(type)}
                         aria-pressed={selected}
-                        sx={{
+                        sx={(theme) => ({
                           height: 44,
                           fontWeight: 500,
                           ...(!selected && {
-                            backgroundColor: 'background.paper',
+                            backgroundColor: theme.palette.mode === 'dark' ? '#2a2b30' : 'background.paper',
                             borderColor: 'divider'
                           })
-                        }}
+                        })}
                       />
                     );
                   })}
