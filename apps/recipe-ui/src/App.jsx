@@ -3454,6 +3454,7 @@ function App() {
                   sx={(theme) => ({
                     height: 44,
                     fontWeight: 500,
+                    borderRadius: '6px',
                     ...(!selected && {
                       backgroundColor: theme.palette.mode === 'dark' ? '#2a2b30' : 'background.paper',
                       borderColor: 'divider'
@@ -3573,6 +3574,7 @@ function App() {
                         sx={(theme) => ({
                           height: 44,
                           fontWeight: 500,
+                          borderRadius: '6px',
                           ...(!selected && {
                             backgroundColor: theme.palette.mode === 'dark' ? '#2a2b30' : 'background.paper',
                             borderColor: 'divider'
