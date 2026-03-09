@@ -3883,6 +3883,16 @@ function App() {
           <ListItemIcon><EmailOutlinedIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Email</ListItemText>
         </MenuItem>
+        <MenuItem onClick={() => {
+          const { url, title } = shareMenuState;
+          setShareMenuState(null);
+          const body = encodeURIComponent(`Check out this recipe: ${title}\n\n${url}`);
+          window.open(`sms:?body=${body}`);
+          trackEvent('share_recipe', { method: 'sms' });
+        }}>
+          <ListItemIcon><SmsIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Text</ListItemText>
+        </MenuItem>
       </Menu>
 
       <Dialog
