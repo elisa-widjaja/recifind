@@ -3788,8 +3788,8 @@ function App() {
                               sx={{ p: 0.5, mr: '9px' }}
                             >
                               {session && favorites.has(recipe.id)
-                                ? <BookmarkIcon sx={{ fontSize: 18, color: 'primary.main' }} />
-                                : <BookmarkBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />}
+                                ? <FavoriteIcon sx={{ fontSize: 18, color: 'primary.main' }} />
+                                : <FavoriteBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />}
                             </IconButton>
                             <IconButton
                               size="small"
@@ -4417,7 +4417,7 @@ function App() {
                     variant={savedSharedRecipeIds.has(activeRecipe?.id) ? 'outlined' : 'contained'}
                     color="primary"
                     onClick={savedSharedRecipeIds.has(activeRecipe?.id) ? undefined : handleSaveSharedRecipe}
-                    startIcon={savedSharedRecipeIds.has(activeRecipe?.id) ? <CheckIcon /> : <BookmarkBorderIcon />}
+                    startIcon={savedSharedRecipeIds.has(activeRecipe?.id) ? <CheckIcon /> : <FavoriteBorderIcon />}
                     sx={savedSharedRecipeIds.has(activeRecipe?.id) ? { pointerEvents: 'none', border: '1px solid #4caf50', color: '#4caf50' } : undefined}
                   >
                     {savedSharedRecipeIds.has(activeRecipe?.id) ? 'Saved' : 'Save'}
@@ -4436,7 +4436,7 @@ function App() {
                   <Button
                     variant="contained"
                     color="primary"
-                    startIcon={<BookmarkBorderIcon />}
+                    startIcon={<FavoriteBorderIcon />}
                     onClick={openAuthDialog}
                   >
                     Save
