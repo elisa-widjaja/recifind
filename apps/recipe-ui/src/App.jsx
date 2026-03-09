@@ -4893,7 +4893,6 @@ function App() {
                           `Hey! I'd love to share recipes with you on ReciFind.\n\nJoin me here: ${window.location.origin}?invite=${token}`
                         );
                         window.location.href = `mailto:?subject=${subject}&body=${body}`;
-                        setSnackbarState({ open: true, message: 'Invite sent! Pending acceptance.', severity: 'success' });
                         trackEvent('invite_friend', { method: 'email' });
                       }}
                     >
@@ -4919,7 +4918,6 @@ function App() {
                         if (navigator.share) {
                           try {
                             await navigator.share({ text, url: inviteUrl });
-                            setSnackbarState({ open: true, message: 'Invite sent! Pending acceptance.', severity: 'success' });
                             trackEvent('invite_friend', { method: 'native_share' });
                             return;
                           } catch (err) {
@@ -4927,7 +4925,6 @@ function App() {
                           }
                         }
                         window.open(`sms:?body=${encodeURIComponent(text)}`);
-                        setSnackbarState({ open: true, message: 'Invite sent! Pending acceptance.', severity: 'success' });
                         trackEvent('invite_friend', { method: 'sms' });
                       }}
                     >
