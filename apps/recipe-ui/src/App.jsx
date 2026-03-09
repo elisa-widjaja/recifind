@@ -3425,6 +3425,11 @@ function App() {
         anchor="left"
         open={mobileFilterDrawerOpen}
         onClose={() => setMobileFilterDrawerOpen(false)}
+        PaperProps={{
+          sx: {
+            ...(darkMode ? { backgroundColor: '#212328', backgroundImage: 'none' } : {})
+          }
+        }}
       >
         <Box sx={{ width: 260, p: 3 }}>
           <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
