@@ -3793,7 +3793,7 @@ function App() {
                               sx={{ p: 0.5, mr: '9px' }}
                             >
                               {session && favorites.has(recipe.id)
-                                ? <FavoriteIcon sx={{ fontSize: 18, color: 'primary.main' }} />
+                                ? <FavoriteIcon sx={{ fontSize: 18, color: '#e53935' }} />
                                 : <FavoriteBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />}
                             </IconButton>
                             <IconButton
