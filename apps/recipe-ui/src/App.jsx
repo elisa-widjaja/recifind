@@ -4714,29 +4714,6 @@ function App() {
           </Box>
         )}
 
-        {!selectedFriend && (
-          <Tabs
-            value={friendsTab}
-            onChange={(e, v) => setFriendsTab(v)}
-            variant="fullWidth"
-            sx={(theme) => ({
-              borderBottom: 1,
-              borderColor: 'divider',
-              flexShrink: 0,
-              ...(theme.palette.mode === 'dark' && {
-                '& .MuiTab-root.Mui-selected': { color: '#7A7BFF' },
-                '& .MuiTabs-indicator': { backgroundColor: '#7A7BFF' }
-              })
-            })}
-          >
-            <Tab label="Friends" />
-            <Tab label={
-              <Badge badgeContent={friendRequests.length} color="error" sx={{ '& .MuiBadge-badge': { right: -12, top: -2 } }}>
-                Requests
-              </Badge>
-            } />
-          </Tabs>
-        )}
 
         {/* Scrollable content */}
         <Box
@@ -4877,7 +4854,7 @@ function App() {
             )
           ) : isAddFriendOpen ? (
             <Box sx={{ mt: '24px' }}>
-              <Typography variant="subtitle2" gutterBottom sx={{ fontSize: { xs: '13px', sm: '0.875rem' } }}>
+              <Typography variant="h6" sx={{ fontSize: { xs: '1.1rem', sm: '1.25rem' }, mb: 2 }}>
                 Invite a friend
               </Typography>
 
@@ -4886,48 +4863,27 @@ function App() {
                 <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
                   <CircularProgress size={20} />
                 </Box>
-              ) : !openInviteLinkLoaded || openInviteLink ? (
+              ) : (
                 <>
-                  {openInviteLink && (
-                    <Box
-                      sx={{
-                        display: 'flex', alignItems: 'center', gap: 1,
-                        bgcolor: 'action.hover', borderRadius: 1, px: 1.5, py: 1, mb: 1.5
-                      }}
-                    >
-                      <Typography
-                        variant="caption"
-                        sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }}
-                      >
-                        {`${window.location.origin}?invite=${openInviteLink}`}
-                      </Typography>
-                      <IconButton
-                        size="small"
-                        onClick={() => {
-                          navigator.clipboard.writeText(`${window.location.origin}?invite=${openInviteLink}`);
-                          setSnackbarState({ open: true, message: 'Invite link copied!', severity: 'success' });
-                        }}
-                      >
-                        <ContentCopyIcon fontSize="small" />
-                      </IconButton>
-                    </Box>
-                  )}
-
                   <Stack spacing={1.5}>
                     <Button
                       fullWidth
                       variant="outlined"
                       startIcon={<EmailOutlinedIcon />}
                       onClick={async () => {
-                        let link = openInviteLink;
-                        if (!link) {
-                          link = await generateOpenInviteUrl();
-                          if (!link) return;
-                          setOpenInviteLink(link);
+                        let token = openInviteLink;
+                        if (!token) {
+                          setOpenInviteLinkLoading(true);
+                          try {
+                            const res = await callRecipesApi('/friends/open-invite', { method: 'POST' }, accessToken);
+                            token = res?.token || null;
+                            if (token) { setOpenInviteLink(token); setOpenInviteLinkLoaded(true); }
+                          } finally { setOpenInviteLinkLoading(false); }
+                          if (!token) return;
                         }
                         const subject = encodeURIComponent('Join me on ReciFind!');
                         const body = encodeURIComponent(
-                          `Hey! I'd love to share recipes with you on ReciFind.\n\nJoin me here: ${window.location.origin}?invite=${link}`
+                          `Hey! I'd love to share recipes with you on ReciFind.\n\nJoin me here: ${window.location.origin}?invite=${token}`
                         );
                         window.location.href = `mailto:?subject=${subject}&body=${body}`;
                         setSnackbarState({ open: true, message: 'Invite sent! Pending acceptance.', severity: 'success' });
@@ -4941,13 +4897,17 @@ function App() {
                       variant="outlined"
                       startIcon={<SmsIcon />}
                       onClick={async () => {
-                        let link = openInviteLink;
-                        if (!link) {
-                          link = await generateOpenInviteUrl();
-                          if (!link) return;
-                          setOpenInviteLink(link);
+                        let token = openInviteLink;
+                        if (!token) {
+                          setOpenInviteLinkLoading(true);
+                          try {
+                            const res = await callRecipesApi('/friends/open-invite', { method: 'POST' }, accessToken);
+                            token = res?.token || null;
+                            if (token) { setOpenInviteLink(token); setOpenInviteLinkLoaded(true); }
+                          } finally { setOpenInviteLinkLoading(false); }
+                          if (!token) return;
                         }
-                        const inviteUrl = `${window.location.origin}?invite=${link}`;
+                        const inviteUrl = `${window.location.origin}?invite=${token}`;
                         const text = `Hey! I'd love to share recipes with you on ReciFind. Join me here: ${inviteUrl}`;
                         if (navigator.share) {
                           try {
@@ -4966,210 +4926,117 @@ function App() {
                     >
                       Invite by Text
                     </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      startIcon={<ContentCopyIcon />}
+                      onClick={async () => {
+                        let token = openInviteLink;
+                        if (!token) {
+                          setOpenInviteLinkLoading(true);
+                          try {
+                            const res = await callRecipesApi('/friends/open-invite', { method: 'POST' }, accessToken);
+                            token = res?.token || null;
+                            if (token) { setOpenInviteLink(token); setOpenInviteLinkLoaded(true); }
+                          } catch {
+                            setSnackbarState({ open: true, message: 'Could not generate link.', severity: 'error' });
+                            return;
+                          } finally { setOpenInviteLinkLoading(false); }
+                          if (!token) return;
+                        }
+                        navigator.clipboard.writeText(`${window.location.origin}?invite=${token}`);
+                        setSnackbarState({ open: true, message: 'Invite link copied!', severity: 'success' });
+                        trackEvent('invite_friend', { method: 'copy_link' });
+                      }}
+                    >
+                      Copy invite link
+                    </Button>
                   </Stack>
 
                   {openInviteLink && (
-                    <Button
-                      size="small"
-                      variant="text"
-                      color="inherit"
-                      sx={{ mt: 1, opacity: 0.6, fontSize: '0.75rem' }}
-                      onClick={() => setOpenInviteRegenerateOpen(true)}
-                    >
-                      Regenerate link
-                    </Button>
+                    <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
+                      <Button
+                        size="small"
+                        variant="text"
+                        color="inherit"
+                        sx={{ opacity: 0.6, fontSize: '0.75rem' }}
+                        onClick={() => setOpenInviteRegenerateOpen(true)}
+                      >
+                        Generate new link
+                      </Button>
+                    </Box>
                   )}
                 </>
-              ) : (
-                /* No active link state */
-                <Box sx={{ textAlign: 'center', py: 2 }}>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                    No active invite link
-                  </Typography>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={async () => {
-                      const link = await generateOpenInviteUrl();
-                      if (link) setOpenInviteLink(link);
-                    }}
-                  >
-                    Generate link
-                  </Button>
-                </Box>
               )}
             </Box>
-          ) : friendsTab === 0 ? (
-            friends.length === 0 ? (
-              <Typography variant="body2" color="text.secondary" align="center" sx={{ pt: '14px', pb: 1 }}>
-                Tap &ldquo;Add Friend&rdquo; to get started
-              </Typography>
-            ) : (
-              <List disablePadding>
-                {friends.map((friend) => (
-                  <ListItemButton
-                    key={friend.friendId}
-                    onClick={() => fetchFriendRecipes(friend)}
-                    sx={{ pl: 0 }}
-                  >
-                    <ListItemAvatar>
-                      <Avatar sx={{ bgcolor: 'primary.main' }}>
-                        {(friend.friendName || friend.friendEmail || '?')[0].toUpperCase()}
-                      </Avatar>
-                    </ListItemAvatar>
-                    <ListItemText
-                      primary={friend.friendName || friend.friendEmail}
-                    />
-                    <IconButton
-                      edge="end"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setFriendConfirm({
-                          open: true,
-                          title: 'Remove friend',
-                          message: `Remove ${friend.friendName || friend.friendEmail} from your friends?`,
-                          onConfirm: () => removeFriend(friend.friendId)
-                        });
-                      }}
-                      size="small"
-                      sx={{ mr: -3 }}
-                    >
-                      <DeleteOutlineIcon fontSize="small" />
-                    </IconButton>
-                  </ListItemButton>
-                ))}
-              </List>
-            )
+          ) : friends.length === 0 ? (
+            <Box
+              sx={{
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                textAlign: 'center',
+                px: 3,
+              }}
+            >
+              <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                <Typography variant="h5" sx={{ fontWeight: 300, mb: 1 }}>
+                  Cooking is better with friends
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Tap &ldquo;Add Friend&rdquo; to get started
+                </Typography>
+              </Box>
+              <Box
+                sx={{
+                  '@keyframes bop': {
+                    '0%, 100%': { transform: 'translateY(0)' },
+                    '50%': { transform: 'translateY(8px)' },
+                  },
+                  animation: 'bop 1.2s ease-in-out infinite',
+                  color: 'text.secondary',
+                  pb: 1,
+                }}
+              >
+                <ExpandMoreIcon sx={{ fontSize: '2.5rem' }} />
+              </Box>
+            </Box>
           ) : (
-            friendRequests.length === 0 && sentRequests.length === 0 && sentInvites.length === 0 ? (
-              <Typography variant="body2" color="text.secondary" align="center" sx={{ pt: '14px', pb: 1 }}>
-                No pending friend requests
-              </Typography>
-            ) : (
-              <List disablePadding>
-                {friendRequests.map((req, index) => (
-                  <Fragment key={req.fromUserId}>
-                    {index > 0 && <Divider />}
-                    <ListItem sx={{ pl: 0, alignItems: 'flex-start', pb: '20px' }}>
-                      <ListItemAvatar>
-                        <Avatar sx={{ bgcolor: 'secondary.main' }}>
-                          {(req.fromName || req.fromEmail || '?')[0].toUpperCase()}
-                        </Avatar>
-                      </ListItemAvatar>
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <ListItemText primary={req.fromName || req.fromEmail} />
-                        <Stack direction="row" spacing={1} sx={{ mt: '10px' }}>
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            color="primary"
-                            onClick={() => acceptFriendRequest(req.fromUserId)}
-                            startIcon={<CheckIcon />}
-                            sx={(theme) => ({
-                              flex: 1,
-                              bgcolor: 'transparent',
-                              ...(theme.palette.mode === 'dark' && {
-                                color: 'white',
-                                borderColor: 'white',
-                                '& .MuiButton-startIcon': { color: 'white' },
-                              }),
-                            })}
-                          >
-                            Accept
-                          </Button>
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            color="inherit"
-                            onClick={() => declineFriendRequest(req.fromUserId)}
-                            startIcon={<CloseIcon />}
-                            sx={(theme) => ({
-                              flex: 1,
-                              color: theme.palette.mode === 'dark' ? '#f28b82' : 'error.main',
-                              borderColor: theme.palette.mode === 'dark' ? '#f28b82' : 'error.main',
-                              '& .MuiButton-startIcon': { color: 'inherit' },
-                              '&:hover': { borderColor: 'inherit', bgcolor: 'transparent' },
-                            })}
-                          >
-                            Decline
-                          </Button>
-                        </Stack>
-                      </Box>
-                    </ListItem>
-                  </Fragment>
-                ))}
-                {(sentRequests.length > 0 || sentInvites.length > 0) && (
-                  <>
-                    {friendRequests.length > 0 && <Divider sx={{ my: 1 }} />}
-                    <Typography variant="caption" color="text.secondary" sx={{ pl: 0, pt: '10px', pb: '4px', display: 'block', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                      Sent
-                    </Typography>
-                    {sentRequests.map((req) => (
-                      <ListItem
-                        key={req.toUserId}
-                        sx={{ pl: 0, '& .MuiListItemSecondaryAction-root': { right: -8 } }}
-                        secondaryAction={
-                          <IconButton
-                            size="small"
-                            onClick={() => setFriendConfirm({
-                              open: true,
-                              title: 'Cancel request',
-                              message: `Cancel your friend request to ${req.toEmail}?`,
-                              onConfirm: () => cancelSentFriendRequest(req.toUserId)
-                            })}
-                            aria-label="Cancel request"
-                          >
-                            <CloseIcon fontSize="small" />
-                          </IconButton>
-                        }
-                      >
-                        <ListItemAvatar>
-                          <Avatar sx={{ bgcolor: 'grey.400' }}>
-                            {(req.toEmail || '?')[0].toUpperCase()}
-                          </Avatar>
-                        </ListItemAvatar>
-                        <ListItemText
-                          primary={req.toEmail}
-                          secondary="Pending"
-                          sx={{ pr: 8 }}
-                        />
-                      </ListItem>
-                    ))}
-                    {sentInvites.map((inv) => (
-                      <ListItem
-                        key={inv.inviteId}
-                        sx={{ pl: 0, '& .MuiListItemSecondaryAction-root': { right: -8 } }}
-                        secondaryAction={
-                          <IconButton
-                            size="small"
-                            onClick={() => setFriendConfirm({
-                              open: true,
-                              title: 'Cancel invite',
-                              message: `Cancel your invite to ${inv.toEmail}?`,
-                              onConfirm: () => cancelInvite(inv.inviteId)
-                            })}
-                            aria-label="Cancel invite"
-                          >
-                            <CloseIcon fontSize="small" />
-                          </IconButton>
-                        }
-                      >
-                        <ListItemAvatar>
-                          <Avatar sx={{ bgcolor: 'grey.300' }}>
-                            {(inv.toEmail || '?')[0].toUpperCase()}
-                          </Avatar>
-                        </ListItemAvatar>
-                        <ListItemText
-                          primary={inv.toEmail}
-                          secondary="Invited — not on ReciFind yet"
-                          sx={{ pr: 8 }}
-                        />
-                      </ListItem>
-                    ))}
-                  </>
-                )}
-              </List>
-            )
+            <List disablePadding>
+              {friends.map((friend) => (
+                <ListItemButton
+                  key={friend.friendId}
+                  onClick={() => fetchFriendRecipes(friend)}
+                  sx={{ pl: 0 }}
+                >
+                  <ListItemAvatar>
+                    <Avatar sx={{ bgcolor: 'primary.main' }}>
+                      {(friend.friendName || friend.friendEmail || '?')[0].toUpperCase()}
+                    </Avatar>
+                  </ListItemAvatar>
+                  <ListItemText
+                    primary={friend.friendName || friend.friendEmail}
+                  />
+                  <IconButton
+                    edge="end"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setFriendConfirm({
+                        open: true,
+                        title: 'Remove friend',
+                        message: `Remove ${friend.friendName || friend.friendEmail} from your friends?`,
+                        onConfirm: () => removeFriend(friend.friendId)
+                      });
+                    }}
+                    size="small"
+                    sx={{ mr: -3 }}
+                  >
+                    <DeleteOutlineIcon fontSize="small" />
+                  </IconButton>
+                </ListItemButton>
+              ))}
+            </List>
           )}
 
         </Box>
