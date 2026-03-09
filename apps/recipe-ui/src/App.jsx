@@ -2186,7 +2186,7 @@ function App() {
             const name = result?.inviterName;
             setSnackbarState({
               open: true,
-              message: name ? `You're connected with ${name}!` : "You're now connected with your friend on ReciFind!",
+              message: name ? `You're now connected with ${name}!` : "You're now connected with your friend on ReciFind!",
               severity: 'success',
               anchorOrigin: { vertical: 'top', horizontal: 'center' }
             });
