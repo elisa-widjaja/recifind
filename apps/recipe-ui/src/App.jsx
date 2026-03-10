@@ -75,7 +75,7 @@ import CheckBoxIcon from '@mui/icons-material/CheckBox';
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
 import PeopleIcon from '@mui/icons-material/People';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
-import SmsIcon from '@mui/icons-material/Sms';
+import SmsOutlinedIcon from '@mui/icons-material/SmsOutlined';
 import CheckIcon from '@mui/icons-material/Check';
 import FavoriteIcon from '@mui/icons-material/Favorite';
 import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
@@ -299,6 +299,14 @@ const MEAL_TYPE_LABELS = {
   dinner: 'Dinner',
   dessert: 'Dessert',
   appetizer: 'Appetizer'
+};
+
+const MEAL_TYPE_ICONS = {
+  breakfast: '🌅',
+  lunch: '☀️',
+  dinner: '🌙',
+  dessert: '🍰',
+  appetizer: '🥗',
 };
 
 const MEAL_TYPE_ORDER = ['breakfast', 'lunch', 'dinner', 'dessert', 'appetizer'];
@@ -879,6 +887,10 @@ const trackEvent = (name, params = {}) => {
 
 let searchDebounceTimer = null;
 
+function BoppingFruitsIllustration() {
+  return <img src="/friends-empty.png" width="260" alt="friends" style={{ display: 'block', marginTop: 20 }} />;
+}
+
 function App() {
   // Use window width directly for reliable mobile detection
   const [isMobile, setIsMobile] = useState(() => {
@@ -898,6 +910,7 @@ function App() {
 
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [mobileFilterDrawerOpen, setMobileFilterDrawerOpen] = useState(false);
+  const mobileFilterChipsRef = useRef(null);
   const [favorites, setFavorites] = useState(() => {
     try {
       const stored = localStorage.getItem('recifind-favorites');
@@ -1811,6 +1824,22 @@ function App() {
   useEffect(() => {
     setVisibleCount(RESULTS_PAGE_SIZE);
   }, [selectedMealType, normalizedIngredientsKey, recipes]);
+
+  useEffect(() => {
+    if (!mobileFilterDrawerOpen || !selectedMealType) return;
+    const timer = setTimeout(() => {
+      const container = mobileFilterChipsRef.current;
+      if (!container) return;
+      const selected = container.querySelector('[aria-pressed="true"]');
+      if (!selected) return;
+      const containerLeft = container.scrollLeft;
+      const containerWidth = container.offsetWidth;
+      const chipLeft = selected.offsetLeft;
+      const chipWidth = selected.offsetWidth;
+      container.scrollTo({ left: chipLeft - containerWidth / 2 + chipWidth / 2, behavior: 'smooth' });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [mobileFilterDrawerOpen, selectedMealType]);
 
   // Capture Chrome/Android install prompt
   useEffect(() => {
@@ -3474,39 +3503,96 @@ function App() {
           }
         }}
       >
-        <Box sx={{ width: 260, p: 3 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
+        <Box sx={{ width: 240, pt: 2, pb: 2, pl: 2 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1.5, fontSize: 14 }}>
             Filter by meal type
           </Typography>
-          <Stack spacing={1}>
+          <Box ref={mobileFilterChipsRef} sx={{ display: 'flex', flexWrap: 'nowrap', overflowX: 'auto', gap: 1, '&::-webkit-scrollbar': { display: 'none' }, scrollbarWidth: 'none', mr: -2 }}>
             {availableMealTypes.map((type) => {
               const label = MEAL_TYPE_LABELS[type] || type.replace(/^\w/, (c) => c.toUpperCase());
               const selected = selectedMealType === type;
               return (
-                <Chip
+                <Box
                   key={type}
-                  label={label}
-                  clickable
-                  color={selected ? 'primary' : 'default'}
-                  variant={selected ? 'filled' : 'outlined'}
+                  component="button"
                   onClick={() => {
                     handleMealTypeSelect(type);
-                    setMobileFilterDrawerOpen(false);
+                    setTimeout(() => setMobileFilterDrawerOpen(false), 400);
                   }}
                   aria-pressed={selected}
                   sx={(theme) => ({
-                    height: 44,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    height: 36,
+                    px: 2,
+                    border: 'none',
+                    borderRadius: '999px',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    fontSize: '0.875rem',
                     fontWeight: 500,
-                    borderRadius: '6px',
-                    ...(!selected && {
-                      backgroundColor: theme.palette.mode === 'dark' ? '#2a2b30' : 'background.paper',
-                      borderColor: 'divider'
-                    })
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.15s ease',
+                    ...(selected ? {
+                      bgcolor: 'primary.main',
+                      color: '#fff',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                    } : {
+                      bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)',
+                      color: 'text.primary',
+                      '&:hover': {
+                        bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.09)',
+                      },
+                    }),
                   })}
-                />
+                >
+                  {label}
+                </Box>
               );
             })}
-          </Stack>
+          </Box>
+
+          {session && favorites.size > 0 && (
+            <>
+              <Divider sx={{ mt: 2, mb: 2, mr: 2 }} />
+              <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1.5, fontSize: 14 }}>
+                Show
+              </Typography>
+              <Box
+                component="button"
+                onClick={() => {
+                  setShowFavoritesOnly((prev) => !prev);
+                  setTimeout(() => setMobileFilterDrawerOpen(false), 400);
+                }}
+                sx={(theme) => ({
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  height: 36,
+                  px: 2,
+                  border: 'none',
+                  borderRadius: '999px',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  fontSize: '0.875rem',
+                  fontWeight: 500,
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.15s ease',
+                  ...(showFavoritesOnly ? {
+                    bgcolor: 'primary.main',
+                    color: '#fff',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                  } : {
+                    bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)',
+                    color: 'text.primary',
+                  }),
+                })}
+              >
+                <FavoriteIcon sx={{ fontSize: 14, color: showFavoritesOnly ? '#fff' : '#E53935' }} />
+                Favorites
+              </Box>
+            </>
+          )}
         </Box>
       </Drawer>
 
@@ -3596,34 +3682,47 @@ function App() {
                 <Box sx={{
                   display: { xs: 'none', sm: 'flex' },
                   flexWrap: 'wrap',
-                  gap: 1,
-                  justifyContent: 'flex-start',
-                  alignItems: 'flex-start',
-                  pl: 0,
-                  ml: 0
+                  gap: 0.75,
+                  alignItems: 'center',
                 }}>
                   {availableMealTypes.map((type) => {
                     const label = MEAL_TYPE_LABELS[type] || type.replace(/^\w/, (c) => c.toUpperCase());
                     const selected = selectedMealType === type;
                     return (
-                      <Chip
+                      <Box
                         key={type}
-                        label={label}
-                        clickable
-                        color={selected ? 'primary' : 'default'}
-                        variant={selected ? 'filled' : 'outlined'}
+                        component="button"
                         onClick={() => handleMealTypeSelect(type)}
                         aria-pressed={selected}
                         sx={(theme) => ({
-                          height: 44,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          height: 32,
+                          px: 1.75,
+                          border: 'none',
+                          borderRadius: '999px',
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                          fontSize: '0.8125rem',
                           fontWeight: 500,
-                          borderRadius: '6px',
-                          ...(!selected && {
-                            backgroundColor: theme.palette.mode === 'dark' ? '#2a2b30' : 'background.paper',
-                            borderColor: 'divider'
-                          })
+                          whiteSpace: 'nowrap',
+                          transition: 'all 0.15s ease',
+                          ...(selected ? {
+                            bgcolor: 'primary.main',
+                            color: '#fff',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                          } : {
+                            bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)',
+                            color: 'text.secondary',
+                            '&:hover': {
+                              bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.09)',
+                              color: 'text.primary',
+                            },
+                          }),
                         })}
-                      />
+                      >
+                        {label}
+                      </Box>
                     );
                   })}
                 </Box>
@@ -3667,17 +3766,6 @@ function App() {
                       {resultsLabel}
                     </Typography>
                   </Stack>
-                  {favorites.size > 0 && (
-                    <Chip
-                      icon={<FavoriteIcon sx={{ fontSize: 16 }} />}
-                      label="Favorites"
-                      variant="outlined"
-                      color="default"
-                      onClick={() => setShowFavoritesOnly((prev) => !prev)}
-                      clickable
-                      sx={{ px: 1, py: 0.5, '& .MuiChip-icon': showFavoritesOnly ? { color: '#E53935' } : {} }}
-                    />
-                  )}
                 </Stack>
                 {normalizedIngredients.length > 0 && (
                   <Typography variant="caption" color="text.secondary">
@@ -3850,7 +3938,8 @@ function App() {
                               onClick={async (e) => {
                                 e.stopPropagation();
                                 e.preventDefault();
-                                const anchorEl = e.currentTarget;
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const anchorPosition = { top: rect.bottom, left: rect.right };
                                 try {
                                   const accessToken = (await supabase?.auth.getSession())?.data?.session?.access_token;
                                   if (!accessToken) {
@@ -3882,7 +3971,7 @@ function App() {
                                     if (response.ok) {
                                       const { token } = await response.json();
                                       const shareUrl = `${window.location.origin}?share=${token}`;
-                                      setShareMenuState({ anchorEl, url: shareUrl, title: recipe.title });
+                                      setShareMenuState({ anchorPosition, url: shareUrl, title: recipe.title });
                                       return;
                                     }
                                   }
@@ -3911,10 +4000,10 @@ function App() {
       </Container>
 
       <Menu
-        anchorEl={shareMenuState?.anchorEl}
+        anchorReference="anchorPosition"
+        anchorPosition={shareMenuState?.anchorPosition}
         open={Boolean(shareMenuState)}
         onClose={() => setShareMenuState(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
         <MenuItem onClick={async () => {
@@ -3956,7 +4045,7 @@ function App() {
           window.open(`sms:?body=${body}`);
           trackEvent('share_recipe', { method: 'sms' });
         }}>
-          <ListItemIcon><SmsIcon fontSize="small" /></ListItemIcon>
+          <ListItemIcon><SmsOutlinedIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Text</ListItemText>
         </MenuItem>
       </Menu>
@@ -4939,110 +5028,116 @@ function App() {
               </Box>
             )
           ) : isAddFriendOpen ? (
-            <Box sx={{ mt: '24px' }}>
-              <Typography variant="h6" sx={{ fontSize: { xs: '1.1rem', sm: '1.25rem' }, mb: 2 }}>
-                Invite a friend
+            <Box sx={{ pt: 2 }}>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3, textAlign: 'center' }}>
+                Share a link with friends to connect
               </Typography>
 
-              {/* Link display area */}
               {openInviteLinkLoading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
-                  <CircularProgress size={20} />
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                  <CircularProgress size={24} />
                 </Box>
               ) : (
                 <>
-                  <Stack spacing={1.5}>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      startIcon={<EmailOutlinedIcon />}
-                      onClick={async () => {
-                        let token = openInviteLink;
-                        if (!token) {
-                          setOpenInviteLinkLoading(true);
-                          try {
-                            const res = await callRecipesApi('/friends/open-invite', { method: 'POST' }, accessToken);
-                            token = res?.token || null;
-                            if (token) { setOpenInviteLink(token); setOpenInviteLinkLoaded(true); }
-                          } finally { setOpenInviteLinkLoading(false); }
-                          if (!token) return;
-                        }
-                        const subject = encodeURIComponent('Join me on ReciFind!');
-                        const body = encodeURIComponent(
-                          `Hey! I'd love to share recipes with you on ReciFind.\n\nJoin me here: ${window.location.origin}?invite=${token}`
-                        );
-                        window.location.href = `mailto:?subject=${subject}&body=${body}`;
-                        trackEvent('invite_friend', { method: 'email' });
-                      }}
-                    >
-                      Invite by Email
-                    </Button>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      startIcon={<SmsIcon />}
-                      onClick={async () => {
-                        let token = openInviteLink;
-                        if (!token) {
-                          setOpenInviteLinkLoading(true);
-                          try {
-                            const res = await callRecipesApi('/friends/open-invite', { method: 'POST' }, accessToken);
-                            token = res?.token || null;
-                            if (token) { setOpenInviteLink(token); setOpenInviteLinkLoaded(true); }
-                          } finally { setOpenInviteLinkLoading(false); }
-                          if (!token) return;
-                        }
-                        const inviteUrl = `${window.location.origin}?invite=${token}`;
-                        const text = `Hey! I'd love to share recipes with you on ReciFind. Join me here: ${inviteUrl}`;
-                        if (navigator.share) {
-                          try {
-                            await navigator.share({ text, url: inviteUrl });
-                            trackEvent('invite_friend', { method: 'native_share' });
-                            return;
-                          } catch (err) {
-                            if (err.name === 'AbortError') return;
+                  {/* Icon tile row */}
+                  <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', mb: 3 }}>
+                    {[
+                      {
+                        icon: <EmailOutlinedIcon sx={{ fontSize: 26 }} />,
+                        label: 'Email',
+                        onClick: async () => {
+                          let token = openInviteLink;
+                          if (!token) {
+                            setOpenInviteLinkLoading(true);
+                            try {
+                              const res = await callRecipesApi('/friends/open-invite', { method: 'POST' }, accessToken);
+                              token = res?.token || null;
+                              if (token) { setOpenInviteLink(token); setOpenInviteLinkLoaded(true); }
+                            } finally { setOpenInviteLinkLoading(false); }
+                            if (!token) return;
                           }
-                        }
-                        window.open(`sms:?body=${encodeURIComponent(text)}`);
-                        trackEvent('invite_friend', { method: 'sms' });
-                      }}
-                    >
-                      Invite by Text
-                    </Button>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      startIcon={<ContentCopyIcon />}
-                      onClick={async () => {
-                        let token = openInviteLink;
-                        if (!token) {
-                          setOpenInviteLinkLoading(true);
-                          try {
-                            const res = await callRecipesApi('/friends/open-invite', { method: 'POST' }, accessToken);
-                            token = res?.token || null;
-                            if (token) { setOpenInviteLink(token); setOpenInviteLinkLoaded(true); }
-                          } catch {
-                            setSnackbarState({ open: true, message: 'Could not generate link.', severity: 'error' });
-                            return;
-                          } finally { setOpenInviteLinkLoading(false); }
-                          if (!token) return;
-                        }
-                        navigator.clipboard.writeText(`${window.location.origin}?invite=${token}`);
-                        setSnackbarState({ open: true, message: 'Invite link copied!', severity: 'success' });
-                        trackEvent('invite_friend', { method: 'copy_link' });
-                      }}
-                    >
-                      Copy invite link
-                    </Button>
-                  </Stack>
+                          const subject = encodeURIComponent('Join me on ReciFind!');
+                          const body = encodeURIComponent(`Hey! I'd love to share recipes with you on ReciFind.\n\nJoin me here: ${window.location.origin}?invite=${token}`);
+                          window.location.href = `mailto:?subject=${subject}&body=${body}`;
+                          trackEvent('invite_friend', { method: 'email' });
+                        },
+                      },
+                      {
+                        icon: <SmsOutlinedIcon sx={{ fontSize: 26 }} />,
+                        label: 'Text',
+                        onClick: async () => {
+                          let token = openInviteLink;
+                          if (!token) {
+                            setOpenInviteLinkLoading(true);
+                            try {
+                              const res = await callRecipesApi('/friends/open-invite', { method: 'POST' }, accessToken);
+                              token = res?.token || null;
+                              if (token) { setOpenInviteLink(token); setOpenInviteLinkLoaded(true); }
+                            } finally { setOpenInviteLinkLoading(false); }
+                            if (!token) return;
+                          }
+                          const inviteUrl = `${window.location.origin}?invite=${token}`;
+                          const text = `Hey! I'd love to share recipes with you on ReciFind. Join me here: ${inviteUrl}`;
+                          if (navigator.share) {
+                            try {
+                              await navigator.share({ text, url: inviteUrl });
+                              trackEvent('invite_friend', { method: 'native_share' });
+                              return;
+                            } catch (err) {
+                              if (err.name === 'AbortError') return;
+                            }
+                          }
+                          window.open(`sms:?body=${encodeURIComponent(text)}`);
+                          trackEvent('invite_friend', { method: 'sms' });
+                        },
+                      },
+                      {
+                        icon: <ContentCopyIcon sx={{ fontSize: 26 }} />,
+                        label: 'Copy link',
+                        onClick: async () => {
+                          let token = openInviteLink;
+                          if (!token) {
+                            setOpenInviteLinkLoading(true);
+                            try {
+                              const res = await callRecipesApi('/friends/open-invite', { method: 'POST' }, accessToken);
+                              token = res?.token || null;
+                              if (token) { setOpenInviteLink(token); setOpenInviteLinkLoaded(true); }
+                            } catch {
+                              setSnackbarState({ open: true, message: 'Could not generate link.', severity: 'error' });
+                              return;
+                            } finally { setOpenInviteLinkLoading(false); }
+                            if (!token) return;
+                          }
+                          navigator.clipboard.writeText(`${window.location.origin}?invite=${token}`);
+                          setSnackbarState({ open: true, message: 'Invite link copied!', severity: 'success' });
+                          trackEvent('invite_friend', { method: 'copy_link' });
+                        },
+                      },
+                    ].map(({ icon, label, onClick }) => (
+                      <Box
+                        key={label}
+                        onClick={onClick}
+                        sx={(theme) => ({
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
+                          width: 88, height: 88, borderRadius: 3, cursor: 'pointer',
+                          bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                          '&:active': { opacity: 0.7 },
+                          transition: 'opacity 0.15s',
+                        })}
+                      >
+                        {icon}
+                        <Typography variant="caption" sx={{ fontWeight: 500 }}>{label}</Typography>
+                      </Box>
+                    ))}
+                  </Box>
 
                   {openInviteLink && (
-                    <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                       <Button
                         size="small"
                         variant="text"
                         color="inherit"
-                        sx={{ opacity: 0.6, fontSize: '0.75rem' }}
+                        sx={{ opacity: 0.5, fontSize: '0.75rem' }}
                         onClick={() => setOpenInviteRegenerateOpen(true)}
                       >
                         Generate new link
@@ -5053,33 +5148,27 @@ function App() {
               )}
             </Box>
           ) : friends.length === 0 ? (
-            <Box
-              sx={{
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                textAlign: 'center',
-                px: 3,
-              }}
-            >
-              <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                <Typography variant="h5" sx={{ fontWeight: 300, mb: 1 }}>
-                  Cooking is better with friends
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Tap &ldquo;Add Friend&rdquo; to get started
-                </Typography>
+            <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', px: 3 }}>
+              <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+                <BoppingFruitsIllustration />
+                <Box sx={{ mt: '30px' }}>
+                  <Typography sx={{ fontWeight: 400, fontSize: 20, mb: 0.5, whiteSpace: 'nowrap' }}>
+                    Cooking is better with friends
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Tap &ldquo;Add Friend&rdquo; to get started
+                  </Typography>
+                </Box>
               </Box>
               <Box
                 sx={{
-                  '@keyframes bop': {
+                  '@keyframes bopDown': {
                     '0%, 100%': { transform: 'translateY(0)' },
                     '50%': { transform: 'translateY(8px)' },
                   },
-                  animation: 'bop 1.2s ease-in-out infinite',
+                  animation: 'bopDown 1.2s ease-in-out infinite',
                   color: 'text.secondary',
-                  pb: 1,
+                  pb: 0.5,
                 }}
               >
                 <ExpandMoreIcon sx={{ fontSize: '2.5rem' }} />
