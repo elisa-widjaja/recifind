@@ -1048,7 +1048,9 @@ async function handleEnrichRecipe(request: Request, env: Env) {
     fetchOgImage(sourceUrl)
   ]);
 
-  if (!rawText) {
+  // If we couldn't scrape the page but have a title, let Gemini use its culinary knowledge
+  const textForGemini = rawText || (title ? `Recipe: ${title}` : null);
+  if (!textForGemini) {
     throw new HttpError(502, 'Failed to fetch content from source URL. Please keep trying.');
   }
 
@@ -1069,7 +1071,7 @@ async function handleEnrichRecipe(request: Request, env: Env) {
     previewImage: null
   };
 
-  const prompt = buildGeminiPrompt(recipe, rawText);
+  const prompt = buildGeminiPrompt(recipe, textForGemini);
   const completion = await callGemini(env, prompt);
   const parsed = parseGeminiRecipeJson(completion);
 
@@ -2755,23 +2757,44 @@ async function fetchRawRecipeText(sourceUrl: string | undefined) {
     return response.text();
   }
 
-  // Fallback for TikTok: use oEmbed title which contains the full caption
+  // Fallback for social platforms: use oEmbed caption which often contains the full recipe
   try {
     const parsedUrl = new URL(sourceUrl);
+
     if (parsedUrl.hostname.includes('tiktok.com')) {
       const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(sourceUrl)}`;
       const oembedResponse = await fetch(oembedUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)',
-          'Accept': 'application/json'
-        }
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)', 'Accept': 'application/json' }
       });
       if (oembedResponse.ok) {
         const payload = await oembedResponse.json() as { title?: string; author_name?: string };
         const caption = (payload.title || '').trim();
-        if (caption) {
-          return `Recipe by ${payload.author_name || 'TikTok creator'}:\n\n${caption}`;
-        }
+        if (caption) return `Recipe by ${payload.author_name || 'TikTok creator'}:\n\n${caption}`;
+      }
+    }
+
+    if (parsedUrl.hostname.includes('instagram.com')) {
+      const normalized = sourceUrl.split('?')[0].replace(/\/?$/, '/');
+      const oembedUrl = `https://www.instagram.com/oembed/?omitscript=true&url=${encodeURIComponent(normalized)}`;
+      const oembedResponse = await fetch(oembedUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)', 'Accept': 'application/json' }
+      });
+      if (oembedResponse.ok) {
+        const payload = await oembedResponse.json() as { title?: string; author_name?: string };
+        const caption = (payload.title || '').trim();
+        if (caption) return `Recipe by ${payload.author_name || 'Instagram creator'}:\n\n${caption}`;
+      }
+    }
+
+    if (parsedUrl.hostname.includes('youtube.com') || parsedUrl.hostname.includes('youtu.be')) {
+      const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(sourceUrl)}&format=json`;
+      const oembedResponse = await fetch(oembedUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)', 'Accept': 'application/json' }
+      });
+      if (oembedResponse.ok) {
+        const payload = await oembedResponse.json() as { title?: string; author_name?: string };
+        const title = (payload.title || '').trim();
+        if (title) return `Recipe video by ${payload.author_name || 'YouTube creator'}: ${title}`;
       }
     }
   } catch {

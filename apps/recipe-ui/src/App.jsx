@@ -216,17 +216,28 @@ async function callRecipesApi(path, init = {}, token = null) {
   return payload;
 }
 
+function normalizeMealTypeValue(type) {
+  const t = type.trim().toLowerCase();
+  if (t === 'side' || t === 'side dish') return 'sides';
+  if (t === 'snack') return 'snacks';
+  return t;
+}
+
+function normalizeRecipeMealTypes(recipe) {
+  if (!Array.isArray(recipe.mealTypes)) return recipe;
+  const normalized = [...new Set(recipe.mealTypes.filter((t) => typeof t === 'string' && t.trim()).map(normalizeMealTypeValue))];
+  return { ...recipe, mealTypes: normalized };
+}
+
 function normalizeRecipeFromApi(recipe) {
   if (!recipe || typeof recipe !== 'object') {
     return null;
   }
+  let result = recipe;
   if (API_BASE_URL && recipe.imagePath && (!recipe.imageUrl || recipe.imageUrl.startsWith('/'))) {
-    return {
-      ...recipe,
-      imageUrl: `${API_BASE_URL}${recipe.imagePath}`
-    };
+    result = { ...result, imageUrl: `${API_BASE_URL}${recipe.imagePath}` };
   }
-  return recipe;
+  return normalizeRecipeMealTypes(result);
 }
 
 async function createPreviewImagePayloadFromUrl(imageValue) {
@@ -303,12 +314,9 @@ const MEAL_TYPE_LABELS = {
   lunch: 'Lunch',
   dinner: 'Dinner',
   dessert: 'Dessert',
-  appetizer: 'Appetizer',
+  appetizer: 'Appetizers',
   sides: 'Sides',
-  side: 'Side',
-  'side dish': 'Side dish',
   snacks: 'Snacks',
-  snack: 'Snack',
 };
 
 const MEAL_TYPE_ICONS = {
@@ -317,14 +325,11 @@ const MEAL_TYPE_ICONS = {
   dinner: '🍚',
   dessert: '🍪',
   appetizer: '🧀',
-  sides: '🥗',
-  side: '🥗',
-  'side dish': '🥑',
+  sides: '🥑',
   snacks: '🍿',
-  snack: '🍿',
 };
 
-const MEAL_TYPE_ORDER = ['breakfast', 'lunch', 'dinner', 'dessert', 'appetizer', 'sides', 'side', 'side dish', 'snacks', 'snack'];
+const MEAL_TYPE_ORDER = ['breakfast', 'lunch', 'dinner', 'dessert', 'appetizer', 'sides', 'snacks'];
 const NEW_RECIPE_TEMPLATE = {
   title: '',
   sourceUrl: '',
@@ -355,9 +360,7 @@ function validateRecipesPayload(payload) {
         : 'Untitled recipe';
 
     const mealTypes = Array.isArray(recipe.mealTypes)
-      ? recipe.mealTypes
-          .filter((type) => typeof type === 'string' && type.toLowerCase() !== 'snack')
-          .map((type) => type.trim())
+      ? [...new Set(recipe.mealTypes.filter((type) => typeof type === 'string' && type.trim()).map(normalizeMealTypeValue))]
       : [];
 
     return {
@@ -923,6 +926,20 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  const [showFloatingFab, setShowFloatingFab] = useState(false);
+  const addRecipeBtnRef = useRef(null);
+
+  useEffect(() => {
+    const el = addRecipeBtnRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setShowFloatingFab(!entry.isIntersecting),
+      { threshold: 0 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [mobileFilterDrawerOpen, setMobileFilterDrawerOpen] = useState(false);
   const mobileFilterChipsRef = useRef(null);
@@ -1097,6 +1114,7 @@ function App() {
   const sentinelRef = useRef(null);
   const searchBarRef = useRef(null);
   const lastParseResultRef = useRef({ url: '', status: '' });
+  const pendingEnrichRef = useRef(null); // { promise, sourceUrl } — survives form reset so save can patch
   const RESULTS_PAGE_SIZE = 12;
   const [visibleCount, setVisibleCount] = useState(RESULTS_PAGE_SIZE);
   const [remoteState, setRemoteState] = useState(() => ({
@@ -1177,9 +1195,24 @@ function App() {
       primary: { main: darkMode ? '#5F60FF' : '#6200EA' },
       ...(darkMode ? { divider: 'rgba(255, 255, 255, 0.13)' } : { background: { default: '#fafafa' } }),
     },
-    ...(darkMode ? { components: {
-      MuiLink: { defaultProps: { color: 'inherit' }, styleOverrides: { root: { color: '#fff' } } },
-    } } : {}),
+    components: {
+      MuiButton: {
+        styleOverrides: {
+          containedPrimary: { borderRadius: '999px' },
+          containedError: { borderRadius: '999px' },
+          containedSecondary: { borderRadius: '999px' },
+          outlined: { borderRadius: '999px' },
+        },
+      },
+      MuiDialog: {
+        styleOverrides: {
+          paper: { borderRadius: '16px' },
+        },
+      },
+      ...(darkMode ? {
+        MuiLink: { defaultProps: { color: 'inherit' }, styleOverrides: { root: { color: '#fff' } } },
+      } : {}),
+    },
   }), [darkMode]);
 
   const toggleDarkMode = () => {
@@ -3144,10 +3177,13 @@ function App() {
 
       try {
         const enrichTitle = localResult?.title || newRecipeForm.title.trim() || '';
-        const enrichResponse = await callRecipesApi('/recipes/enrich', {
+        // No abort signal — we intentionally let this outlive the form so a post-save PATCH can use the result
+        const enrichPromise = callRecipesApi('/recipes/enrich', {
           method: 'POST',
           body: JSON.stringify({ sourceUrl, title: enrichTitle })
         }, accessToken);
+        pendingEnrichRef.current = { promise: enrichPromise, sourceUrl };
+        const enrichResponse = await enrichPromise;
 
         if (!isActive) return;
 
@@ -3211,6 +3247,10 @@ function App() {
     return () => {
       isActive = false;
       controller.abort();
+      // URL changed without saving — discard stale enrich result
+      if (pendingEnrichRef.current?.sourceUrl === sourceUrl) {
+        pendingEnrichRef.current = null;
+      }
     };
   }, [newRecipeForm.sourceUrl, isRemoteEnabled, accessToken]);
 
@@ -3355,6 +3395,42 @@ function App() {
           saveRecipesToCache(updated, userId, serverVersionRef.current);
           return updated;
         });
+
+        // Background enrichment: if Gemini is still running, let it finish and PATCH the recipe
+        const pendingEnrich = pendingEnrichRef.current;
+        pendingEnrichRef.current = null;
+        const savedHasIngredients = (savedRecipe.ingredients?.length ?? 0) > 0;
+        const savedHasSteps = (savedRecipe.steps?.length ?? 0) > 0;
+        if (pendingEnrich && pendingEnrich.sourceUrl === savedRecipe.sourceUrl && (!savedHasIngredients || !savedHasSteps)) {
+          const savedAccessToken = accessToken;
+          pendingEnrich.promise.then(async (enrichResponse) => {
+            const enriched = enrichResponse?.enriched;
+            if (!enriched) return;
+            const enrichedIngredients = Array.isArray(enriched.ingredients) && enriched.ingredients.length > 0 ? enriched.ingredients : null;
+            const enrichedSteps = Array.isArray(enriched.steps) && enriched.steps.length > 0 ? enriched.steps : null;
+            if (!enrichedIngredients && !enrichedSteps) return;
+            const patchRecipe = {
+              ...savedRecipe,
+              ingredients: savedHasIngredients ? savedRecipe.ingredients : (enrichedIngredients ?? savedRecipe.ingredients ?? []),
+              steps: savedHasSteps ? savedRecipe.steps : (enrichedSteps ?? savedRecipe.steps ?? []),
+              mealTypes: savedRecipe.mealTypes?.length ? savedRecipe.mealTypes : (enriched.mealTypes ?? []),
+              durationMinutes: savedRecipe.durationMinutes ?? enriched.durationMinutes ?? null,
+            };
+            try {
+              const updated = await callRecipesApi(`/recipes/${savedRecipe.id}`, {
+                method: 'PUT',
+                body: JSON.stringify({ recipe: patchRecipe })
+              }, savedAccessToken);
+              const updatedRecipe = normalizeRecipeFromApi(updated?.recipe);
+              if (updatedRecipe) {
+                setRecipes((prev) => prev.map((r) => r.id === updatedRecipe.id ? updatedRecipe : r));
+              }
+            } catch (err) {
+              console.warn('Background enrichment patch failed:', err);
+            }
+          }).catch(() => {}); // AbortError or network failure — auto-fill button is the fallback
+        }
+
         resetFormState(`Saved "${savedRecipe.title}".`);
         return;
       } catch (error) {
@@ -3410,7 +3486,7 @@ function App() {
                 whiteSpace: 'nowrap',
                 backgroundColor: 'primary.main',
                 color: '#ffffff',
-                borderRadius: '0.375rem',
+                borderRadius: '999px',
                 border: 'none',
                 transition: 'all 150ms ease',
                 flexShrink: 0,
@@ -3840,7 +3916,7 @@ function App() {
                   onBlur={() => setIngredientInputFocused(false)}
                   fullWidth
                   sx={{
-                    '& .MuiOutlinedInput-root': { height: '54px', borderRadius: '6px' }
+                    '& .MuiOutlinedInput-root': { height: { xs: '50px', sm: '54px' }, borderRadius: '999px' }
                   }}
                   InputProps={{
                     startAdornment: (
@@ -3941,7 +4017,7 @@ function App() {
                 </Box>
               )}
 
-              <Box sx={{ display: { xs: 'flex', sm: 'none' }, justifyContent: 'center' }}>
+              <Box ref={addRecipeBtnRef} sx={{ display: { xs: 'flex', sm: 'none' }, justifyContent: 'center' }}>
                 <Button
                   onClick={openAddDialog}
                   sx={{
@@ -3957,7 +4033,7 @@ function App() {
                     whiteSpace: 'nowrap',
                     backgroundColor: 'primary.main',
                     color: '#ffffff',
-                    borderRadius: '0.375rem',
+                    borderRadius: '999px',
                     border: 'none',
                     transition: 'all 150ms ease',
                     flexShrink: 0,
@@ -4277,7 +4353,8 @@ function App() {
         sx={isMobile ? {
           '& .MuiDialog-paper': {
             display: 'flex',
-            flexDirection: 'column'
+            flexDirection: 'column',
+            borderRadius: 0,
           }
         } : {}}
       >
@@ -4310,8 +4387,8 @@ function App() {
                       <MoreVertIcon fontSize="small" sx={{ color: '#9E9E9E' }} />
                     </IconButton>
                   )}
-                  <IconButton aria-label="Close recipe details" edge="end" onClick={closeDialog} sx={{ flexShrink: 0 }}>
-                    <CloseIcon />
+                  <IconButton aria-label="Close recipe details" edge="end" onClick={closeDialog} sx={{ flexShrink: 0, bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)', borderRadius: '50%', p: 1 }}>
+                    <CloseIcon fontSize="small" />
                   </IconButton>
                 </Box>
                 {isEditMode && !isSharedRecipeView && activeRecipeView.title && (
@@ -4738,13 +4815,14 @@ function App() {
               </Stack>
               </Box>
             </DialogContent>
-            <DialogActions sx={{ justifyContent: (isSharedRecipeView || !session) ? 'center' : 'flex-end', gap: 1, ...(isEditMode && !isSharedRecipeView ? { px: 0 } : {}), ...(isEditMode && !isSharedRecipeView ? (darkMode ? { backgroundColor: '#121212', borderTop: '1px solid rgba(255, 255, 255, 0.13)' } : { backgroundColor: '#fff', borderTop: '1px solid rgba(0, 0, 0, 0.12)' }) : (darkMode ? { backgroundColor: '#121212', borderTop: '1px solid rgba(255, 255, 255, 0.13)' } : {})) }}>
+            <DialogActions sx={{ justifyContent: (isSharedRecipeView || !session) ? 'space-between' : 'flex-end', gap: 1, px: (isSharedRecipeView || !session) ? '24px' : (isEditMode && !isSharedRecipeView ? 0 : 1), ...(isEditMode && !isSharedRecipeView ? (darkMode ? { backgroundColor: '#121212', borderTop: '1px solid rgba(255, 255, 255, 0.13)' } : { backgroundColor: '#fff', borderTop: '1px solid rgba(0, 0, 0, 0.12)' }) : (darkMode ? { backgroundColor: '#121212', borderTop: '1px solid rgba(255, 255, 255, 0.13)' } : {})) }}>
               {isSharedRecipeView ? (
                 <>
                   <Button
                     variant="outlined"
                     color="inherit"
                     startIcon={<IosShareOutlinedIcon />}
+                    sx={{ flex: 1 }}
                     onClick={async () => {
                       const title = activeRecipe?.title || 'Recipe';
                       const doShare = async (url) => {
@@ -4786,7 +4864,7 @@ function App() {
                     color="primary"
                     onClick={savedSharedRecipeIds.has(activeRecipe?.id) ? undefined : handleSaveSharedRecipe}
                     startIcon={savedSharedRecipeIds.has(activeRecipe?.id) ? <CheckIcon /> : <BookmarkBorderIcon />}
-                    sx={savedSharedRecipeIds.has(activeRecipe?.id) ? { pointerEvents: 'none', border: '1px solid #4caf50', color: '#4caf50' } : undefined}
+                    sx={{ flex: 1, ...(savedSharedRecipeIds.has(activeRecipe?.id) ? { pointerEvents: 'none', border: '1px solid #4caf50', color: '#4caf50' } : {}) }}
                   >
                     {savedSharedRecipeIds.has(activeRecipe?.id) ? 'Saved' : 'Save'}
                   </Button>
@@ -4798,6 +4876,7 @@ function App() {
                     color="inherit"
                     startIcon={<IosShareOutlinedIcon />}
                     onClick={openAuthDialog}
+                    sx={{ flex: 1 }}
                   >
                     Share
                   </Button>
@@ -4806,6 +4885,7 @@ function App() {
                     color="primary"
                     startIcon={<BookmarkBorderIcon />}
                     onClick={openAuthDialog}
+                    sx={{ flex: 1 }}
                   >
                     Save
                   </Button>
@@ -4929,74 +5009,97 @@ function App() {
             ? This action cannot be undone.
           </Typography>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={closeDeleteConfirm}>Cancel</Button>
-          <Button onClick={handleDeleteRecipe} variant="contained" color="error">
+        <DialogActions sx={{ px: '24px' }}>
+          <Button onClick={closeDeleteConfirm} sx={(theme) => ({ ...(theme.palette.mode === 'dark' && { color: '#fff' }) })}>Cancel</Button>
+          <Button onClick={handleDeleteRecipe} color="error">
             Delete
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog
-        open={isAddDialogOpen}
-        onClose={closeAddDialog}
-        fullScreen={isMobile}
-        fullWidth={!isMobile}
-        maxWidth={isMobile ? false : 'sm'}
-        aria-labelledby="add-recipe-dialog-title"
-        data-testid="add-recipe-dialog"
-        component="form"
-        onSubmit={handleAddRecipeSubmit}
-        slotProps={{
-          backdrop: isMobile ? { sx: { backgroundColor: 'transparent' } } : {}
-        }}
-      >
-        <DialogTitle id="add-recipe-dialog-title">Add recipe</DialogTitle>
-        <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, position: 'relative' }}>
-          <TextField
-            label="Source URL"
-            value={newRecipeForm.sourceUrl}
-            onChange={handleNewRecipeChange('sourceUrl')}
-            required
-            fullWidth
-            placeholder="https://example.com/recipe"
-            error={Boolean(newRecipeErrors.sourceUrl)}
-            helperText={
-              newRecipeErrors.sourceUrl ||
-              'Link to the original recipe or video.'
-            }
-          />
-          <TextField
-            label="Title"
-            value={newRecipeForm.title}
-            onChange={handleNewRecipeChange('title')}
-            required
-            fullWidth
-            error={Boolean(newRecipeErrors.title)}
-            helperText={newRecipeErrors.title}
-          />
-          {sourceParseState.status === 'loading' && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
-              <CircularProgress size={20} />
-              <Typography variant="body2" color="text.secondary">
-                {sourceParseState.message || 'Parsing recipe details...'}
-              </Typography>
-            </Box>
-          )}
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={Boolean(newRecipeForm.sharedWithFriends)}
-                onChange={(e) => setNewRecipeForm((prev) => ({ ...prev, sharedWithFriends: e.target.checked }))}
-                color="primary"
-              />
-            }
-            label="Make it public"
-            sx={{ ml: 'calc(-4px - 2px)', mt: 1 }}
-          />
-        </DialogContent>
-        <DialogActions sx={{ px: 0, justifyContent: 'space-between' }}>
-          <Box sx={{ px: isMobile ? 3 : 2, display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+      {/* Add Recipe — bottom drawer on mobile, centered dialog on desktop */}
+      {isMobile ? (
+        <Drawer
+          anchor="bottom"
+          open={isAddDialogOpen}
+          onClose={closeAddDialog}
+          data-testid="add-recipe-dialog"
+          PaperProps={{
+            component: 'form',
+            onSubmit: handleAddRecipeSubmit,
+            sx: {
+              borderRadius: '16px 16px 0 0',
+              paddingBottom: 'env(safe-area-inset-bottom)',
+              ...(darkMode ? { backgroundColor: '#212328', backgroundImage: 'none' } : {}),
+            },
+          }}
+        >
+          {/* Drag handle — swipe down to close */}
+          <Box
+            onTouchStart={(e) => { drawerTouchStartY.current = e.touches[0].clientY; }}
+            onTouchEnd={(e) => {
+              if (drawerTouchStartY.current === null) return;
+              const delta = e.changedTouches[0].clientY - drawerTouchStartY.current;
+              drawerTouchStartY.current = null;
+              if (delta > 40) closeAddDialog();
+            }}
+            sx={{ display: 'flex', justifyContent: 'center', pt: 1.5, pb: 0.5, flexShrink: 0, cursor: 'grab', touchAction: 'none' }}
+          >
+            <Box sx={{ width: 36, height: 4, borderRadius: 2, bgcolor: darkMode ? 'rgba(255,255,255,0.3)' : 'grey.300' }} />
+          </Box>
+          {/* Title */}
+          <Box sx={{ px: 3, pt: 1, pb: 0.5 }}>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>Add recipe</Typography>
+          </Box>
+          {/* Fields */}
+          <Box sx={{ px: 3, pt: 1, pb: 1, display: 'flex', flexDirection: 'column', gap: 2, position: 'relative' }}>
+            <TextField
+              label="Source URL"
+              value={newRecipeForm.sourceUrl}
+              onChange={handleNewRecipeChange('sourceUrl')}
+              required
+              fullWidth
+              placeholder="https://example.com/recipe"
+              error={Boolean(newRecipeErrors.sourceUrl)}
+              helperText={
+                newRecipeErrors.sourceUrl ||
+                'Link to the original recipe or video.'
+              }
+            />
+            <TextField
+              label="Title"
+              value={newRecipeForm.title}
+              onChange={handleNewRecipeChange('title')}
+              required
+              fullWidth
+              error={Boolean(newRecipeErrors.title)}
+              helperText={newRecipeErrors.title}
+            />
+            {sourceParseState.status === 'loading' && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
+                <CircularProgress size={20} />
+                <Typography variant="body2" color="text.secondary">
+                  {sourceParseState.message || 'Parsing recipe details...'}
+                </Typography>
+              </Box>
+            )}
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={Boolean(newRecipeForm.sharedWithFriends)}
+                  onChange={(e) => setNewRecipeForm((prev) => ({ ...prev, sharedWithFriends: e.target.checked }))}
+                  color="primary"
+                />
+              }
+              label="Make it public"
+              sx={{ ml: 'calc(-4px - 2px)', mt: 1 }}
+            />
+          </Box>
+          {/* Actions */}
+          <Box sx={{ px: 3, pb: 2, pt: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+            <Button type="submit" variant="contained" sx={{ px: 4, width: '100%', maxWidth: 280 }}>
+              Save recipe
+            </Button>
             <Typography
               component="button"
               type="button"
@@ -5005,22 +5108,98 @@ function App() {
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
-                color: 'text.primary',
-                fontSize: '0.9375rem',
-                fontWeight: 500,
+                color: 'text.secondary',
+                fontSize: '0.8rem',
                 p: 0,
-                textTransform: 'uppercase',
                 '&:hover': { textDecoration: 'underline' },
               }}
             >
               Cancel
             </Typography>
-            <Button type="submit" variant="contained" sx={{ px: 'calc(16px + 2px)' }}>
-              Save recipe
-            </Button>
           </Box>
-        </DialogActions>
-      </Dialog>
+        </Drawer>
+      ) : (
+        <Dialog
+          open={isAddDialogOpen}
+          onClose={closeAddDialog}
+          fullWidth
+          maxWidth="sm"
+          aria-labelledby="add-recipe-dialog-title"
+          data-testid="add-recipe-dialog"
+          component="form"
+          onSubmit={handleAddRecipeSubmit}
+        >
+          <DialogTitle id="add-recipe-dialog-title">Add recipe</DialogTitle>
+          <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, position: 'relative' }}>
+            <TextField
+              label="Source URL"
+              value={newRecipeForm.sourceUrl}
+              onChange={handleNewRecipeChange('sourceUrl')}
+              required
+              fullWidth
+              placeholder="https://example.com/recipe"
+              error={Boolean(newRecipeErrors.sourceUrl)}
+              helperText={
+                newRecipeErrors.sourceUrl ||
+                'Link to the original recipe or video.'
+              }
+            />
+            <TextField
+              label="Title"
+              value={newRecipeForm.title}
+              onChange={handleNewRecipeChange('title')}
+              required
+              fullWidth
+              error={Boolean(newRecipeErrors.title)}
+              helperText={newRecipeErrors.title}
+            />
+            {sourceParseState.status === 'loading' && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
+                <CircularProgress size={20} />
+                <Typography variant="body2" color="text.secondary">
+                  {sourceParseState.message || 'Parsing recipe details...'}
+                </Typography>
+              </Box>
+            )}
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={Boolean(newRecipeForm.sharedWithFriends)}
+                  onChange={(e) => setNewRecipeForm((prev) => ({ ...prev, sharedWithFriends: e.target.checked }))}
+                  color="primary"
+                />
+              }
+              label="Make it public"
+              sx={{ ml: 'calc(-4px - 2px)', mt: 1 }}
+            />
+          </DialogContent>
+          <DialogActions sx={{ px: 0, justifyContent: 'space-between' }}>
+            <Box sx={{ px: 2, display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+              <Typography
+                component="button"
+                type="button"
+                onClick={closeAddDialog}
+                sx={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'text.primary',
+                  fontSize: '0.9375rem',
+                  fontWeight: 500,
+                  p: 0,
+                  textTransform: 'uppercase',
+                  '&:hover': { textDecoration: 'underline' },
+                }}
+              >
+                Cancel
+              </Typography>
+              <Button type="submit" variant="contained" sx={{ px: 'calc(16px + 2px)' }}>
+                Save recipe
+              </Button>
+            </Box>
+          </DialogActions>
+        </Dialog>
+      )}
 
       {/* Friends Drawer */}
       <Drawer
@@ -5523,7 +5702,7 @@ function App() {
         <DialogContent>
           <Typography>{friendConfirm.message}</Typography>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ px: '24px' }}>
           <Button onClick={() => setFriendConfirm(s => ({ ...s, open: false }))} sx={(theme) => ({ ...(theme.palette.mode === 'dark' && { color: '#fff' }) })}>Cancel</Button>
           <Button
             color="error"
@@ -5550,7 +5729,7 @@ function App() {
 
       <Drawer
         anchor="bottom"
-        open={showInstallBanner && isMobile}
+        open={showInstallBanner && isMobile && !mobileFilterDrawerOpen && !isAddDialogOpen && !isFriendsDialogOpen}
         onClose={() => setShowInstallBanner(false)}
         PaperProps={{
           sx: {
@@ -5749,7 +5928,7 @@ function App() {
         </DialogActions>
       </Dialog>
       {/* Feedback widget */}
-      {showFeedbackWidget && <Box sx={{ position: 'fixed', bottom: 'calc(20px + env(safe-area-inset-bottom))', right: 20, zIndex: 1300 }}>
+      {showFeedbackWidget && !mobileFilterDrawerOpen && !isAddDialogOpen && !isFriendsDialogOpen && <Box sx={{ position: 'fixed', bottom: 'calc(20px + env(safe-area-inset-bottom))', right: 20, zIndex: 1300 }}>
         <Tooltip title="Send feedback" placement="left">
           <IconButton
             onClick={() => { setFeedbackOpen(true); setFeedbackDone(false); }}
@@ -5915,6 +6094,47 @@ function App() {
           </DialogActions>
         )}
       </Dialog>
+
+      {/* Floating Add Recipe FAB — mobile only, slides up when user scrolls down */}
+      {isMobile && (
+        <Box
+          sx={{
+            position: 'fixed',
+            bottom: 24,
+            left: '50%',
+            transform: showFloatingFab && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
+              ? 'translateX(-50%) translateY(0)'
+              : 'translateX(-50%) translateY(80px)',
+            opacity: showFloatingFab && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen ? 1 : 0,
+            transition: 'transform 250ms cubic-bezier(0.2, 0, 0, 1), opacity 200ms ease',
+            pointerEvents: showFloatingFab && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen ? 'auto' : 'none',
+            zIndex: 1200,
+          }}
+        >
+          <Button
+            onClick={openAddDialog}
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              height: '2.75rem',
+              px: '18px',
+              fontSize: '0.875rem',
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+              backgroundColor: 'primary.main',
+              color: '#ffffff',
+              borderRadius: '999px',
+              border: 'none',
+              textTransform: 'none',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+              '&:hover': { backgroundColor: 'primary.dark' },
+            }}
+            startIcon={<AddIcon />}
+          >
+            Add Recipe
+          </Button>
+        </Box>
+      )}
     </ThemeProvider>
   );
 }
