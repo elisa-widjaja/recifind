@@ -2887,6 +2887,10 @@ function App() {
       setSnackbarState({ open: true, message: 'Cook mode off — screen will dim normally', severity: 'info' });
     } else {
       trackEvent('cook_mode', { action: 'on' });
+      // Fire-and-forget — log cook event server-side for future activity feed
+      if (session && activeRecipe?.id) {
+        callRecipesApi(`/recipes/${encodeURIComponent(activeRecipe.id)}/cook`, { method: 'POST' }, accessToken);
+      }
       // Turn on cook mode
       try {
         if ('wakeLock' in navigator) {
