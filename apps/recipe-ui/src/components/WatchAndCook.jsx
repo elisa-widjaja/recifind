@@ -1,4 +1,3 @@
-import { useRef, useState, useEffect } from 'react';
 import { Box, Typography } from '@mui/material';
 import { buildVideoEmbedUrl } from '../utils/videoEmbed';
 
@@ -11,35 +10,26 @@ import { buildVideoEmbedUrl } from '../utils/videoEmbed';
  *   onOpen  — (recipe) => void, opens full recipe detail
  */
 export default function WatchAndCook({ recipes = [], onOpen = () => {} }) {
-  const rootRef = useRef(null);
-  const [sectionInView, setSectionInView] = useState(false);
-
-  // Section-level observer — one observer for all cards
-  useEffect(() => {
-    const el = rootRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => setSectionInView(entry.isIntersecting),
-      { threshold: 0.1 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
   if (!recipes.length) return null;
 
   return (
-    <Box ref={rootRef}>
+    <Box>
       <Typography fontWeight={700} fontSize={13} sx={{ color: 'text.primary', mb: 1 }}>
         📺 Watch &amp; Cook
       </Typography>
 
-      {/* Horizontal scroll row */}
+      {/*
+        Bleed to screen edges (mx: -2 negates parent px: 2),
+        pl: 2 keeps first card aligned with page content.
+        No right padding so the 3rd card peeks from the right edge.
+      */}
       <Box
         sx={{
           display: 'flex',
           gap: '8px',
           overflowX: 'auto',
+          mx: -2,
+          pl: 2,
           pb: 1,
           scrollbarWidth: 'none',
           '&::-webkit-scrollbar': { display: 'none' },
@@ -49,7 +39,6 @@ export default function WatchAndCook({ recipes = [], onOpen = () => {} }) {
           <WatchCard
             key={recipe.id}
             recipe={recipe}
-            sectionInView={sectionInView}
             onOpen={onOpen}
           />
         ))}
@@ -60,10 +49,10 @@ export default function WatchAndCook({ recipes = [], onOpen = () => {} }) {
 
 /**
  * Single portrait video card for the Watch & Cook shelf.
- * Width = calc((100vw - 44px) / 2) — 2 cards fully visible + sliver of 3rd on 375px screen.
- * Height via aspect-ratio: 9/16 (portrait).
+ * Width = calc((100vw - 44px) / 2) — 2 cards + 8px gap visible,
+ * with ~20px sliver of the 3rd card peeking from the right.
  */
-function WatchCard({ recipe, sectionInView, onOpen }) {
+function WatchCard({ recipe, onOpen }) {
   const embedUrl = buildVideoEmbedUrl(recipe.sourceUrl);
 
   return (
@@ -79,11 +68,11 @@ function WatchCard({ recipe, sectionInView, onOpen }) {
         cursor: 'pointer',
       }}
     >
-      {/* Video iframe */}
+      {/* Video iframe — always loaded */}
       {embedUrl && (
         <Box
           component="iframe"
-          src={sectionInView ? embedUrl : ''}
+          src={embedUrl}
           title={recipe.title}
           allow="autoplay"
           sx={{

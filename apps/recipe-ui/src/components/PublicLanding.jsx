@@ -60,7 +60,7 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
     <Container maxWidth="sm" disableGutters>
       <Box sx={{ px: { xs: 2, sm: 3 }, pb: 6 }}>
 
-<Stack spacing={3} sx={{ pt: 2 }}>
+<Stack spacing={3} sx={{ pt: '20px' }}>
 
           {/* ── Section 1: Trending ── */}
           {trending.length > 0 && (
