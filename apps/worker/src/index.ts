@@ -239,6 +239,18 @@ export default {
         })();
       }
 
+      if (url.pathname === '/public/ai-picks' && request.method === 'GET') {
+        return await (async () => {
+          const prefs = {
+            mealTypes: url.searchParams.get('meal_types') || undefined,
+            diet: url.searchParams.get('diet') || undefined,
+            skill: url.searchParams.get('skill') || undefined,
+          };
+          const picks = await getAiPicks(env.DB, env.AI_PICKS_CACHE, callGemini, env, prefs);
+          return json({ picks }, 200, withCors());
+        })();
+      }
+
       // Public endpoint to submit user feedback
       if (url.pathname === '/feedback' && request.method === 'POST') {
         const body = await request.json() as { message?: string; senderEmail?: string };
@@ -959,6 +971,59 @@ export async function getEditorsPick(db: D1Database, titles: string[] = EDITOR_P
     mealTypes: JSON.parse(String(r.meal_types || '[]')),
     durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
   }));
+}
+
+type AiPick = { topic: string; hashtag: string; recipe: { id: string; title: string; imageUrl: string; mealTypes: string[]; durationMinutes: number | null } };
+
+export async function getAiPicks(
+  db: D1Database,
+  kv: KVNamespace,
+  gemini: (env: Env, prompt: string) => Promise<string>,
+  env: Partial<Env>,
+  prefs: { mealTypes?: string; diet?: string; skill?: string } = {}
+): Promise<AiPick[]> {
+  const cacheKey = `ai-picks:${prefs.mealTypes || 'all'}:${prefs.diet || 'any'}:${prefs.skill || 'any'}`;
+  const cached = await kv.get(cacheKey);
+  if (cached) return JSON.parse(cached) as AiPick[];
+
+  const prefsNote = prefs.mealTypes || prefs.diet
+    ? `User preferences: meal types=${prefs.mealTypes || 'any'}, diet=${prefs.diet || 'any'}, skill=${prefs.skill || 'any'}.`
+    : '';
+
+  const prompt = `You are a cooking trend analyst. ${prefsNote} What are 3 trending health or nutrition topics this week relevant to home cooking? For each topic, suggest one simple recipe name that matches it. Return ONLY a JSON array with this exact shape and no markdown: [{"topic":"string","hashtag":"string","match":"recipe title string"}]`;
+
+  let parsed: Array<{ topic: string; hashtag: string; match: string }> = [];
+  try {
+    const raw = await gemini(env as Env, prompt);
+    // Strip markdown code fences if present
+    const cleaned = raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+    parsed = JSON.parse(cleaned);
+  } catch {
+    return [];
+  }
+
+  const picks: AiPick[] = [];
+  for (const item of parsed.slice(0, 3)) {
+    const row = await db.prepare(
+      `SELECT id, title, image_url, meal_types, duration_minutes FROM recipes WHERE title LIKE ? AND shared_with_friends = 1 LIMIT 1`
+    ).bind(`%${item.match}%`).first() as Record<string, unknown> | null;
+    if (row) {
+      picks.push({
+        topic: item.topic,
+        hashtag: item.hashtag,
+        recipe: {
+          id: String(row.id),
+          title: String(row.title),
+          imageUrl: String(row.image_url),
+          mealTypes: JSON.parse(String(row.meal_types || '[]')),
+          durationMinutes: row.duration_minutes != null ? Number(row.duration_minutes) : null,
+        }
+      });
+    }
+  }
+
+  await kv.put(cacheKey, JSON.stringify(picks), { expirationTtl: 604800 }); // 7 days
+  return picks;
 }
 
 async function handleGetSharedRecipe(request: Request, env: Env, token: string) {

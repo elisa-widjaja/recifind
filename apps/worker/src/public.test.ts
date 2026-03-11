@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getPublicDiscover, getEditorsPick } from './index';
+import { getPublicDiscover, getEditorsPick, getAiPicks } from './index';
 
 describe('getPublicDiscover', () => {
   it('returns recipes with social source URLs', async () => {
@@ -67,5 +67,43 @@ describe('getEditorsPick', () => {
 
     const result = await getEditorsPick(mockDb, EDITOR_TITLES);
     expect(result).toHaveLength(0);
+  });
+});
+
+describe('getAiPicks', () => {
+  it('returns cached result from KV without calling Gemini', async () => {
+    const cached = JSON.stringify([{ topic: 'Gut health', hashtag: '#GutHealth', recipe: { id: 'r1', title: 'Berry Bake' } }]);
+    const mockKV = {
+      get: vi.fn().mockResolvedValue(cached),
+      put: vi.fn(),
+    } as unknown as KVNamespace;
+    const mockDb = { prepare: vi.fn() } as unknown as D1Database;
+    const mockCallGemini = vi.fn();
+
+    const result = await getAiPicks(mockDb, mockKV, mockCallGemini, {}, {});
+    expect(mockCallGemini).not.toHaveBeenCalled();
+    expect(result).toHaveLength(1);
+    expect(result[0].topic).toBe('Gut health');
+  });
+
+  it('calls Gemini and writes to KV when cache is empty', async () => {
+    const mockKV = {
+      get: vi.fn().mockResolvedValue(null),
+      put: vi.fn().mockResolvedValue(undefined),
+    } as unknown as KVNamespace;
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnThis(),
+        first: vi.fn().mockResolvedValue({ id: 'r1', title: 'Berry Bake', source_url: '', image_url: '', meal_types: '[]', duration_minutes: null }),
+      })
+    } as unknown as D1Database;
+    const mockCallGemini = vi.fn().mockResolvedValue(
+      '[{"topic":"Gut health","hashtag":"#GutHealth","match":"Berry Bake"}]'
+    );
+
+    const result = await getAiPicks(mockDb, mockKV, mockCallGemini, {}, {});
+    expect(mockCallGemini).toHaveBeenCalledOnce();
+    expect(mockKV.put).toHaveBeenCalledOnce();
+    expect(result[0].topic).toBe('Gut health');
   });
 });
