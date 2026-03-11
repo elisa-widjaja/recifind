@@ -7,7 +7,7 @@ import { buildVideoEmbedUrl } from '../utils/videoEmbed';
  * Shows only TikTok/YouTube recipes as full-bleed portrait video cards.
  *
  * Props:
- *   recipes — pre-filtered embeddable recipes (parent already called buildVideoEmbedUrl)
+ *   recipes — embeddable recipes (parent filters to TikTok/YouTube only)
  *   onOpen  — (recipe) => void, opens full recipe detail
  */
 export default function WatchAndCook({ recipes = [], onOpen = () => {} }) {
@@ -68,7 +68,6 @@ function WatchCard({ recipe, sectionInView, onOpen }) {
 
   return (
     <Box
-      onClick={() => onOpen(recipe)}
       sx={{
         flexShrink: 0,
         width: 'calc((100vw - 44px) / 2)',
