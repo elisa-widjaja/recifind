@@ -223,6 +223,14 @@ export default {
         return await handleOembedAuthor(url);
       }
 
+      // Public endpoint to get discovery feed (social media recipes)
+      if (url.pathname === '/public/discover' && request.method === 'GET') {
+        return await (async () => {
+          const recipes = await getPublicDiscover(env.DB);
+          return json({ recipes }, 200, withCors());
+        })();
+      }
+
       // Public endpoint to submit user feedback
       if (url.pathname === '/feedback' && request.method === 'POST') {
         const body = await request.json() as { message?: string; senderEmail?: string };
@@ -890,6 +898,27 @@ async function handleOembedAuthor(url: URL) {
   } catch {
     return json({ author: null }, 200, withCors());
   }
+}
+
+export async function getPublicDiscover(db: D1Database): Promise<Array<{
+  id: string; title: string; sourceUrl: string; imageUrl: string;
+  mealTypes: string[]; durationMinutes: number | null;
+}>> {
+  const rows = await db.prepare(
+    `SELECT id, title, source_url, image_url, meal_types, duration_minutes
+     FROM recipes
+     WHERE (source_url LIKE '%tiktok.com%' OR source_url LIKE '%instagram.com%')
+     ORDER BY created_at DESC
+     LIMIT 10`
+  ).all();
+  return (rows.results as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    title: String(r.title),
+    sourceUrl: String(r.source_url),
+    imageUrl: String(r.image_url),
+    mealTypes: JSON.parse(String(r.meal_types || '[]')),
+    durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
+  }));
 }
 
 async function handleGetSharedRecipe(request: Request, env: Env, token: string) {
