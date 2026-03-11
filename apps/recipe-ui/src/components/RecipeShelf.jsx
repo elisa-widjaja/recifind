@@ -59,9 +59,8 @@ export default function RecipeShelf({
 }
 
 function RecipeCard({ recipe, onSave, onShare, onOpen, cardWidth, thumbHeight }) {
-  const isVideo = buildVideoEmbedUrl(recipe.sourceUrl) !== null;
-  const videoThumb = isVideo ? getVideoThumbnailUrl(recipe.sourceUrl) : null;
-  const thumbSrc = videoThumb || recipe.imageUrl;
+  const embedUrl = buildVideoEmbedUrl(recipe.sourceUrl);
+  const thumbSrc = getVideoThumbnailUrl(recipe.sourceUrl) || recipe.imageUrl;
 
   return (
     <Box
@@ -102,7 +101,7 @@ function RecipeCard({ recipe, onSave, onShare, onOpen, cardWidth, thumbHeight })
         )}
 
         {/* Autoplay muted iframe — covers thumbnail when embedding works */}
-        {isVideo && embedUrl && (
+        {embedUrl && (
           <>
             <Box
               component="iframe"
