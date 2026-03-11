@@ -2,7 +2,8 @@ import { Box, Typography, IconButton } from '@mui/material';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import IosShareOutlinedIcon from '@mui/icons-material/IosShareOutlined';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
-import { buildVideoEmbedUrl, formatDuration } from '../utils/videoEmbed';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import { buildVideoEmbedUrl, getVideoThumbnailUrl, formatDuration } from '../utils/videoEmbed';
 
 /**
  * Horizontal scrollable shelf of recipe cards.
@@ -10,9 +11,8 @@ import { buildVideoEmbedUrl, formatDuration } from '../utils/videoEmbed';
  * Props:
  *   recipes        — array of recipe objects
  *   onSave         — (recipe) => void, called when save icon tapped
- *   onShare        — (recipe) => void, called when share icon tapped (new)
+ *   onShare        — (recipe) => void, called when share icon tapped
  *   onOpen         — (recipe) => void, called when card tapped
- *   showPlatformBadge — boolean, show TikTok/YouTube badge on thumbnail
  *   cardWidth      — number (default 140), card width in px
  *   cardHeight     — number (default = cardWidth), thumbnail height in px
  */
@@ -21,7 +21,6 @@ export default function RecipeShelf({
   onSave = () => {},
   onShare = () => {},
   onOpen = () => {},
-  showPlatformBadge = false,
   cardWidth = 140,
   cardHeight,
 }) {
@@ -51,7 +50,6 @@ export default function RecipeShelf({
             onSave={onSave}
             onShare={onShare}
             onOpen={onOpen}
-            showPlatformBadge={showPlatformBadge}
             cardWidth={cardWidth}
             thumbHeight={thumbHeight}
           />
@@ -61,19 +59,10 @@ export default function RecipeShelf({
   );
 }
 
-/**
- * Single card sub-component.
- */
-function RecipeCard({
-  recipe,
-  onSave,
-  onShare,
-  onOpen,
-  showPlatformBadge,
-  cardWidth,
-  thumbHeight,
-}) {
-  const embedUrl = buildVideoEmbedUrl(recipe.sourceUrl);
+function RecipeCard({ recipe, onSave, onShare, onOpen, cardWidth, thumbHeight }) {
+  const isVideo = buildVideoEmbedUrl(recipe.sourceUrl) !== null;
+  const videoThumb = isVideo ? getVideoThumbnailUrl(recipe.sourceUrl) : null;
+  const thumbSrc = videoThumb || recipe.imageUrl;
 
   return (
     <Box
@@ -99,54 +88,44 @@ function RecipeCard({
           overflow: 'hidden',
         }}
       >
-        {embedUrl ? (
-          <>
-            <Box
-              component="iframe"
-              src={embedUrl}
-              title={recipe.title}
-              allow="autoplay"
-              sx={{
-                width: '100%',
-                height: '100%',
-                border: 'none',
-                display: 'block',
-              }}
-            />
-            {/* Transparent overlay intercepts taps so onOpen fires, not the iframe */}
-            <Box
-              onClick={(e) => { e.stopPropagation(); onOpen(recipe); }}
-              sx={{
-                position: 'absolute',
-                inset: 0,
-                zIndex: 1,
-                cursor: 'pointer',
-              }}
-            />
-          </>
-        ) : recipe.imageUrl ? (
+        {thumbSrc ? (
           <Box
             component="img"
-            src={recipe.imageUrl}
+            src={thumbSrc}
             alt={recipe.title}
             sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
           />
         ) : (
-          <Box
-            sx={{
-              width: '100%',
-              height: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 40,
-            }}
-          >
+          <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 40 }}>
             🍳
           </Box>
         )}
 
-        {showPlatformBadge && <PlatformIcon sourceUrl={recipe.sourceUrl} />}
+        {/* Play button overlay for video recipes */}
+        {isVideo && (
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              bgcolor: 'rgba(0,0,0,0.12)',
+            }}
+          >
+            <Box sx={{
+              width: 36,
+              height: 36,
+              borderRadius: '50%',
+              bgcolor: 'rgba(0,0,0,0.55)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <PlayArrowIcon sx={{ color: '#fff', fontSize: 22 }} />
+            </Box>
+          </Box>
+        )}
       </Box>
 
       {/* ── Text + actions ── */}
@@ -195,51 +174,6 @@ function RecipeCard({
           </IconButton>
         </Box>
       </Box>
-    </Box>
-  );
-}
-
-function PlatformIcon({ sourceUrl }) {
-  if (!sourceUrl) return null;
-
-  let svg = null;
-
-  if (sourceUrl.includes('youtube.com') || sourceUrl.includes('youtu.be')) {
-    svg = (
-      <svg width="22" height="15" viewBox="0 0 22 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect width="22" height="15" rx="3" fill="#FF0000" />
-        <polygon points="9,4 16,7.5 9,11" fill="white" />
-      </svg>
-    );
-  } else if (sourceUrl.includes('tiktok.com')) {
-    svg = (
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect width="18" height="18" rx="3" fill="#010101" />
-        <path d="M12.5 4c.1.9.6 1.7 1.5 2.1v1.6c-.6-.1-1.1-.3-1.5-.6v3.4C12.5 12.3 11.2 13.5 9.5 13.5 7.8 13.5 6.5 12.3 6.5 10.5S7.8 7.5 9.5 7.5c.2 0 .4 0 .5.1V9.2c-.2-.1-.3-.1-.5-.1-.8 0-1.5.6-1.5 1.4s.7 1.4 1.5 1.4 1.5-.6 1.5-1.4V4h1z" fill="white" />
-      </svg>
-    );
-  } else if (sourceUrl.includes('instagram.com')) {
-    svg = (
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="ig" x1="0" y1="18" x2="18" y2="0">
-            <stop offset="0%" stopColor="#f09433" />
-            <stop offset="50%" stopColor="#e6683c" />
-            <stop offset="75%" stopColor="#dc2743" />
-            <stop offset="100%" stopColor="#cc2366" />
-          </linearGradient>
-        </defs>
-        <rect width="18" height="18" rx="4" fill="url(#ig)" />
-        <circle cx="9" cy="9" r="3.5" stroke="white" strokeWidth="1.5" fill="none" />
-        <circle cx="13" cy="5" r="1" fill="white" />
-      </svg>
-    );
-  }
-
-  if (!svg) return null;
-  return (
-    <Box sx={{ position: 'absolute', top: 6, left: 6, zIndex: 2, lineHeight: 0 }}>
-      {svg}
     </Box>
   );
 }

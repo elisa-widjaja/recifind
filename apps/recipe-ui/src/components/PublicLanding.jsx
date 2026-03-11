@@ -71,7 +71,6 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
                 onSave={onJoin}
                 onShare={handleShare}
                 onOpen={onOpenRecipe}
-                showPlatformBadge
                 cardWidth={190}
                 cardHeight={200}
               />

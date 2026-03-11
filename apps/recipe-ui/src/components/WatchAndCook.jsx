@@ -1,9 +1,10 @@
 import { Box, Typography } from '@mui/material';
-import { buildVideoEmbedUrl } from '../utils/videoEmbed';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import { getVideoThumbnailUrl } from '../utils/videoEmbed';
 
 /**
  * "Watch & Cook" — Instagram Suggested-Reels style horizontal shelf.
- * Shows only TikTok/YouTube recipes as full-bleed portrait video cards.
+ * Shows TikTok/YouTube recipes as full-bleed portrait cards with thumbnail + play button.
  *
  * Props:
  *   recipes — embeddable recipes (parent filters to TikTok/YouTube only)
@@ -36,11 +37,7 @@ export default function WatchAndCook({ recipes = [], onOpen = () => {} }) {
         }}
       >
         {recipes.map((recipe) => (
-          <WatchCard
-            key={recipe.id}
-            recipe={recipe}
-            onOpen={onOpen}
-          />
+          <WatchCard key={recipe.id} recipe={recipe} onOpen={onOpen} />
         ))}
       </Box>
     </Box>
@@ -48,15 +45,16 @@ export default function WatchAndCook({ recipes = [], onOpen = () => {} }) {
 }
 
 /**
- * Single portrait video card for the Watch & Cook shelf.
- * Width = calc((100vw - 44px) / 2) — 2 cards + 8px gap visible,
- * with ~20px sliver of the 3rd card peeking from the right.
+ * Single portrait card. Shows YouTube thumbnail (or recipe image) with
+ * a play button overlay and title gradient. Tapping opens recipe detail.
  */
 function WatchCard({ recipe, onOpen }) {
-  const embedUrl = buildVideoEmbedUrl(recipe.sourceUrl);
+  const videoThumb = getVideoThumbnailUrl(recipe.sourceUrl);
+  const thumbSrc = videoThumb || recipe.imageUrl;
 
   return (
     <Box
+      onClick={() => onOpen(recipe)}
       sx={{
         flexShrink: 0,
         width: 'calc((100vw - 44px) / 2)',
@@ -68,28 +66,11 @@ function WatchCard({ recipe, onOpen }) {
         cursor: 'pointer',
       }}
     >
-      {/* Video iframe — always loaded */}
-      {embedUrl && (
-        <Box
-          component="iframe"
-          src={embedUrl}
-          title={recipe.title}
-          allow="autoplay"
-          sx={{
-            position: 'absolute',
-            inset: 0,
-            width: '100%',
-            height: '100%',
-            border: 'none',
-          }}
-        />
-      )}
-
-      {/* Static image fallback */}
-      {!embedUrl && recipe.imageUrl && (
+      {/* Thumbnail image */}
+      {thumbSrc && (
         <Box
           component="img"
-          src={recipe.imageUrl}
+          src={thumbSrc}
           alt={recipe.title}
           sx={{
             position: 'absolute',
@@ -101,7 +82,7 @@ function WatchCard({ recipe, onOpen }) {
         />
       )}
 
-      {/* Gradient overlay */}
+      {/* Dark gradient overlay */}
       <Box
         sx={{
           position: 'absolute',
@@ -111,14 +92,38 @@ function WatchCard({ recipe, onOpen }) {
         }}
       />
 
-      {/* Title */}
+      {/* Play button — centred */}
+      <Box
+        sx={{
+          position: 'absolute',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 2,
+        }}
+      >
+        <Box sx={{
+          width: 44,
+          height: 44,
+          borderRadius: '50%',
+          bgcolor: 'rgba(0,0,0,0.55)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          <PlayArrowIcon sx={{ color: '#fff', fontSize: 26 }} />
+        </Box>
+      </Box>
+
+      {/* Title overlay at bottom */}
       <Typography
         sx={{
           position: 'absolute',
           bottom: 8,
           left: 8,
           right: 8,
-          zIndex: 2,
+          zIndex: 3,
           color: '#fff',
           fontSize: 11,
           fontWeight: 700,
@@ -130,17 +135,6 @@ function WatchCard({ recipe, onOpen }) {
       >
         {recipe.title}
       </Typography>
-
-      {/* Transparent tap overlay — intercepts taps so onOpen fires, not the iframe */}
-      <Box
-        onClick={(e) => { e.stopPropagation(); onOpen(recipe); }}
-        sx={{
-          position: 'absolute',
-          inset: 0,
-          zIndex: 3,
-          cursor: 'pointer',
-        }}
-      />
     </Box>
   );
 }

@@ -50,6 +50,21 @@ export function buildVideoEmbedUrl(sourceUrl) {
   return null;
 }
 
+// ─── Video thumbnail URL ──────────────────────────────────────────────────────
+
+/**
+ * Returns a reliable thumbnail URL for YouTube videos using YouTube's
+ * public image CDN. Returns null for TikTok/Instagram (no public thumbnail API).
+ */
+export function getVideoThumbnailUrl(sourceUrl) {
+  if (!sourceUrl) return null;
+  if (sourceUrl.includes('youtube.com') || sourceUrl.includes('youtu.be')) {
+    const id = extractYouTubeVideoId(sourceUrl);
+    return id ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : null;
+  }
+  return null;
+}
+
 // ─── Duration formatting ──────────────────────────────────────────────────────
 
 /**
