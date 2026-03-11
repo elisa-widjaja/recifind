@@ -2,7 +2,6 @@ import { Box, Typography, IconButton } from '@mui/material';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import IosShareOutlinedIcon from '@mui/icons-material/IosShareOutlined';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import { buildVideoEmbedUrl, getVideoThumbnailUrl, formatDuration } from '../utils/videoEmbed';
 
 /**
@@ -88,6 +87,7 @@ function RecipeCard({ recipe, onSave, onShare, onOpen, cardWidth, thumbHeight })
           overflow: 'hidden',
         }}
       >
+        {/* Thumbnail — always shown, fallback when iframe is blocked */}
         {thumbSrc ? (
           <Box
             component="img"
@@ -101,30 +101,33 @@ function RecipeCard({ recipe, onSave, onShare, onOpen, cardWidth, thumbHeight })
           </Box>
         )}
 
-        {/* Play button overlay for video recipes */}
-        {isVideo && (
-          <Box
-            sx={{
-              position: 'absolute',
-              inset: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              bgcolor: 'rgba(0,0,0,0.12)',
-            }}
-          >
-            <Box sx={{
-              width: 36,
-              height: 36,
-              borderRadius: '50%',
-              bgcolor: 'rgba(0,0,0,0.55)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-              <PlayArrowIcon sx={{ color: '#fff', fontSize: 22 }} />
-            </Box>
-          </Box>
+        {/* Autoplay muted iframe — covers thumbnail when embedding works */}
+        {isVideo && embedUrl && (
+          <>
+            <Box
+              component="iframe"
+              src={embedUrl}
+              title={recipe.title}
+              allow="autoplay"
+              sx={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                border: 'none',
+              }}
+            />
+            {/* Transparent overlay intercepts taps so onOpen fires, not the iframe */}
+            <Box
+              onClick={(e) => { e.stopPropagation(); onOpen(recipe); }}
+              sx={{
+                position: 'absolute',
+                inset: 0,
+                zIndex: 1,
+                cursor: 'pointer',
+              }}
+            />
+          </>
         )}
       </Box>
 

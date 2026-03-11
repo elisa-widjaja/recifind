@@ -2446,8 +2446,7 @@ function App() {
     event.preventDefault();
     event.stopPropagation();
 
-    const normalizedUrl = buildEmbedUrl(recipe.sourceUrl);
-    const targetUrl = normalizedUrl || recipe.sourceUrl;
+    const targetUrl = recipe.sourceUrl?.trim();
 
     if (targetUrl) {
       if (isMobile) {
@@ -2460,7 +2459,7 @@ function App() {
     } else {
       setSnackbarState({
         open: true,
-        message: 'This recipe does not have a valid video link.',
+        message: 'This recipe does not have a video link.',
         severity: 'info'
       });
     }
@@ -4517,15 +4516,15 @@ function App() {
               } : {}}>
                 {activeRecipeImageUrl && (
                   <Box
-                    role="button"
-                    aria-label={`Open ${activeRecipeView.title} on Instagram`}
-                    tabIndex={0}
-                    onClick={(event) => handleVideoThumbnailClick(event, activeRecipeView)}
-                    onKeyDown={(event) => {
+                    role={activeRecipeView.sourceUrl ? 'button' : undefined}
+                    aria-label={activeRecipeView.sourceUrl ? `Open ${activeRecipeView.title} source` : undefined}
+                    tabIndex={activeRecipeView.sourceUrl ? 0 : undefined}
+                    onClick={activeRecipeView.sourceUrl ? (event) => handleVideoThumbnailClick(event, activeRecipeView) : undefined}
+                    onKeyDown={activeRecipeView.sourceUrl ? (event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
                         handleVideoThumbnailClick(event, activeRecipeView);
                       }
-                    }}
+                    } : undefined}
                     sx={{
                       position: 'relative',
                       flexShrink: 0,
@@ -4533,9 +4532,9 @@ function App() {
                       borderRadius: isMobile && isStickyStuck ? 1.5 : (isMobile ? 0 : 2),
                       overflow: 'hidden',
                       height: isMobile && isStickyStuck ? 64 : { xs: 190, md: 250 },
-                      cursor: 'pointer',
+                      cursor: activeRecipeView.sourceUrl ? 'pointer' : 'default',
                       transition: 'all 250ms ease',
-                      '&:hover .dialog-play-overlay': { opacity: 1 }
+                      '&:hover .dialog-play-overlay': { opacity: activeRecipeView.sourceUrl ? 1 : 0 }
                     }}
                   >
                     <Box

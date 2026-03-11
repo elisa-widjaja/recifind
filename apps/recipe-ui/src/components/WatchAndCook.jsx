@@ -1,10 +1,10 @@
 import { Box, Typography } from '@mui/material';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import { getVideoThumbnailUrl } from '../utils/videoEmbed';
+import { buildVideoEmbedUrl, getVideoThumbnailUrl } from '../utils/videoEmbed';
 
 /**
  * "Watch & Cook" — Instagram Suggested-Reels style horizontal shelf.
- * Shows TikTok/YouTube recipes as full-bleed portrait cards with thumbnail + play button.
+ * Shows TikTok/YouTube recipes as full-bleed portrait cards with autoplay iframes.
+ * Thumbnail image is always rendered underneath as a fallback background.
  *
  * Props:
  *   recipes — embeddable recipes (parent filters to TikTok/YouTube only)
@@ -45,16 +45,17 @@ export default function WatchAndCook({ recipes = [], onOpen = () => {} }) {
 }
 
 /**
- * Single portrait card. Shows YouTube thumbnail (or recipe image) with
- * a play button overlay and title gradient. Tapping opens recipe detail.
+ * Single portrait video card.
+ * Thumbnail image underneath + autoplay muted iframe on top.
+ * If the iframe fails to embed (video owner disabled it), the thumbnail shows.
+ * A transparent overlay intercepts taps so onOpen fires instead of the iframe.
  */
 function WatchCard({ recipe, onOpen }) {
-  const videoThumb = getVideoThumbnailUrl(recipe.sourceUrl);
-  const thumbSrc = videoThumb || recipe.imageUrl;
+  const embedUrl = buildVideoEmbedUrl(recipe.sourceUrl);
+  const thumbSrc = getVideoThumbnailUrl(recipe.sourceUrl) || recipe.imageUrl;
 
   return (
     <Box
-      onClick={() => onOpen(recipe)}
       sx={{
         flexShrink: 0,
         width: 'calc((100vw - 44px) / 2)',
@@ -66,7 +67,7 @@ function WatchCard({ recipe, onOpen }) {
         cursor: 'pointer',
       }}
     >
-      {/* Thumbnail image */}
+      {/* Thumbnail — always present, acts as fallback if iframe is blocked */}
       {thumbSrc && (
         <Box
           component="img"
@@ -82,7 +83,24 @@ function WatchCard({ recipe, onOpen }) {
         />
       )}
 
-      {/* Dark gradient overlay */}
+      {/* Autoplay muted iframe — covers thumbnail when embedding works */}
+      {embedUrl && (
+        <Box
+          component="iframe"
+          src={embedUrl}
+          title={recipe.title}
+          allow="autoplay"
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            border: 'none',
+          }}
+        />
+      )}
+
+      {/* Gradient overlay for legibility of title */}
       <Box
         sx={{
           position: 'absolute',
@@ -92,30 +110,6 @@ function WatchCard({ recipe, onOpen }) {
         }}
       />
 
-      {/* Play button — centred */}
-      <Box
-        sx={{
-          position: 'absolute',
-          inset: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 2,
-        }}
-      >
-        <Box sx={{
-          width: 44,
-          height: 44,
-          borderRadius: '50%',
-          bgcolor: 'rgba(0,0,0,0.55)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
-          <PlayArrowIcon sx={{ color: '#fff', fontSize: 26 }} />
-        </Box>
-      </Box>
-
       {/* Title overlay at bottom */}
       <Typography
         sx={{
@@ -123,7 +117,7 @@ function WatchCard({ recipe, onOpen }) {
           bottom: 8,
           left: 8,
           right: 8,
-          zIndex: 3,
+          zIndex: 2,
           color: '#fff',
           fontSize: 11,
           fontWeight: 700,
@@ -135,6 +129,17 @@ function WatchCard({ recipe, onOpen }) {
       >
         {recipe.title}
       </Typography>
+
+      {/* Transparent tap overlay — intercepts taps so onOpen fires, not the iframe */}
+      <Box
+        onClick={(e) => { e.stopPropagation(); onOpen(recipe); }}
+        sx={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 3,
+          cursor: 'pointer',
+        }}
+      />
     </Box>
   );
 }
