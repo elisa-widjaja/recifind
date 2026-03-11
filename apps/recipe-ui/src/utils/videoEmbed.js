@@ -54,7 +54,8 @@ export function buildVideoEmbedUrl(sourceUrl) {
 
 /**
  * Formats a duration in minutes to a human-readable string.
- * Returns null for falsy or zero values — callers guard with `durationMinutes > 0`.
+ * e.g. 45 → "45 min", 90 → "1 hr 30 min", 120 → "2 hr"
+ * Callers should guard with `durationMinutes > 0` before calling — passing 0 returns "0 min".
  */
 export function formatDuration(minutes) {
   if (!minutes || minutes < 60) return `${minutes} min`;
