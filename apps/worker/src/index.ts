@@ -785,18 +785,59 @@ async function handleGetProfile(env: Env, user: AuthenticatedUser) {
 }
 
 async function handleUpdateProfile(request: Request, env: Env, user: AuthenticatedUser) {
-  const body = await request.json() as { displayName?: string };
-  const displayName = body.displayName?.trim();
-  if (!displayName || displayName.length === 0) {
-    throw new HttpError(400, 'Display name is required');
+  const body = await request.json() as { displayName?: string; mealTypePrefs?: string[]; dietaryPrefs?: string[]; skillLevel?: string };
+
+  // Prepare optional fields
+  const mealTypePrefs = typeof body.mealTypePrefs !== 'undefined' ? JSON.stringify(body.mealTypePrefs) : undefined;
+  const dietaryPrefs = typeof body.dietaryPrefs !== 'undefined' ? JSON.stringify(body.dietaryPrefs) : undefined;
+  const skillLevel = typeof body.skillLevel !== 'undefined' ? String(body.skillLevel) : undefined;
+
+  // Validate displayName if provided
+  if (body.displayName !== undefined) {
+    const displayName = body.displayName?.trim();
+    if (!displayName || displayName.length === 0) {
+      throw new HttpError(400, 'Display name is required');
+    }
+    if (displayName.length > 50) {
+      throw new HttpError(400, 'Display name must be 50 characters or less');
+    }
   }
-  if (displayName.length > 50) {
-    throw new HttpError(400, 'Display name must be 50 characters or less');
+
+  // Build dynamic UPDATE for only provided fields
+  const fields: string[] = [];
+  const values: unknown[] = [];
+  if (body.displayName !== undefined) {
+    fields.push('display_name = ?');
+    values.push(String(body.displayName).trim());
   }
-  await env.DB.prepare(
-    'UPDATE profiles SET display_name = ? WHERE user_id = ?'
-  ).bind(displayName, user.userId).run();
-  return json({ displayName });
+  if (mealTypePrefs !== undefined) {
+    fields.push('meal_type_prefs = ?');
+    values.push(mealTypePrefs);
+  }
+  if (dietaryPrefs !== undefined) {
+    fields.push('dietary_prefs = ?');
+    values.push(dietaryPrefs);
+  }
+  if (skillLevel !== undefined) {
+    fields.push('skill_level = ?');
+    values.push(skillLevel);
+  }
+
+  if (fields.length === 0) {
+    throw new HttpError(400, 'At least one field must be provided for update');
+  }
+
+  values.push(user.userId);
+  await env.DB.prepare(`UPDATE profiles SET ${fields.join(', ')} WHERE user_id = ?`).bind(...values).run();
+
+  // Return updated fields
+  const response: Record<string, any> = {};
+  if (body.displayName !== undefined) response.displayName = String(body.displayName).trim();
+  if (mealTypePrefs !== undefined) response.mealTypePrefs = body.mealTypePrefs;
+  if (dietaryPrefs !== undefined) response.dietaryPrefs = body.dietaryPrefs;
+  if (skillLevel !== undefined) response.skillLevel = body.skillLevel;
+
+  return json(response);
 }
 
 async function handleGetRecipe(request: Request, env: Env, user: AuthenticatedUser, recipeId: string) {
