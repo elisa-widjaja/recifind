@@ -69,21 +69,30 @@ export function formatDuration(minutes) {
 /**
  * Observes `ref.current` with IntersectionObserver.
  * Returns inView: boolean.
+ * When once=true (default), stays inView=true permanently after first intersection.
+ * When once=false, inView follows intersection state (reverts to false when out of view).
  * Disconnects on unmount.
  */
-export function useInView(ref, threshold = 0.4) {
+export function useInView(ref, { threshold = 0.4, once = true } = {}) {
   const [inView, setInView] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     const observer = new IntersectionObserver(
-      ([entry]) => setInView(entry.isIntersecting),
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setInView(true);
+          if (once) observer.disconnect();
+        } else if (!once) {
+          setInView(false);
+        }
+      },
       { threshold }
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [ref, threshold]);
+  }, [ref, threshold, once]);
 
   return inView;
 }

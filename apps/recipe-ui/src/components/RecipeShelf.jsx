@@ -111,8 +111,7 @@ function RecipeCard({
               component="iframe"
               src={inView ? embedUrl : ''}
               title={recipe.title}
-              allow="autoplay; fullscreen"
-              allowFullScreen
+              allow="autoplay"
               sx={{
                 width: '100%',
                 height: '100%',
