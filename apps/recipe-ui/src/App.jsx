@@ -95,6 +95,7 @@ import PublicLanding from './components/PublicLanding';
 import WelcomeModal from './components/WelcomeModal';
 import OnboardingFlow from './components/OnboardingFlow';
 import FriendSections from './components/FriendSections';
+import { formatDuration } from './utils/videoEmbed';
 import recipesData from '../recipes.json';
 import recipesFromPdfData from '../recipes_from_pdf.json';
 
@@ -424,12 +425,6 @@ function getUniqueMealTypes(recipes) {
   return [...ordered, ...extras];
 }
 
-function formatDuration(minutes) {
-  if (!minutes || minutes < 60) return `${minutes} min`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return m > 0 ? `${h} hr ${m} min` : `${h} hr`;
-}
 
 function getRecipeCredit(sourceUrl, oembedAuthor) {
   if (!sourceUrl) return null;
@@ -3969,6 +3964,8 @@ function App() {
                 accessToken={accessToken}
                 onOpenRecipe={handleOpenRecipeDetails}
                 onSaveRecipe={handleOpenRecipeDetails}
+                onInviteFriend={() => setIsFriendsDialogOpen(true)}
+                darkMode={darkMode}
               />
             )}
             <Stack spacing={{ xs: 2, sm: 3 }}>
@@ -4221,15 +4218,15 @@ function App() {
                         }}
                       >
                         <Box
-                          role="button"
-                          aria-label={`Play ${recipe.title} video`}
-                          onClick={(event) => handleVideoThumbnailClick(event, recipe)}
+                          role={buildEmbedUrl(recipe.sourceUrl) ? 'button' : undefined}
+                          aria-label={buildEmbedUrl(recipe.sourceUrl) ? `Play ${recipe.title} video` : undefined}
+                          onClick={buildEmbedUrl(recipe.sourceUrl) ? (event) => handleVideoThumbnailClick(event, recipe) : undefined}
                           sx={{
                             position: 'relative',
                             width: 90,
                             height: 90,
                             flexShrink: 0,
-                            cursor: 'pointer',
+                            cursor: buildEmbedUrl(recipe.sourceUrl) ? 'pointer' : 'default',
                             overflow: 'hidden',
                             borderRadius: '6px'
                           }}
@@ -4239,18 +4236,20 @@ function App() {
                             alt={recipe.title || 'Recipe preview'}
                             onError={createImageFallbackHandler(recipe.title)}
                           />
-                          <Box
-                            sx={{
-                              position: 'absolute',
-                              inset: 0,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              backgroundColor: 'rgba(0,0,0,0.2)'
-                            }}
-                          >
-                            <PlayArrowIcon sx={{ fontSize: 36, color: 'white', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.4))' }} />
-                          </Box>
+                          {buildEmbedUrl(recipe.sourceUrl) && (
+                            <Box
+                              sx={{
+                                position: 'absolute',
+                                inset: 0,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                backgroundColor: 'rgba(0,0,0,0.2)'
+                              }}
+                            >
+                              <PlayArrowIcon sx={{ fontSize: 36, color: 'white', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.4))' }} />
+                            </Box>
+                          )}
                         </Box>
                         <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                           <Typography
