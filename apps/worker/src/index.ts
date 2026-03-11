@@ -53,7 +53,7 @@ interface Friend {
 }
 
 interface NotificationItem {
-  type: 'friend_request' | 'friend_accepted';
+  type: 'friend_request' | 'friend_accepted' | 'friend_cooked_recipe';
   message: string;
   data: Record<string, string>;
   createdAt: string;
@@ -336,6 +336,32 @@ export default {
         }
         const recipeId = decodeURIComponent(shareMatch[1]);
         return await handleCreateShareLink(env, user, recipeId);
+      }
+
+      // Log cook event
+      const cookMatch = url.pathname.match(/^\/recipes\/([^/]+)\/cook$/);
+      if (cookMatch && request.method === 'POST') {
+        if (!user) throw new HttpError(401, 'Unauthorized');
+        return await (async () => {
+          const recipeId = decodeURIComponent(cookMatch[1]);
+          await logCookEvent(env.DB, user.userId, recipeId);
+          // Notify each friend
+          const friends = await env.DB.prepare(`SELECT friend_id FROM friends WHERE user_id = ?`).bind(user.userId).all();
+          const recipe = await env.DB.prepare(`SELECT title FROM recipes WHERE user_id = ? AND id = ?`).bind(user.userId, recipeId).first() as { title?: string } | null;
+          const recipeName = recipe?.title || 'a recipe';
+          const profile = await env.DB.prepare(`SELECT display_name FROM profiles WHERE user_id = ?`).bind(user.userId).first() as { display_name?: string } | null;
+          const cookerName = profile?.display_name || 'Someone';
+          // Use the existing addNotification helper — it handles the 50-row trim side-effect
+          for (const f of (friends.results as Array<{ friend_id: string }>)) {
+            await addNotification(env, f.friend_id as unknown as string, {
+              type: 'friend_cooked_recipe',
+              message: `${cookerName} cooked ${recipeName} 🍳`,
+              data: { cookerId: user.userId, recipeId },
+              created_at: new Date().toISOString(),
+            });
+          }
+          return json({ ok: true }, 200, withCors());
+        })();
       }
 
       if (recipeMatch) {
@@ -1144,6 +1170,12 @@ export async function getFriendsRecentlyShared(db: D1Database, userId: string): 
     }
   }
   return items.sort((a, b) => b.recipe.createdAt.localeCompare(a.recipe.createdAt)).slice(0, 8);
+}
+
+export async function logCookEvent(db: D1Database, userId: string, recipeId: string): Promise<void> {
+  await db.prepare(
+    `INSERT INTO cook_events (user_id, recipe_id, cooked_at) VALUES (?, ?, ?)`
+  ).bind(userId, recipeId, new Date().toISOString()).run();
 }
 
 async function handleGetSharedRecipe(request: Request, env: Env, token: string) {
