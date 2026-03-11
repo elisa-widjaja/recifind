@@ -430,6 +430,27 @@ export default {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
         return await handleMarkNotificationsRead(env, user);
       }
+      if (url.pathname === '/friends/activity' && request.method === 'GET') {
+        if (!user) throw new HttpError(401, 'Unauthorized');
+        return await (async () => {
+          const activity = await getFriendActivity(env.DB, user.userId);
+          return json({ activity }, 200, withCors());
+        })();
+      }
+      if (url.pathname === '/friends/recently-saved' && request.method === 'GET') {
+        if (!user) throw new HttpError(401, 'Unauthorized');
+        return await (async () => {
+          const items = await getFriendsRecentlySaved(env.DB, user.userId);
+          return json({ items }, 200, withCors());
+        })();
+      }
+      if (url.pathname === '/friends/recently-shared' && request.method === 'GET') {
+        if (!user) throw new HttpError(401, 'Unauthorized');
+        return await (async () => {
+          const items = await getFriendsRecentlyShared(env.DB, user.userId);
+          return json({ items }, 200, withCors());
+        })();
+      }
       const cancelSentMatch = url.pathname.match(/^\/friends\/requests\/sent\/([^/]+)\/cancel$/);
       if (cancelSentMatch && request.method === 'DELETE') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
@@ -1024,6 +1045,64 @@ export async function getAiPicks(
 
   await kv.put(cacheKey, JSON.stringify(picks), { expirationTtl: 604800 }); // 7 days
   return picks;
+}
+
+type FriendRecipeItem = { friendName: string; friendId: string; recipe: { id: string; title: string; imageUrl: string; mealTypes: string[]; durationMinutes: number | null; createdAt: string } };
+
+export async function getFriendActivity(db: D1Database, userId: string): Promise<Array<{ id: number; type: string; message: string; data: unknown; createdAt: string; read: boolean }>> {
+  const rows = await db.prepare(
+    `SELECT id, type, message, data, created_at, read FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 10`
+  ).bind(userId).all();
+  return (rows.results as Array<Record<string, unknown>>).map(r => ({
+    id: Number(r.id),
+    type: String(r.type),
+    message: String(r.message),
+    data: JSON.parse(String(r.data || '{}')),
+    createdAt: String(r.created_at),
+    read: Boolean(r.read),
+  }));
+}
+
+export async function getFriendsRecentlySaved(db: D1Database, userId: string): Promise<FriendRecipeItem[]> {
+  const friends = await db.prepare(
+    `SELECT friend_id, friend_name FROM friends WHERE user_id = ?`
+  ).bind(userId).all();
+  const items: FriendRecipeItem[] = [];
+  for (const friend of (friends.results as Array<Record<string, unknown>>)) {
+    const rows = await db.prepare(
+      // No shared_with_friends filter — show any recipe the friend has, all visible to friends
+      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at FROM recipes WHERE user_id = ? ORDER BY created_at DESC LIMIT 2`
+    ).bind(String(friend.friend_id)).all();
+    for (const r of (rows.results as Array<Record<string, unknown>>)) {
+      items.push({
+        friendName: String(friend.friend_name),
+        friendId: String(friend.friend_id),
+        recipe: { id: String(r.id), title: String(r.title), imageUrl: String(r.image_url), mealTypes: JSON.parse(String(r.meal_types || '[]')), durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null, createdAt: String(r.created_at) }
+      });
+    }
+  }
+  return items.sort((a, b) => b.recipe.createdAt.localeCompare(a.recipe.createdAt)).slice(0, 8);
+}
+
+export async function getFriendsRecentlyShared(db: D1Database, userId: string): Promise<FriendRecipeItem[]> {
+  const friends = await db.prepare(
+    `SELECT friend_id, friend_name FROM friends WHERE user_id = ?`
+  ).bind(userId).all();
+  const items: FriendRecipeItem[] = [];
+  for (const friend of (friends.results as Array<Record<string, unknown>>)) {
+    const rows = await db.prepare(
+      // shared_with_friends = 1 filter only — ORDER BY created_at (updated_at not in schema)
+      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at FROM recipes WHERE user_id = ? AND shared_with_friends = 1 ORDER BY created_at DESC LIMIT 2`
+    ).bind(String(friend.friend_id)).all();
+    for (const r of (rows.results as Array<Record<string, unknown>>)) {
+      items.push({
+        friendName: String(friend.friend_name),
+        friendId: String(friend.friend_id),
+        recipe: { id: String(r.id), title: String(r.title), imageUrl: String(r.image_url), mealTypes: JSON.parse(String(r.meal_types || '[]')), durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null, createdAt: String(r.created_at) }
+      });
+    }
+  }
+  return items.sort((a, b) => b.recipe.createdAt.localeCompare(a.recipe.createdAt)).slice(0, 8);
 }
 
 async function handleGetSharedRecipe(request: Request, env: Env, token: string) {
