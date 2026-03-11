@@ -91,6 +91,7 @@ import MenuBookIcon from '@mui/icons-material/MenuBook';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import FeedbackOutlinedIcon from '@mui/icons-material/FeedbackOutlined';
 import { createClient } from '@supabase/supabase-js';
+import PublicLanding from './components/PublicLanding';
 import recipesData from '../recipes.json';
 import recipesFromPdfData from '../recipes_from_pdf.json';
 
@@ -1766,9 +1767,8 @@ function App() {
 
     const userId = session?.user?.id || null;
 
-    // If not logged in, show default recipes
+    // Logged-out users see PublicLanding — no recipes loaded here
     if (!userId) {
-      setRecipes(INITIAL_RECIPES.filter((r) => r.imageUrl && !r.imageUrl.startsWith('data:')));
       setRemoteState({ status: 'disabled', message: '' });
       return;
     }
@@ -3885,7 +3885,16 @@ function App() {
         </Box>
       </Drawer>
 
-      <Container maxWidth="lg" disableGutters>
+      {/* Logged-out: show discovery landing page. Only render after auth is checked to avoid flash. */}
+      {!session && isAuthChecked && (
+        <PublicLanding
+          onJoin={openAuthDialog}
+          onOpenRecipe={handleOpenRecipeDetails}
+          darkMode={darkMode}
+        />
+      )}
+
+      {(session || !isAuthChecked) && <Container maxWidth="lg" disableGutters>}
         <Box
           sx={{
             px: { xs: 2, sm: 3, md: 4 },
@@ -4286,7 +4295,7 @@ function App() {
             <Box ref={sentinelRef} sx={{ height: 1 }} />
           </Stack>
         </Box>
-      </Container>
+      </Container>}
 
       <Menu
         anchorReference="anchorPosition"
