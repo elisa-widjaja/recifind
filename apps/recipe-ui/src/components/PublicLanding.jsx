@@ -3,8 +3,9 @@ import {
   Box, Container, Typography, Button, Stack,
   Card, CardActionArea
 } from '@mui/material';
-import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import RecipeShelf from './RecipeShelf';
+import WatchAndCook from './WatchAndCook';
+import { buildVideoEmbedUrl } from '../utils/videoEmbed';
 
 const API_BASE_URL = import.meta.env.VITE_RECIPES_API_BASE_URL || '';
 
@@ -28,36 +29,59 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
   const [editorsExpanded, setEditorsExpanded] = useState(false);
 
   useEffect(() => {
-    fetchJson('/public/discover').then(d => setTrending(d?.recipes || []));
+    fetchJson('/public/trending-recipes').then(d => setTrending(d?.recipes || []));
     fetchJson('/public/editors-pick').then(d => setEditorsPick(d?.recipes || []));
     fetchJson('/public/ai-picks').then(d => setAiPicks(d?.picks || []));
   }, []);
 
   const visibleEditors = editorsExpanded ? editorsPick : editorsPick.slice(0, 3);
 
+  const handleShare = async (recipe) => {
+    const url = recipe.sourceUrl || window.location.href;
+    const title = recipe.title || 'Recipe';
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, url });
+      } catch {
+        // user cancelled or share failed — ignore
+      }
+    } else {
+      try {
+        await navigator.clipboard.writeText(url);
+      } catch {
+        // clipboard blocked — ignore
+      }
+    }
+  };
+
+  const videoRecipes = trending.filter(r => buildVideoEmbedUrl(r.sourceUrl) !== null);
+
   return (
     <Container maxWidth="sm" disableGutters>
       <Box sx={{ px: { xs: 2, sm: 3 }, pb: 6 }}>
 
-        {/* ── Compact header ── */}
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', py: 1.5, mb: 2 }}>
-          <Box>
-            <Typography fontWeight={800} fontSize={16}>ReciFind 🍳</Typography>
-            <Typography variant="caption" color="text.secondary">Your group chat for cooking</Typography>
-          </Box>
-          <Button variant="contained" size="small" disableElevation onClick={onJoin}
-            sx={{ borderRadius: 20, textTransform: 'none', fontWeight: 700, fontSize: 12 }}>
-            Join free
-          </Button>
-        </Box>
-
-        <Stack spacing={3}>
+<Stack spacing={3} sx={{ pt: 2 }}>
 
           {/* ── Section 1: Trending ── */}
           {trending.length > 0 && (
             <Box>
               <SectionLabel emoji="🔥" label="Trending from the community" />
-              <RecipeShelf recipes={trending} onSave={onJoin} onOpen={onOpenRecipe} showPlatformBadge cardWidth={148} />
+              <RecipeShelf
+                recipes={trending}
+                onSave={onJoin}
+                onShare={handleShare}
+                onOpen={onOpenRecipe}
+                showPlatformBadge
+                cardWidth={190}
+                cardHeight={200}
+              />
+            </Box>
+          )}
+
+          {/* ── Watch & Cook ── */}
+          {videoRecipes.length > 0 && (
+            <Box>
+              <WatchAndCook recipes={videoRecipes} onOpen={onOpenRecipe} />
             </Box>
           )}
 
@@ -82,16 +106,15 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
           {/* ── Section 3: AI Picks ── */}
           {aiPicks.length > 0 && (
             <Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <SectionLabel emoji="✨" label="AI Picks this week" inline />
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, bgcolor: 'action.selected', borderRadius: 1, px: 0.75, py: 0.25 }}>
-                  <AutoAwesomeIcon sx={{ fontSize: 11, color: 'info.main' }} />
-                  <Typography variant="caption" sx={{ fontSize: 9, fontWeight: 700, color: 'info.main' }}>Gemini</Typography>
-                </Box>
-              </Box>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontSize: 11 }}>
-                Trending in health &amp; nutrition right now
-              </Typography>
+              <SectionLabel emoji="🥦" label="Trending in health and nutrition" />
+              <Stack spacing={0.5} sx={{ mb: 1.5 }}>
+                {aiPicks.map(p => (
+                  <Box key={p.topic} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                    <Typography variant="caption" sx={{ fontSize: 11, fontWeight: 700, color: 'primary.main', flexShrink: 0, mt: '1px' }}>{p.hashtag}</Typography>
+                    <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', lineHeight: 1.4 }}>{p.reason}</Typography>
+                  </Box>
+                ))}
+              </Stack>
               <RecipeShelf
                 recipes={aiPicks.map(p => ({ ...p.recipe, _hashtag: p.hashtag, _topic: p.topic }))}
                 onSave={onJoin} onOpen={onOpenRecipe} cardWidth={160}
