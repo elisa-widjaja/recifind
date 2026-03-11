@@ -231,6 +231,14 @@ export default {
         })();
       }
 
+      // Public endpoint to get editor's pick recipes
+      if (url.pathname === '/public/editors-pick' && request.method === 'GET') {
+        return await (async () => {
+          const recipes = await getEditorsPick(env.DB);
+          return json({ recipes }, 200, withCors());
+        })();
+      }
+
       // Public endpoint to submit user feedback
       if (url.pathname === '/feedback' && request.method === 'POST') {
         const body = await request.json() as { message?: string; senderEmail?: string };
@@ -911,6 +919,38 @@ export async function getPublicDiscover(db: D1Database): Promise<Array<{
      ORDER BY created_at DESC
      LIMIT 10`
   ).all();
+  return (rows.results as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    title: String(r.title),
+    sourceUrl: String(r.source_url),
+    imageUrl: String(r.image_url),
+    mealTypes: JSON.parse(String(r.meal_types || '[]')),
+    durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
+  }));
+}
+
+// IMPORTANT: These titles must exactly match the `title` column values stored in D1.
+// Before deploying, verify by running:
+//   npx wrangler d1 execute recipes-db --remote --command="SELECT title FROM recipes WHERE title LIKE '%Stew%' OR title LIKE '%moco%' LIMIT 20"
+// Adjust casing below to match what is actually stored. SQLite IN() is case-sensitive for ASCII.
+const EDITOR_PICK_TITLES = [
+  'Beef and Guiness Stew', 'Loco moco', 'Galbi tang',
+  'Watermelon salad', 'Broccoli cheddar soup', 'Honey lime chicken bowl',
+  'Blueberry cream pancake', 'Banana Bread', 'Swiss croissant bake',
+  'Pear puff pastry', 'Berry yogurt bake',
+];
+
+export async function getEditorsPick(db: D1Database, titles: string[] = EDITOR_PICK_TITLES): Promise<Array<{
+  id: string; title: string; sourceUrl: string; imageUrl: string;
+  mealTypes: string[]; durationMinutes: number | null;
+}>> {
+  const placeholders = titles.map(() => '?').join(', ');
+  const rows = await db.prepare(
+    `SELECT id, title, source_url, image_url, meal_types, duration_minutes
+     FROM recipes
+     WHERE title IN (${placeholders})
+     ORDER BY created_at ASC`
+  ).bind(...titles).all();
   return (rows.results as Array<Record<string, unknown>>).map((r) => ({
     id: String(r.id),
     title: String(r.title),
