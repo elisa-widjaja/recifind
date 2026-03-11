@@ -92,6 +92,9 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import FeedbackOutlinedIcon from '@mui/icons-material/FeedbackOutlined';
 import { createClient } from '@supabase/supabase-js';
 import PublicLanding from './components/PublicLanding';
+import WelcomeModal from './components/WelcomeModal';
+import OnboardingFlow from './components/OnboardingFlow';
+import FriendSections from './components/FriendSections';
 import recipesData from '../recipes.json';
 import recipesFromPdfData from '../recipes_from_pdf.json';
 
@@ -1024,6 +1027,10 @@ function App() {
   const [feedbackEmail, setFeedbackEmail] = useState('');
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [feedbackDone, setFeedbackDone] = useState(false);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [welcomeRecipes, setWelcomeRecipes] = useState([]);
+  const [inviterName, setInviterName] = useState(null);
 
   // Track visits and decide whether to show the feedback widget.
   // Logic: hide after submission; re-show after 3 visits within a 14-day window.
@@ -1254,6 +1261,21 @@ function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Show welcome modal once after first sign-in
+  useEffect(() => {
+    if (!isAuthChecked || !session) return;
+    const onboardingSeen = localStorage.getItem('onboarding_seen');
+    if (onboardingSeen) return;
+
+    // Fetch welcome recipes: editors-pick as fallback
+    fetch(`${API_BASE_URL}/public/editors-pick`)
+      .then(r => r.json())
+      .then(d => setWelcomeRecipes((d?.recipes || []).slice(0, 3)))
+      .catch(() => {});
+
+    setWelcomeOpen(true);
+  }, [isAuthChecked, session]);
+
   // ── Profile API functions ─────────────────────────────────────────
 
   const fetchProfile = useCallback(async () => {
@@ -1430,6 +1452,30 @@ function App() {
     } catch (error) {
       setSnackbarState({ open: true, message: 'Failed to remove friend', severity: 'error' });
     }
+  };
+
+  const handleWelcomeDismiss = () => {
+    setWelcomeOpen(false);
+    const onboardingSeen = localStorage.getItem('onboarding_seen');
+    if (!onboardingSeen) {
+      setOnboardingOpen(true);
+    }
+  };
+
+  const handleOnboardingComplete = async (prefs) => {
+    setOnboardingOpen(false);
+    localStorage.setItem('onboarding_seen', '1');
+    if (accessToken && (prefs.mealTypePrefs.length || prefs.dietaryPrefs.length || prefs.skillLevel)) {
+      await callRecipesApi('/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({ mealTypePrefs: prefs.mealTypePrefs, dietaryPrefs: prefs.dietaryPrefs, skillLevel: prefs.skillLevel })
+      }, accessToken);
+    }
+  };
+
+  const handleOnboardingSkip = () => {
+    setOnboardingOpen(false);
+    localStorage.setItem('onboarding_seen', '1');
   };
 
   const fetchFriendRecipes = async (friend) => {
@@ -3885,6 +3931,18 @@ function App() {
         </Box>
       </Drawer>
 
+      <WelcomeModal
+        open={welcomeOpen}
+        onDismiss={handleWelcomeDismiss}
+        inviterName={inviterName}
+        recipes={welcomeRecipes}
+      />
+      <OnboardingFlow
+        open={onboardingOpen}
+        onComplete={handleOnboardingComplete}
+        onSkip={handleOnboardingSkip}
+      />
+
       {/* Logged-out: show discovery landing page. Only render after auth is checked to avoid flash. */}
       {!session && isAuthChecked && (
         <PublicLanding
@@ -3902,6 +3960,13 @@ function App() {
           }}
         >
           <Stack spacing={1.5}>
+            {session && (
+              <FriendSections
+                accessToken={accessToken}
+                onOpenRecipe={handleOpenRecipeDetails}
+                onSaveRecipe={handleOpenRecipeDetails}
+              />
+            )}
             <Stack spacing={{ xs: 2, sm: 3 }}>
               <Box sx={{ position: 'relative' }}>
                 <TextField
