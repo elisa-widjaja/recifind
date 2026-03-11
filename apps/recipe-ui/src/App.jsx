@@ -3956,7 +3956,7 @@ function App() {
         />
       )}
 
-      {(session || !isAuthChecked) && <Container maxWidth="lg" disableGutters>}
+      {(session || !isAuthChecked) && (<Container maxWidth="lg" disableGutters>
         <Box
           sx={{
             px: { xs: 2, sm: 3, md: 4 },
@@ -4364,7 +4364,7 @@ function App() {
             <Box ref={sentinelRef} sx={{ height: 1 }} />
           </Stack>
         </Box>
-      </Container>}
+      </Container>)}
 
       <Menu
         anchorReference="anchorPosition"

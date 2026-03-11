@@ -1086,7 +1086,8 @@ export async function getAiPicks(
     // Strip markdown code fences if present
     const cleaned = raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
     parsed = JSON.parse(cleaned);
-  } catch {
+  } catch (err) {
+    console.error('[getAiPicks] Gemini parse/call failed:', err);
     return [];
   }
 
