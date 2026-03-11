@@ -6,6 +6,7 @@ const GEMINI_SCOPE = 'https://www.googleapis.com/auth/generative-language';
 
 export interface Env {
   DB: D1Database;
+  AI_PICKS_CACHE: KVNamespace;
   AUTH_ISSUER: string;
   AUTH_AUDIENCE: string;
   AUTH_JWKS_URL: string;

@@ -12,6 +12,10 @@ database_name = "recipes-db"
 database_id = "b02df58e-38fa-4c26-896a-5323bcc9d35d"
 migrations_dir = "migrations"
 
+[[kv_namespaces]]
+binding = "AI_PICKS_CACHE"
+id = "d5c0419e6a2e4b5aadc271a376a73b01"
+
 [vars]
 AUTH_ISSUER = "https://jpjuaaxwfpemecbwwthk.supabase.co/auth/v1"
 AUTH_AUDIENCE = "authenticated"
