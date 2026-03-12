@@ -22,6 +22,7 @@ export default function RecipeShelf({
   onOpen = () => {},
   cardWidth = 140,
   cardHeight,
+  gap = '12px',
 }) {
   if (!recipes.length) return null;
 
@@ -34,7 +35,7 @@ export default function RecipeShelf({
       <Box
         sx={{
           display: 'flex',
-          gap: '12px',
+          gap,
           overflowX: 'auto',
           px: 2,
           pb: 1,

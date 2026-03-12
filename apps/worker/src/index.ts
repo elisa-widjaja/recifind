@@ -1136,7 +1136,8 @@ export async function getAiPicks(
   env: Partial<Env>,
   prefs: { mealTypes?: string; diet?: string; skill?: string } = {}
 ): Promise<AiPick[]> {
-  const cacheKey = `ai-picks:${prefs.mealTypes || 'all'}:${prefs.diet || 'any'}:${prefs.skill || 'any'}`;
+  // v2: includes ingredients, steps, sourceUrl in cached recipe objects
+  const cacheKey = `ai-picks:v2:${prefs.mealTypes || 'all'}:${prefs.diet || 'any'}:${prefs.skill || 'any'}`;
   const cached = await kv.get(cacheKey);
   if (cached) return JSON.parse(cached) as AiPick[];
 

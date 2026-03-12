@@ -84,8 +84,8 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
                 onSave={onJoin}
                 onShare={handleShare}
                 onOpen={onOpenRecipe}
-                cardWidth={190}
-                cardHeight={200}
+                cardWidth={180}
+                gap="8px"
               />
             </Box>
           )}
@@ -135,7 +135,7 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
               </Stack>
               <RecipeShelf
                 recipes={aiPicks.map(p => ({ ...p.recipe, _hashtag: p.hashtag, _topic: p.topic }))}
-                onSave={onJoin} onOpen={onOpenRecipe} cardWidth={160}
+                onSave={onJoin} onOpen={onOpenRecipe} cardWidth={180} gap="8px"
               />
             </Box>
           )}
