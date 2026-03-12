@@ -89,7 +89,7 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
           {/* ── Discover New Recipes ── */}
           {videoRecipes.length > 0 && (
             <Box>
-              <SectionLabel label="Discover new recipes" />
+              <SectionLabel label="Discover New Recipes" />
               <DiscoverRecipes recipes={videoRecipes} onOpen={onOpenRecipe} />
             </Box>
           )}
