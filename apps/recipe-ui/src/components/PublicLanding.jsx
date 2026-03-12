@@ -164,7 +164,16 @@ function EditorCard({ recipe, onSave, onShare, onOpen }) {
     <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
       <CardActionArea
         onClick={() => onOpen?.(recipe)}
-        sx={{ display: 'flex', alignItems: 'stretch', pt: '8px', pb: '8px', pl: '8px', pr: 1.5, gap: '12px' }}
+        sx={{
+          display: 'flex',
+          alignItems: 'stretch',
+          pt: '8px',
+          pb: '8px',
+          pl: '8px',
+          pr: 1.5,
+          gap: '12px',
+          '&:hover .MuiCardActionArea-focusHighlight': { opacity: 0 },
+        }}
       >
         <Box sx={{ position: 'relative', width: 90, height: 90, flexShrink: 0, overflow: 'hidden', borderRadius: '6px', bgcolor: 'action.hover' }}>
           {recipe.imageUrl
@@ -172,24 +181,38 @@ function EditorCard({ recipe, onSave, onShare, onOpen }) {
             : <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>🍳</Box>
           }
         </Box>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography sx={{ fontWeight: 700, fontSize: '0.8125rem', lineHeight: 1.4, textTransform: 'uppercase', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+        <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <Typography
+            sx={{
+              fontWeight: 700,
+              fontSize: '0.8125rem',
+              lineHeight: 1.4,
+              textTransform: 'uppercase',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            }}
+          >
             {recipe.title}
           </Typography>
-          {recipe.durationMinutes > 0 && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
-              <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
-              <Typography variant="caption" color="text.secondary">{formatDuration(recipe.durationMinutes)}</Typography>
-            </Box>
-          )}
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-          <IconButton size="small" onClick={(e) => { e.stopPropagation(); onSave?.(); }} sx={{ p: 0.5 }}>
-            <BookmarkBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
-          </IconButton>
-          <IconButton size="small" onClick={(e) => { e.stopPropagation(); onShare?.(recipe); }} sx={{ p: 0.5 }}>
-            <IosShareOutlinedIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
-          </IconButton>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            {recipe.durationMinutes ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+                <Typography variant="caption" color="text.secondary">{formatDuration(recipe.durationMinutes)}</Typography>
+              </Box>
+            ) : <Box />}
+            <Box sx={{ flexGrow: 1 }} />
+            <IconButton size="small" onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); e.preventDefault(); onSave?.(); }} sx={{ p: 0.5, mr: '9px' }}>
+              <BookmarkBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
+            </IconButton>
+            <IconButton size="small" onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); e.preventDefault(); onShare?.(recipe); }} sx={{ p: 0.5 }}>
+              <IosShareOutlinedIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
+            </IconButton>
+          </Box>
         </Box>
       </CardActionArea>
     </Card>
