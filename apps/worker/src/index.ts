@@ -1105,7 +1105,15 @@ export async function getEditorsPick(db: D1Database, titles: string[] = EDITOR_P
   }));
 }
 
-type AiPick = { topic: string; hashtag: string; recipe: { id: string; title: string; imageUrl: string; mealTypes: string[]; durationMinutes: number | null } };
+type AiPick = {
+  topic: string;
+  hashtag: string;
+  recipe: {
+    id: string; title: string; imageUrl: string;
+    mealTypes: string[]; durationMinutes: number | null;
+    sourceUrl: string; ingredients: string[]; steps: string[];
+  }
+};
 
 export async function getAiPicks(
   db: D1Database,
@@ -1138,7 +1146,8 @@ export async function getAiPicks(
   const picks: AiPick[] = [];
   for (const item of parsed.slice(0, 3)) {
     const row = await db.prepare(
-      `SELECT id, title, image_url, meal_types, duration_minutes FROM recipes WHERE title LIKE ? AND shared_with_friends = 1 LIMIT 1`
+      `SELECT id, title, image_url, meal_types, duration_minutes, source_url, ingredients, steps
+       FROM recipes WHERE title LIKE ? AND shared_with_friends = 1 LIMIT 1`
     ).bind(`%${item.match}%`).first() as Record<string, unknown> | null;
     if (row) {
       picks.push({
@@ -1150,6 +1159,9 @@ export async function getAiPicks(
           imageUrl: String(row.image_url),
           mealTypes: JSON.parse(String(row.meal_types || '[]')),
           durationMinutes: row.duration_minutes != null ? Number(row.duration_minutes) : null,
+          sourceUrl: String(row.source_url || ''),
+          ingredients: JSON.parse(String(row.ingredients || '[]')),
+          steps: JSON.parse(String(row.steps || '[]')),
         }
       });
     }

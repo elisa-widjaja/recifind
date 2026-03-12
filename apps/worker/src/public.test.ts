@@ -83,7 +83,16 @@ describe('getEditorsPick', () => {
 
 describe('getAiPicks', () => {
   it('returns cached result from KV without calling Gemini', async () => {
-    const cached = JSON.stringify([{ topic: 'Gut health', hashtag: '#GutHealth', recipe: { id: 'r1', title: 'Berry Bake' } }]);
+    const cached = JSON.stringify([{
+      topic: 'Gut health',
+      hashtag: '#GutHealth',
+      recipe: {
+        id: 'r1', title: 'Berry Bake', imageUrl: '',
+        mealTypes: [], durationMinutes: null,
+        sourceUrl: 'https://example.com/berry',
+        ingredients: ['berries'], steps: ['Mix'],
+      }
+    }]);
     const mockKV = {
       get: vi.fn().mockResolvedValue(cached),
       put: vi.fn(),
@@ -95,6 +104,8 @@ describe('getAiPicks', () => {
     expect(mockCallGemini).not.toHaveBeenCalled();
     expect(result).toHaveLength(1);
     expect(result[0].topic).toBe('Gut health');
+    expect(result[0].recipe.sourceUrl).toBe('https://example.com/berry');
+    expect(result[0].recipe.ingredients).toEqual(['berries']);
   });
 
   it('calls Gemini and writes to KV when cache is empty', async () => {
@@ -105,7 +116,13 @@ describe('getAiPicks', () => {
     const mockDb = {
       prepare: vi.fn().mockReturnValue({
         bind: vi.fn().mockReturnThis(),
-        first: vi.fn().mockResolvedValue({ id: 'r1', title: 'Berry Bake', source_url: '', image_url: '', meal_types: '[]', duration_minutes: null }),
+        first: vi.fn().mockResolvedValue({
+          id: 'r1', title: 'Berry Bake',
+          source_url: 'https://example.com/berry',
+          image_url: '', meal_types: '[]', duration_minutes: null,
+          ingredients: '["berries","yogurt"]',
+          steps: '["Mix","Bake"]',
+        }),
       })
     } as unknown as D1Database;
     const mockCallGemini = vi.fn().mockResolvedValue(
@@ -116,6 +133,9 @@ describe('getAiPicks', () => {
     expect(mockCallGemini).toHaveBeenCalledOnce();
     expect(mockKV.put).toHaveBeenCalledOnce();
     expect(result[0].topic).toBe('Gut health');
+    expect(result[0].recipe.sourceUrl).toBe('https://example.com/berry');
+    expect(result[0].recipe.ingredients).toEqual(['berries', 'yogurt']);
+    expect(result[0].recipe.steps).toEqual(['Mix', 'Bake']);
   });
 });
 
