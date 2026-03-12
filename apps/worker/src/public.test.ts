@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getPublicDiscover, getEditorsPick, getAiPicks } from './index';
+import { getPublicDiscover, getEditorsPick, getAiPicks, getTrendingRecipes } from './index';
 
 describe('getPublicDiscover', () => {
   it('returns recipes with social source URLs', async () => {
@@ -105,5 +105,33 @@ describe('getAiPicks', () => {
     expect(mockCallGemini).toHaveBeenCalledOnce();
     expect(mockKV.put).toHaveBeenCalledOnce();
     expect(result[0].topic).toBe('Gut health');
+  });
+});
+
+describe('getTrendingRecipes', () => {
+  it('returns ingredients, steps, and sourceUrl', async () => {
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnThis(),
+        all: vi.fn().mockResolvedValue({
+          results: [{
+            id: 'r1',
+            title: 'Miso Ramen',
+            source_url: 'https://www.tiktok.com/@chef/video/123',
+            image_url: 'https://img.example.com/ramen.jpg',
+            meal_types: '["Dinner"]',
+            duration_minutes: 20,
+            ingredients: '["noodles","miso paste"]',
+            steps: '["Boil noodles","Add miso"]',
+          }]
+        })
+      })
+    } as unknown as D1Database;
+
+    const result = await getTrendingRecipes(mockDb);
+    expect(result).toHaveLength(1);
+    expect(result[0].ingredients).toEqual(['noodles', 'miso paste']);
+    expect(result[0].steps).toEqual(['Boil noodles', 'Add miso']);
+    expect(result[0].sourceUrl).toBe('https://www.tiktok.com/@chef/video/123');
   });
 });

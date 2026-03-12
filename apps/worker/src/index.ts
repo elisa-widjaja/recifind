@@ -223,6 +223,14 @@ export default {
         return await handleOembedAuthor(url);
       }
 
+      // Public endpoint to get trending community recipes
+      if (url.pathname === '/public/trending-recipes' && request.method === 'GET') {
+        return await (async () => {
+          const recipes = await getTrendingRecipes(env.DB);
+          return json({ recipes }, 200, withCors());
+        })();
+      }
+
       // Public endpoint to get discovery feed (social media recipes)
       if (url.pathname === '/public/discover' && request.method === 'GET') {
         return await (async () => {
@@ -1026,6 +1034,39 @@ export async function getPublicDiscover(db: D1Database): Promise<Array<{
     imageUrl: String(r.image_url),
     mealTypes: JSON.parse(String(r.meal_types || '[]')),
     durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
+  }));
+}
+
+const CURATED_COMMUNITY_IDS = [
+  '2c8627ea-2cf1-447c-8c45-8118f0db88a0',
+  'bbb0b42d-fc3f-4f3d-a6ad-8c75dcae6ab3',
+  'c49498b7-3772-4304-86a1-b62a8eb42aad',
+  'ce72aae2-d5a0-4e3c-b088-fbfd8a6d870f',
+  '953bdf9f-6088-4449-8692-0c68d6822a0a',
+  '40267c63-abe5-4c66-8477-94d26626de1b',
+  'e0853763-d134-4547-8496-efa18bfa5062',
+  '3190c934-f0d4-45b9-8379-4efdc839189a',
+];
+
+export async function getTrendingRecipes(db: D1Database): Promise<Array<{
+  id: string; title: string; sourceUrl: string; imageUrl: string;
+  mealTypes: string[]; durationMinutes: number | null;
+  ingredients: string[]; steps: string[];
+}>> {
+  const placeholders = CURATED_COMMUNITY_IDS.map(() => '?').join(', ');
+  const rows = await db.prepare(
+    `SELECT id, title, source_url, image_url, meal_types, duration_minutes, ingredients, steps
+     FROM recipes WHERE id IN (${placeholders})`
+  ).bind(...CURATED_COMMUNITY_IDS).all();
+  return (rows.results as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    title: String(r.title),
+    sourceUrl: String(r.source_url),
+    imageUrl: String(r.image_url),
+    mealTypes: JSON.parse(String(r.meal_types || '[]')),
+    durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
+    ingredients: JSON.parse(String(r.ingredients || '[]')),
+    steps: JSON.parse(String(r.steps || '[]')),
   }));
 }
 
