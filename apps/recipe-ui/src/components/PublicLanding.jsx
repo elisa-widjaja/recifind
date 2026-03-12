@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import {
   Box, Container, Typography, Button, Stack,
-  Card, CardActionArea
+  Card, CardActionArea, Chip
 } from '@mui/material';
+import IosShareOutlinedIcon from '@mui/icons-material/IosShareOutlined';
+import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import RecipeShelf from './RecipeShelf';
 import DiscoverRecipes from './DiscoverRecipes';
 
@@ -74,7 +76,7 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
           {/* ── Section 1: Trending ── */}
           {trending.length > 0 && (
             <Box>
-              <SectionLabel emoji="🔥" label="Trending from the community" />
+              <SectionLabel label="Trending Now" />
               <RecipeShelf
                 recipes={trending}
                 onSave={onJoin}
@@ -97,10 +99,10 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
           {/* ── Section 2: Editor's Pick ── */}
           {editorsPick.length > 0 && (
             <Box>
-              <SectionLabel emoji="⭐" label="Editor's Pick" />
+              <SectionLabel label="Editor's Picks" />
               <Stack spacing={1}>
                 {visibleEditors.map(recipe => (
-                  <EditorCard key={recipe.id} recipe={recipe} onSave={onJoin} onOpen={onOpenRecipe} />
+                  <EditorCard key={recipe.id} recipe={recipe} onSave={onJoin} onShare={handleShare} onOpen={onOpenRecipe} />
                 ))}
               </Stack>
               {editorsPick.length > 3 && (
@@ -115,11 +117,16 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
           {/* ── Section 3: AI Picks ── */}
           {aiPicks.length > 0 && (
             <Box>
-              <SectionLabel emoji="🥦" label="Trending in health and nutrition" />
+              <SectionLabel label="Trending in health and nutrition" />
               <Stack spacing={0.5} sx={{ mb: 1.5 }}>
                 {aiPicks.map(p => (
-                  <Box key={p.topic} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-                    <Typography variant="caption" sx={{ fontSize: 11, fontWeight: 700, color: 'primary.main', flexShrink: 0, mt: '1px' }}>{p.hashtag}</Typography>
+                  <Box key={p.topic} sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <Chip
+                      label={p.hashtag}
+                      size="small"
+                      variant="outlined"
+                      sx={{ color: darkMode ? '#fff' : 'text.secondary', borderColor: 'divider', fontSize: 11, height: 20, borderRadius: '10px', flexShrink: 0 }}
+                    />
                     <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', lineHeight: 1.4 }}>{p.reason}</Typography>
                   </Box>
                 ))}
@@ -143,16 +150,19 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
 function SectionLabel({ emoji, label, inline = false }) {
   const el = (
     <Typography fontWeight={700} fontSize={13} sx={{ color: 'text.primary' }}>
-      {emoji} {label}
+      {emoji ? `${emoji} ` : ''}{label}
     </Typography>
   );
   if (inline) return el;
   return <Box sx={{ mb: 1 }}>{el}</Box>;
 }
 
-function EditorCard({ recipe, onSave, onOpen }) {
+function EditorCard({ recipe, onSave, onShare, onOpen }) {
   return (
-    <Card elevation={0} sx={{ display: 'flex', borderRadius: 2, border: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
+    <Card elevation={0} sx={{
+      borderRadius: 2, border: 1, borderColor: 'divider',
+      bgcolor: 'background.paper', display: 'flex', flexDirection: 'column'
+    }}>
       <CardActionArea onClick={() => onOpen?.(recipe)}
         sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1, pr: 1.5 }}>
         <Box sx={{ width: 56, height: 56, flexShrink: 0, borderRadius: 1.5, overflow: 'hidden', bgcolor: 'action.hover' }}>
@@ -167,11 +177,27 @@ function EditorCard({ recipe, onSave, onOpen }) {
             {recipe.mealTypes?.[0]} {recipe.durationMinutes ? `· ${recipe.durationMinutes} min` : ''}
           </Typography>
         </Box>
-        <Button size="small" variant="outlined" onClick={(e) => { e.stopPropagation(); onSave?.(); }}
-          sx={{ borderRadius: 20, textTransform: 'none', fontSize: 11, flexShrink: 0 }}>
+      </CardActionArea>
+      <Box sx={{ display: 'flex', gap: 1, px: 1, pb: 1 }}>
+        <Button
+          variant="outlined"
+          color="inherit"
+          startIcon={<IosShareOutlinedIcon />}
+          sx={{ flex: 1 }}
+          onClick={(e) => { e.stopPropagation(); onShare?.(recipe); }}
+        >
+          Share
+        </Button>
+        <Button
+          variant="contained"
+          color="primary"
+          startIcon={<BookmarkBorderIcon />}
+          sx={{ flex: 1 }}
+          onClick={(e) => { e.stopPropagation(); onSave?.(); }}
+        >
           Save
         </Button>
-      </CardActionArea>
+      </Box>
     </Card>
   );
 }
