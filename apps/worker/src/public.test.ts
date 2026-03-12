@@ -109,20 +109,20 @@ describe('getAiPicks', () => {
   });
 
   it('calls Gemini and writes to KV when cache is empty', async () => {
+    const candidate = {
+      id: 'r1', title: 'Berry Bake',
+      source_url: 'https://example.com/berry',
+      image_url: '', meal_types: '[]', duration_minutes: null,
+      ingredients: '["berries","yogurt"]',
+      steps: '["Mix","Bake"]',
+    };
     const mockKV = {
       get: vi.fn().mockResolvedValue(null),
       put: vi.fn().mockResolvedValue(undefined),
     } as unknown as KVNamespace;
     const mockDb = {
       prepare: vi.fn().mockReturnValue({
-        bind: vi.fn().mockReturnThis(),
-        first: vi.fn().mockResolvedValue({
-          id: 'r1', title: 'Berry Bake',
-          source_url: 'https://example.com/berry',
-          image_url: '', meal_types: '[]', duration_minutes: null,
-          ingredients: '["berries","yogurt"]',
-          steps: '["Mix","Bake"]',
-        }),
+        all: vi.fn().mockResolvedValue({ results: [candidate] }),
       })
     } as unknown as D1Database;
     const mockCallGemini = vi.fn().mockResolvedValue(

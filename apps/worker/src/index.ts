@@ -1141,16 +1141,24 @@ export async function getAiPicks(
   const cached = await kv.get(cacheKey);
   if (cached) return JSON.parse(cached) as AiPick[];
 
+  // Fetch a pool of candidate recipes from D1 so Gemini picks from real titles
+  const candidateRows = await db.prepare(
+    `SELECT id, title, image_url, meal_types, duration_minutes, source_url, ingredients, steps
+     FROM recipes WHERE shared_with_friends = 1 ORDER BY RANDOM() LIMIT 40`
+  ).all();
+  const candidates = (candidateRows.results as Array<Record<string, unknown>>);
+  if (!candidates.length) return [];
+
+  const titleList = candidates.map(r => String(r.title)).join('\n');
   const prefsNote = prefs.mealTypes || prefs.diet
     ? `User preferences: meal types=${prefs.mealTypes || 'any'}, diet=${prefs.diet || 'any'}, skill=${prefs.skill || 'any'}.`
     : '';
 
-  const prompt = `You are a cooking trend analyst. ${prefsNote} What are 3 trending health or nutrition topics this week relevant to home cooking? For each topic, suggest one simple recipe name that matches it. Return ONLY a JSON array with this exact shape and no markdown: [{"topic":"string","hashtag":"string","match":"recipe title string"}]`;
+  const prompt = `You are a cooking trend analyst. ${prefsNote} Below is a list of real recipes. Pick 3 that best match current trending health or nutrition topics. For each pick, name the topic, create a hashtag, and copy the recipe title EXACTLY as it appears in the list. Return ONLY a JSON array with no markdown:\n[{"topic":"string","hashtag":"string","match":"exact recipe title from list"}]\n\nRecipes:\n${titleList}`;
 
   let parsed: Array<{ topic: string; hashtag: string; match: string }> = [];
   try {
     const raw = await gemini(env as Env, prompt);
-    // Strip markdown code fences if present
     const cleaned = raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
     parsed = JSON.parse(cleaned);
   } catch (err) {
@@ -1158,12 +1166,12 @@ export async function getAiPicks(
     return [];
   }
 
+  // Build a lookup map from title → candidate row
+  const byTitle = new Map(candidates.map(r => [String(r.title).toLowerCase(), r]));
+
   const picks: AiPick[] = [];
   for (const item of parsed.slice(0, 3)) {
-    const row = await db.prepare(
-      `SELECT id, title, image_url, meal_types, duration_minutes, source_url, ingredients, steps
-       FROM recipes WHERE title LIKE ? AND shared_with_friends = 1 LIMIT 1`
-    ).bind(`%${item.match}%`).first() as Record<string, unknown> | null;
+    const row = byTitle.get(item.match?.toLowerCase()) ?? null;
     if (row) {
       picks.push({
         topic: item.topic,
