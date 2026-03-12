@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  Box, Container, Typography, Button, Stack,
-  Card, CardActionArea, Chip
+  Box, Container, Typography, Button, Stack, IconButton, Chip
 } from '@mui/material';
 import IosShareOutlinedIcon from '@mui/icons-material/IosShareOutlined';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import { formatDuration } from '../utils/videoEmbed';
 import RecipeShelf from './RecipeShelf';
 import DiscoverRecipes from './DiscoverRecipes';
 
@@ -159,46 +160,42 @@ function SectionLabel({ emoji, label, inline = false }) {
 
 function EditorCard({ recipe, onSave, onShare, onOpen }) {
   return (
-    <Card elevation={0} sx={{
-      borderRadius: 2, border: 1, borderColor: 'divider',
-      bgcolor: 'background.paper', display: 'flex', flexDirection: 'column'
-    }}>
-      <CardActionArea onClick={() => onOpen?.(recipe)}
-        sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1, pr: 1.5 }}>
-        <Box sx={{ width: 56, height: 56, flexShrink: 0, borderRadius: 1.5, overflow: 'hidden', bgcolor: 'action.hover' }}>
-          {recipe.imageUrl
-            ? <Box component="img" src={recipe.imageUrl} alt={recipe.title} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            : <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>🍳</Box>
-          }
-        </Box>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography variant="body2" fontWeight={600} noWrap>{recipe.title}</Typography>
-          <Typography variant="caption" color="text.secondary" noWrap>
-            {recipe.mealTypes?.[0]} {recipe.durationMinutes ? `· ${recipe.durationMinutes} min` : ''}
-          </Typography>
-        </Box>
-      </CardActionArea>
-      <Box sx={{ display: 'flex', gap: 1, px: 1, pb: 1 }}>
-        <Button
-          variant="outlined"
-          color="inherit"
-          startIcon={<IosShareOutlinedIcon />}
-          sx={{ flex: 1 }}
-          onClick={(e) => { e.stopPropagation(); onShare?.(recipe); }}
-        >
-          Share
-        </Button>
-        <Button
-          variant="contained"
-          color="primary"
-          startIcon={<BookmarkBorderIcon />}
-          sx={{ flex: 1 }}
-          onClick={(e) => { e.stopPropagation(); onSave?.(); }}
-        >
-          Save
-        </Button>
+    <Box
+      onClick={() => onOpen?.(recipe)}
+      sx={{
+        display: 'flex', alignItems: 'center', gap: 1.5,
+        borderRadius: 2, border: 1, borderColor: 'divider',
+        bgcolor: 'background.paper', p: 1, cursor: 'pointer',
+      }}
+    >
+      <Box sx={{ width: 56, height: 56, flexShrink: 0, borderRadius: 1.5, overflow: 'hidden', bgcolor: 'action.hover' }}>
+        {recipe.imageUrl
+          ? <Box component="img" src={recipe.imageUrl} alt={recipe.title} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          : <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>🍳</Box>
+        }
       </Box>
-    </Card>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography sx={{ fontWeight: 700, fontSize: 11, lineHeight: 1.35, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', mb: 0.25 }}>
+          {recipe.title}
+        </Typography>
+        {recipe.durationMinutes > 0 && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <AccessTimeIcon sx={{ fontSize: 13, color: 'text.secondary' }} />
+            <Typography variant="caption" sx={{ fontSize: 10, color: 'text.secondary' }}>
+              {formatDuration(recipe.durationMinutes)}
+            </Typography>
+          </Box>
+        )}
+      </Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+        <IconButton size="small" onClick={(e) => { e.stopPropagation(); onSave?.(); }} sx={{ p: 0.5 }}>
+          <BookmarkBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
+        </IconButton>
+        <IconButton size="small" onClick={(e) => { e.stopPropagation(); onShare?.(recipe); }} sx={{ p: 0.5 }}>
+          <IosShareOutlinedIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
+        </IconButton>
+      </Box>
+    </Box>
   );
 }
 
