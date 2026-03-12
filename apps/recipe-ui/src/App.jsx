@@ -926,6 +926,7 @@ function App() {
   }, []);
 
   const [showFloatingFab, setShowFloatingFab] = useState(false);
+  const [cookWithFriendsVisible, setCookWithFriendsVisible] = useState(false);
   const addRecipeBtnRef = useRef(null);
 
   useEffect(() => {
@@ -3497,6 +3498,49 @@ function App() {
     resetFormState(`Added "${newRecipe.title}".`);
   };
 
+  const handleShare = async (recipe, anchorPosition) => {
+    try {
+      const accessToken = (await supabase?.auth.getSession())?.data?.session?.access_token;
+      if (!accessToken) {
+        setIsAuthDialogOpen(true);
+        return;
+      }
+      let recipeId = recipe.id;
+      // Starter recipes have synthetic IDs like "recipe-0". Save to account first.
+      if (typeof recipeId === 'string' && recipeId.startsWith('recipe-')) {
+        const payload = await buildApiRecipePayload(recipe);
+        const saveRes = await callRecipesApi('/recipes', { method: 'POST', body: JSON.stringify(payload) }, accessToken);
+        const savedRecipe = normalizeRecipeFromApi(saveRes?.recipe);
+        if (!savedRecipe?.id) throw new Error('Failed to save recipe');
+        recipeId = savedRecipe.id;
+        setRecipes((prev) => {
+          const updated = prev.map((r) => r.id === recipe.id ? savedRecipe : r);
+          saveRecipesToCache(updated, session?.user?.id || null, serverVersionRef.current);
+          return updated;
+        });
+      }
+      if (API_BASE_URL) {
+        const response = await fetch(`${API_BASE_URL}/recipes/${encodeURIComponent(recipeId)}/share`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`
+          }
+        });
+        if (response.ok) {
+          const { token } = await response.json();
+          const shareUrl = `${window.location.origin}?share=${token}`;
+          setShareMenuState({ anchorPosition, url: shareUrl, title: recipe.title });
+          return;
+        }
+      }
+      setSnackbarState({ open: true, message: 'Unable to share this recipe', severity: 'error' });
+    } catch (error) {
+      console.error('Error sharing:', error);
+      setSnackbarState({ open: true, message: 'Failed to share', severity: 'error' });
+    }
+  };
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -3947,6 +3991,7 @@ function App() {
           onJoin={openAuthDialog}
           onOpenRecipe={handleOpenRecipeDetails}
           darkMode={darkMode}
+          onCookWithFriendsVisible={setCookWithFriendsVisible}
         />
       )}
 
@@ -4300,51 +4345,12 @@ function App() {
                               size="small"
                               onMouseDown={(e) => e.stopPropagation()}
                               onTouchStart={(e) => e.stopPropagation()}
-                              onClick={async (e) => {
+                              onClick={(e) => {
                                 e.stopPropagation();
                                 e.preventDefault();
                                 const rect = e.currentTarget.getBoundingClientRect();
                                 const anchorPosition = { top: rect.bottom, left: rect.right };
-                                try {
-                                  const accessToken = (await supabase?.auth.getSession())?.data?.session?.access_token;
-                                  if (!accessToken) {
-                                    setIsAuthDialogOpen(true);
-                                    return;
-                                  }
-                                  let recipeId = recipe.id;
-                                  // Starter recipes have synthetic IDs like "recipe-0". Save to account first.
-                                  if (typeof recipeId === 'string' && recipeId.startsWith('recipe-')) {
-                                    const payload = await buildApiRecipePayload(recipe);
-                                    const saveRes = await callRecipesApi('/recipes', { method: 'POST', body: JSON.stringify(payload) }, accessToken);
-                                    const savedRecipe = normalizeRecipeFromApi(saveRes?.recipe);
-                                    if (!savedRecipe?.id) throw new Error('Failed to save recipe');
-                                    recipeId = savedRecipe.id;
-                                    setRecipes((prev) => {
-                                      const updated = prev.map((r) => r.id === recipe.id ? savedRecipe : r);
-                                      saveRecipesToCache(updated, session?.user?.id || null, serverVersionRef.current);
-                                      return updated;
-                                    });
-                                  }
-                                  if (API_BASE_URL) {
-                                    const response = await fetch(`${API_BASE_URL}/recipes/${encodeURIComponent(recipeId)}/share`, {
-                                      method: 'POST',
-                                      headers: {
-                                        'Content-Type': 'application/json',
-                                        Authorization: `Bearer ${accessToken}`
-                                      }
-                                    });
-                                    if (response.ok) {
-                                      const { token } = await response.json();
-                                      const shareUrl = `${window.location.origin}?share=${token}`;
-                                      setShareMenuState({ anchorPosition, url: shareUrl, title: recipe.title });
-                                      return;
-                                    }
-                                  }
-                                  setSnackbarState({ open: true, message: 'Unable to share this recipe', severity: 'error' });
-                                } catch (error) {
-                                  console.error('Error sharing:', error);
-                                  setSnackbarState({ open: true, message: 'Failed to share', severity: 'error' });
-                                }
+                                handleShare(recipe, anchorPosition);
                               }}
                               sx={{ p: 0.5 }}
                               aria-label="Share recipe"
@@ -6171,44 +6177,81 @@ function App() {
         )}
       </Dialog>
 
-      {/* Floating Add Recipe FAB — mobile only, slides up when user scrolls down */}
+      {/* Floating FAB — mobile only, slides up when user scrolls down */}
       {isMobile && (
         <Box
           sx={{
             position: 'fixed',
             bottom: 24,
             left: '50%',
-            transform: showFloatingFab && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
-              ? 'translateX(-50%) translateY(0)'
-              : 'translateX(-50%) translateY(80px)',
-            opacity: showFloatingFab && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen ? 1 : 0,
+            transform: (() => {
+              const visible = session
+                ? showFloatingFab && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
+                : showFloatingFab && !cookWithFriendsVisible;
+              return visible ? 'translateX(-50%) translateY(0)' : 'translateX(-50%) translateY(80px)';
+            })(),
+            opacity: (() => {
+              const visible = session
+                ? showFloatingFab && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
+                : showFloatingFab && !cookWithFriendsVisible;
+              return visible ? 1 : 0;
+            })(),
             transition: 'transform 250ms cubic-bezier(0.2, 0, 0, 1), opacity 200ms ease',
-            pointerEvents: showFloatingFab && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen ? 'auto' : 'none',
+            pointerEvents: (() => {
+              const visible = session
+                ? showFloatingFab && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
+                : showFloatingFab && !cookWithFriendsVisible;
+              return visible ? 'auto' : 'none';
+            })(),
             zIndex: 1200,
           }}
         >
-          <Button
-            onClick={openAddDialog}
-            sx={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              height: '2.75rem',
-              px: '18px',
-              fontSize: '0.875rem',
-              fontWeight: 600,
-              whiteSpace: 'nowrap',
-              backgroundColor: 'primary.main',
-              color: '#ffffff',
-              borderRadius: '999px',
-              border: 'none',
-              textTransform: 'none',
-              boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
-              '&:hover': { backgroundColor: 'primary.dark' },
-            }}
-            startIcon={<AddIcon />}
-          >
-            Add Recipe
-          </Button>
+          {session ? (
+            <Button
+              onClick={openAddDialog}
+              sx={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                height: '2.75rem',
+                px: '18px',
+                fontSize: '0.875rem',
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                backgroundColor: 'primary.main',
+                color: '#ffffff',
+                borderRadius: '999px',
+                border: 'none',
+                textTransform: 'none',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+                '&:hover': { backgroundColor: 'primary.dark' },
+              }}
+              startIcon={<AddIcon />}
+            >
+              Add Recipe
+            </Button>
+          ) : (
+            <Button
+              onClick={openAuthDialog}
+              sx={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                height: '2.75rem',
+                width: 'calc((100vw - 72px) / 2)',
+                fontSize: '0.875rem',
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                backgroundColor: 'primary.main',
+                color: '#ffffff',
+                borderRadius: '999px',
+                border: 'none',
+                textTransform: 'none',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+                '&:hover': { backgroundColor: 'primary.dark' },
+              }}
+            >
+              Join Free
+            </Button>
+          )}
         </Box>
       )}
     </ThemeProvider>
