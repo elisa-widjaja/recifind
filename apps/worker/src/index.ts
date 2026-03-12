@@ -1084,10 +1084,11 @@ const EDITOR_PICK_TITLES = [
 export async function getEditorsPick(db: D1Database, titles: string[] = EDITOR_PICK_TITLES): Promise<Array<{
   id: string; title: string; sourceUrl: string; imageUrl: string;
   mealTypes: string[]; durationMinutes: number | null;
+  ingredients: string[]; steps: string[];
 }>> {
   const placeholders = titles.map(() => '?').join(', ');
   const rows = await db.prepare(
-    `SELECT id, title, source_url, image_url, meal_types, duration_minutes
+    `SELECT id, title, source_url, image_url, meal_types, duration_minutes, ingredients, steps
      FROM recipes
      WHERE title IN (${placeholders})
      ORDER BY created_at ASC`
@@ -1099,6 +1100,8 @@ export async function getEditorsPick(db: D1Database, titles: string[] = EDITOR_P
     imageUrl: String(r.image_url),
     mealTypes: JSON.parse(String(r.meal_types || '[]')),
     durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
+    ingredients: JSON.parse(String(r.ingredients || '[]')),
+    steps: JSON.parse(String(r.steps || '[]')),
   }));
 }
 

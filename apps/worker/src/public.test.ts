@@ -45,8 +45,16 @@ describe('getEditorsPick', () => {
         bind: vi.fn().mockReturnThis(),
         all: vi.fn().mockResolvedValue({
           results: [
-            { id: 'r1', title: 'Beef and Guiness Stew', source_url: '', image_url: '', meal_types: '["Dinner"]', duration_minutes: 90 },
-            { id: 'r2', title: 'Honey lime chicken bowl', source_url: '', image_url: '', meal_types: '["Lunch"]', duration_minutes: 25 },
+            {
+              id: 'r1', title: 'Beef and Guiness Stew', source_url: 'https://example.com',
+              image_url: '', meal_types: '["Dinner"]', duration_minutes: 90,
+              ingredients: '["beef","guinness"]', steps: '["Brown beef","Add stout"]',
+            },
+            {
+              id: 'r2', title: 'Honey lime chicken bowl', source_url: '',
+              image_url: '', meal_types: '["Lunch"]', duration_minutes: 25,
+              ingredients: '[]', steps: '[]',
+            },
           ]
         })
       })
@@ -55,6 +63,9 @@ describe('getEditorsPick', () => {
     const result = await getEditorsPick(mockDb, EDITOR_TITLES);
     expect(result).toHaveLength(2);
     expect(result.map(r => r.title)).toContain('Beef and Guiness Stew');
+    expect(result[0].ingredients).toEqual(['beef', 'guinness']);
+    expect(result[0].steps).toEqual(['Brown beef', 'Add stout']);
+    expect(result[0].sourceUrl).toBe('https://example.com');
   });
 
   it('returns empty array when no matching recipes exist', async () => {
