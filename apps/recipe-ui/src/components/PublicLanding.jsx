@@ -202,41 +202,25 @@ function EditorCard({ recipe, onSave, onShare, onOpen }) {
   );
 }
 
-const TICKER_DATA = [
-  {
-    initial: 'E', name: 'Elisa', color: '#7c3aed',
-    activities: [
-      { text: 'saved Miso Ramen ❤️', time: '2h' },
-      { text: 'shared Pad Thai with Sarah', time: '1d' },
-      { text: 'is cooking Bulgogi tonight 🥩', time: 'now' },
-    ],
-  },
-  {
-    initial: 'H', name: 'Henny', color: '#10b981',
-    activities: [
-      { text: 'shared Beef Stew with you', time: '5h' },
-      { text: 'saved Salmon Bowl 🐟', time: '3h' },
-      { text: 'cooked Mushroom Risotto 🍚', time: '2d' },
-    ],
-  },
-  {
-    initial: 'M', name: 'Max', color: '#f59e0b',
-    activities: [
-      { text: 'is cooking Tacos tonight 🌮', time: 'now' },
-      { text: 'saved Chicken Tikka Masala 🍛', time: '6h' },
-      { text: 'shared Pasta Carbonara 🍝 with Elisa', time: '1d' },
-    ],
-  },
+// Flat list of ticker items — one white card shows at a time, cycling through all
+const TICKER_ITEMS = [
+  { initial: 'E', name: 'Elisa', color: '#7c3aed', text: 'saved Miso Ramen ❤️', time: '2h' },
+  { initial: 'H', name: 'Henny', color: '#10b981', text: 'shared Beef Stew with you', time: '5h' },
+  { initial: 'M', name: 'Max',   color: '#f59e0b', text: 'is cooking Tacos tonight 🌮', time: 'now' },
+  { initial: 'E', name: 'Elisa', color: '#7c3aed', text: 'shared Pad Thai with Sarah', time: '1d' },
+  { initial: 'H', name: 'Henny', color: '#10b981', text: 'saved Salmon Bowl 🐟', time: '3h' },
+  { initial: 'M', name: 'Max',   color: '#f59e0b', text: 'saved Chicken Tikka Masala 🍛', time: '6h' },
 ];
 
 const HOLD_MS    = 2800;
-const OUT_MS     = 550;
-const IN_MS      = 650;
-const OVERLAP_MS = 220;
+const OUT_MS     = 450;
+const IN_MS      = 550;
+const OVERLAP_MS = 150;
 const OUT_EASE   = 'cubic-bezier(0.4, 0, 1, 1)';
 const IN_EASE    = 'cubic-bezier(0, 0, 0.2, 1)';
 
-function TickerStage({ ticker }) {
+// One slot — only one white card visible at a time, whole card animates in/out
+function ActivityTicker() {
   const refs = useRef([]);
   const currentIdx = useRef(0);
 
@@ -252,11 +236,13 @@ function TickerStage({ ticker }) {
       const next = (prev + 1) % items.length;
       currentIdx.current = next;
 
+      // Exit current card — fade up and out
       const prevEl = items[prev];
       prevEl.style.transition = `opacity ${OUT_MS}ms ${OUT_EASE}, transform ${OUT_MS}ms ${OUT_EASE}`;
       prevEl.style.opacity = '0';
-      prevEl.style.transform = 'translateY(-12px)';
+      prevEl.style.transform = 'translateY(-14px)';
 
+      // Enter next card — slide in from below, overlapping the exit
       enterTimer = setTimeout(() => {
         const nextEl = items[next];
         nextEl.style.transition = `opacity ${IN_MS}ms ${IN_EASE}, transform ${IN_MS}ms ${IN_EASE}`;
@@ -264,11 +250,12 @@ function TickerStage({ ticker }) {
         nextEl.style.transform = 'translateY(0)';
       }, OUT_MS - OVERLAP_MS);
 
+      // Snap exited card back below the viewport (invisible, ready for reuse)
       resetTimer = setTimeout(() => {
         prevEl.style.transition = 'none';
         prevEl.style.opacity = '0';
         prevEl.style.transform = 'translateY(20px)';
-      }, OUT_MS + 100);
+      }, OUT_MS + 80);
     };
 
     const interval = setInterval(cycle, HOLD_MS + OUT_MS);
@@ -280,8 +267,8 @@ function TickerStage({ ticker }) {
   }, []);
 
   return (
-    <Box sx={{ position: 'relative', height: 44, overflow: 'hidden', mb: 0.75 }}>
-      {ticker.activities.map((activity, i) => (
+    <Box sx={{ position: 'relative', height: 44, overflow: 'hidden', mb: 1.5 }}>
+      {TICKER_ITEMS.map((item, i) => (
         <Box
           key={i}
           ref={el => { refs.current[i] = el; }}
@@ -293,21 +280,20 @@ function TickerStage({ ticker }) {
             position: 'absolute', inset: 0,
             bgcolor: 'background.paper', borderRadius: 2,
             display: 'flex', alignItems: 'center', gap: 1, px: 1.5,
-            fontSize: 11, color: 'text.secondary',
             willChange: 'opacity, transform',
           }}
         >
           <Box sx={{
-            width: 26, height: 26, borderRadius: '50%',
-            bgcolor: ticker.color, display: 'flex', alignItems: 'center',
+            width: 28, height: 28, borderRadius: '50%',
+            bgcolor: item.color, display: 'flex', alignItems: 'center',
             justifyContent: 'center', flexShrink: 0,
           }}>
-            <Typography sx={{ color: '#fff', fontSize: 11, fontWeight: 700 }}>{ticker.initial}</Typography>
+            <Typography sx={{ color: '#fff', fontSize: 11, fontWeight: 700 }}>{item.initial}</Typography>
           </Box>
           <Typography variant="caption" sx={{ flex: 1, fontSize: 11, color: 'text.secondary' }}>
-            <Box component="span" sx={{ color: ticker.color, fontWeight: 600 }}>{ticker.name}</Box>{' '}{activity.text}
+            <Box component="span" sx={{ color: item.color, fontWeight: 600 }}>{item.name}</Box>{' '}{item.text}
           </Typography>
-          <Typography variant="caption" sx={{ fontSize: 10, color: 'text.disabled', flexShrink: 0 }}>{activity.time}</Typography>
+          <Typography variant="caption" sx={{ fontSize: 10, color: 'text.disabled', flexShrink: 0 }}>{item.time}</Typography>
         </Box>
       ))}
     </Box>
@@ -324,10 +310,8 @@ function CookWithFriends({ onJoin, darkMode }) {
       <Typography variant="caption" color="text.secondary" display="block" mb={1.5}>
         Join ReciFind to share recipes and see what your friends are cooking.
       </Typography>
-      {TICKER_DATA.map((ticker, i) => (
-        <TickerStage key={i} ticker={ticker} />
-      ))}
-      <Box sx={{ display: 'flex', gap: 1, mt: 1.5 }}>
+      <ActivityTicker />
+      <Box sx={{ display: 'flex', gap: 1 }}>
         <Button fullWidth variant="contained" disableElevation onClick={onJoin}
           sx={{ borderRadius: 20, textTransform: 'none', fontWeight: 700 }}>
           Join free
