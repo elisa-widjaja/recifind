@@ -26,7 +26,7 @@ Redesign the logged-out public landing page across all five sections: copy/heade
 
 **Changes:**
 - Rename file `WatchAndCook.jsx` → `DiscoverRecipes.jsx`, rename the default export to `DiscoverRecipes`. Update the import in `PublicLanding.jsx` to `import DiscoverRecipes from './DiscoverRecipes'`. Verify with a project-wide grep that no other files import `WatchAndCook` before renaming.
-- Update section label call site: `<SectionLabel label="Discover New Recipes" />` (no emoji)
+- `WatchAndCook.jsx` uses a raw `<Typography>` for its title (not `SectionLabel`). Replace that `<Typography>` with `<SectionLabel label="Discover New Recipes" />` to match the pattern used in `PublicLanding.jsx` for other sections. No emoji.
 - Layout unchanged (portrait video cards, horizontal scroll)
 - **Update the filter in `PublicLanding`** that computes which recipes feed this section. The current filter (`buildVideoEmbedUrl(r.sourceUrl) !== null`) excludes Instagram. Replace with a new helper that matches all three platforms by URL pattern:
   ```js
@@ -50,12 +50,13 @@ Redesign the logged-out public landing page across all five sections: copy/heade
 - Restructure `EditorCard` to fix invalid nested `<button>` DOM (current Save button is inside `CardActionArea` which renders as `<button>`):
   1. Remove the existing `<Button>Save</Button>` from inside `CardActionArea`
   2. `CardActionArea` wraps only image + title + meta
-  3. Add a `<Box sx={{ display: 'flex', gap: 1, px: 1, pb: 1 }}>` sibling **below** `CardActionArea` containing:
+  3. Add `flexDirection: 'column'` to the `Card` root's `sx` prop so children stack vertically (the default `display: 'flex'` with no direction would place the button box to the right, not below)
+  4. Add a `<Box sx={{ display: 'flex', gap: 1, px: 1, pb: 1 }}>` sibling **below** `CardActionArea` containing:
      - `<Button variant="outlined" color="inherit" startIcon={<IosShareOutlinedIcon />} sx={{ flex: 1 }} onClick={(e) => { e.stopPropagation(); onShare?.(recipe); }}>Share</Button>`
      - `<Button variant="contained" color="primary" startIcon={<BookmarkBorderIcon />} sx={{ flex: 1 }} onClick={(e) => { e.stopPropagation(); onSave?.(); }}>Save</Button>`
   4. Both at default MUI Button size (no `size="small"`)
-  5. Add `onShare` prop to `EditorCard`: `function EditorCard({ recipe, onSave, onShare, onOpen })`
-  6. In `PublicLanding`, pass `onShare={handleShare}` to each `EditorCard` (reuse the `handleShare` already defined in `PublicLanding`)
+  6. Add `onShare` prop to `EditorCard`: `function EditorCard({ recipe, onSave, onShare, onOpen })`
+  7. In `PublicLanding`, pass `onShare={handleShare}` to each `EditorCard` (reuse the `handleShare` already defined in `PublicLanding`)
 - Verify: tapping a recipe card shows ingredients, steps, and a working source link
 
 ---
@@ -102,6 +103,14 @@ Each pill node:
         fontSize: 11, color: 'text.secondary', willChange: 'opacity, transform' }}
 >
 ```
+
+**Ref structure:** Use a single 2D ref array in `CookWithFriends`:
+```js
+// One array per ticker (3 tickers × 3 activities each)
+const tickerRefs = [useRef([]), useRef([]), useRef([])];
+// Access: tickerRefs[tickerIndex].current[activityIndex]
+```
+Each ticker runs its own `setInterval` — all three start simultaneously (no stagger). All three cycle at the same pace.
 
 **Animation cycle** (`useEffect` + `setInterval`, `useRef` arrays, no CSS `@keyframes`):
 
