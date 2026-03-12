@@ -1087,13 +1087,27 @@ export async function getEditorsPick(db: D1Database, titles: string[] = EDITOR_P
   ingredients: string[]; steps: string[];
 }>> {
   const placeholders = titles.map(() => '?').join(', ');
+  // Pick one row per title: prefer rows where duration_minutes IS NOT NULL.
+  // Subquery selects the best rowid per title (non-null duration first, else any).
   const rows = await db.prepare(
-    `SELECT id, title, source_url, image_url, meal_types, duration_minutes, ingredients, steps
-     FROM recipes
-     WHERE title IN (${placeholders})
-     ORDER BY created_at ASC`
+    `SELECT r.id, r.title, r.source_url, r.image_url, r.meal_types, r.duration_minutes, r.ingredients, r.steps
+     FROM recipes r
+     INNER JOIN (
+       SELECT title,
+              COALESCE(MIN(CASE WHEN duration_minutes IS NOT NULL THEN rowid END), MIN(rowid)) AS best_rowid
+       FROM recipes
+       WHERE title IN (${placeholders})
+       GROUP BY title
+     ) best ON r.rowid = best.best_rowid`
   ).bind(...titles).all();
-  return (rows.results as Array<Record<string, unknown>>).map((r) => ({
+  // Re-sort results to match the original titles order
+  const byTitle = new Map(
+    (rows.results as Array<Record<string, unknown>>).map((r) => [String(r.title).toLowerCase(), r])
+  );
+  const ordered = titles
+    .map(t => byTitle.get(t.toLowerCase()))
+    .filter((r): r is Record<string, unknown> => r != null);
+  return ordered.map((r) => ({
     id: String(r.id),
     title: String(r.title),
     sourceUrl: String(r.source_url),
