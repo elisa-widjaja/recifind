@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Box, Container, Typography, Button, Stack,
   Card, CardActionArea, Chip
@@ -202,48 +202,141 @@ function EditorCard({ recipe, onSave, onShare, onOpen }) {
   );
 }
 
-function CookWithFriends({ onJoin, darkMode }) {
+const TICKER_DATA = [
+  {
+    initial: 'E', name: 'Elisa', color: '#7c3aed',
+    activities: [
+      { text: 'saved Miso Ramen ❤️', time: '2h' },
+      { text: 'shared Pad Thai with Sarah', time: '1d' },
+      { text: 'is cooking Bulgogi tonight 🥩', time: 'now' },
+    ],
+  },
+  {
+    initial: 'H', name: 'Henny', color: '#10b981',
+    activities: [
+      { text: 'shared Beef Stew with you', time: '5h' },
+      { text: 'saved Salmon Bowl 🐟', time: '3h' },
+      { text: 'cooked Mushroom Risotto 🍚', time: '2d' },
+    ],
+  },
+  {
+    initial: 'M', name: 'Max', color: '#f59e0b',
+    activities: [
+      { text: 'is cooking Tacos tonight 🌮', time: 'now' },
+      { text: 'saved Chicken Tikka Masala 🍛', time: '6h' },
+      { text: 'shared Pasta Carbonara 🍝 with Elisa', time: '1d' },
+    ],
+  },
+];
+
+const HOLD_MS    = 2800;
+const OUT_MS     = 550;
+const IN_MS      = 650;
+const OVERLAP_MS = 220;
+const OUT_EASE   = 'cubic-bezier(0.4, 0, 1, 1)';
+const IN_EASE    = 'cubic-bezier(0, 0, 0.2, 1)';
+
+function TickerStage({ ticker }) {
+  const refs = useRef([]);
+  const currentIdx = useRef(0);
+
+  useEffect(() => {
+    const items = refs.current;
+    if (!items.length) return;
+
+    let enterTimer = null;
+    let resetTimer = null;
+
+    const cycle = () => {
+      const prev = currentIdx.current;
+      const next = (prev + 1) % items.length;
+      currentIdx.current = next;
+
+      const prevEl = items[prev];
+      prevEl.style.transition = `opacity ${OUT_MS}ms ${OUT_EASE}, transform ${OUT_MS}ms ${OUT_EASE}`;
+      prevEl.style.opacity = '0';
+      prevEl.style.transform = 'translateY(-12px)';
+
+      enterTimer = setTimeout(() => {
+        const nextEl = items[next];
+        nextEl.style.transition = `opacity ${IN_MS}ms ${IN_EASE}, transform ${IN_MS}ms ${IN_EASE}`;
+        nextEl.style.opacity = '1';
+        nextEl.style.transform = 'translateY(0)';
+      }, OUT_MS - OVERLAP_MS);
+
+      resetTimer = setTimeout(() => {
+        prevEl.style.transition = 'none';
+        prevEl.style.opacity = '0';
+        prevEl.style.transform = 'translateY(20px)';
+      }, OUT_MS + 100);
+    };
+
+    const interval = setInterval(cycle, HOLD_MS + OUT_MS);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(enterTimer);
+      clearTimeout(resetTimer);
+    };
+  }, []);
+
   return (
-    <Box sx={{ borderRadius: 3, p: 2, border: 1, borderColor: 'divider',
-      background: darkMode ? 'linear-gradient(135deg,#1a0f2e,#0f1a2e)' : 'linear-gradient(135deg,#f3f0ff,#e8f4fd)' }}>
-      <Typography fontWeight={700} fontSize={13} mb={0.5}>🍳 Cook with Friends</Typography>
-      <Typography variant="caption" color="text.secondary" display="block" mb={1.5}>
-        Cooking is better together
-      </Typography>
-      {/* Social proof teaser — illustrative activity */}
-      <Box sx={{ bgcolor: 'background.paper', borderRadius: 2, p: 1.25, mb: 1.5, opacity: 0.85 }}>
-        <ActivityRow initial="E" name="Elisa" action="saved your Miso Ramen ❤️" time="2h" color="#7c3aed" />
-        <Box sx={{ mt: 0.75 }}>
-          <ActivityRow initial="S" name="Sarah" action="shared Beef Stew with you" time="5h" color="#10b981" />
+    <Box sx={{ position: 'relative', height: 44, overflow: 'hidden', mb: 0.75 }}>
+      {ticker.activities.map((activity, i) => (
+        <Box
+          key={i}
+          ref={el => { refs.current[i] = el; }}
+          style={{
+            opacity: i === 0 ? 1 : 0,
+            transform: i === 0 ? 'translateY(0)' : 'translateY(20px)',
+          }}
+          sx={{
+            position: 'absolute', inset: 0,
+            bgcolor: 'background.paper', borderRadius: 2,
+            display: 'flex', alignItems: 'center', gap: 1, px: 1.5,
+            fontSize: 11, color: 'text.secondary',
+            willChange: 'opacity, transform',
+          }}
+        >
+          <Box sx={{
+            width: 26, height: 26, borderRadius: '50%',
+            bgcolor: ticker.color, display: 'flex', alignItems: 'center',
+            justifyContent: 'center', flexShrink: 0,
+          }}>
+            <Typography sx={{ color: '#fff', fontSize: 11, fontWeight: 700 }}>{ticker.initial}</Typography>
+          </Box>
+          <Typography variant="caption" sx={{ flex: 1, fontSize: 11, color: 'text.secondary' }}>
+            <Box component="span" sx={{ color: ticker.color, fontWeight: 600 }}>{ticker.name}</Box>{' '}{activity.text}
+          </Typography>
+          <Typography variant="caption" sx={{ fontSize: 10, color: 'text.disabled', flexShrink: 0 }}>{activity.time}</Typography>
         </Box>
-      </Box>
-      <Typography variant="caption" color="text.secondary" display="block" mb={1.5}>
-        Join ReciFind to share recipes and see what your friends are cooking.
-      </Typography>
-      <Box sx={{ display: 'flex', gap: 1 }}>
-        <Button fullWidth variant="contained" size="small" disableElevation onClick={onJoin}
-          sx={{ borderRadius: 20, textTransform: 'none', fontWeight: 700, fontSize: 11 }}>
-          Join free
-        </Button>
-        <Button fullWidth variant="outlined" size="small" onClick={onJoin}
-          sx={{ borderRadius: 20, textTransform: 'none', fontSize: 11 }}>
-          Invite a friend
-        </Button>
-      </Box>
+      ))}
     </Box>
   );
 }
 
-function ActivityRow({ initial, name, action, time, color }) {
+function CookWithFriends({ onJoin, darkMode }) {
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-      <Box sx={{ width: 26, height: 26, borderRadius: '50%', bgcolor: color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        <Typography sx={{ color: '#fff', fontSize: 11, fontWeight: 700 }}>{initial}</Typography>
-      </Box>
-      <Typography variant="caption" sx={{ flex: 1, fontSize: 11, color: 'text.secondary' }}>
-        <Box component="span" sx={{ color, fontWeight: 600 }}>{name}</Box> {action}
+    <Box sx={{
+      borderRadius: 3, p: 2, border: 1, borderColor: 'divider',
+      background: darkMode ? 'linear-gradient(135deg,#1a0f2e,#0f1a2e)' : 'linear-gradient(135deg,#f3f0ff,#e8f4fd)',
+    }}>
+      <Typography fontWeight={700} fontSize={13} mb={0.5}>Cook with Friends</Typography>
+      <Typography variant="caption" color="text.secondary" display="block" mb={1.5}>
+        Join ReciFind to share recipes and see what your friends are cooking.
       </Typography>
-      <Typography variant="caption" sx={{ fontSize: 10, color: 'text.disabled' }}>{time}</Typography>
+      {TICKER_DATA.map((ticker, i) => (
+        <TickerStage key={i} ticker={ticker} />
+      ))}
+      <Box sx={{ display: 'flex', gap: 1, mt: 1.5 }}>
+        <Button fullWidth variant="contained" disableElevation onClick={onJoin}
+          sx={{ borderRadius: 20, textTransform: 'none', fontWeight: 700 }}>
+          Join free
+        </Button>
+        <Button fullWidth variant="outlined" onClick={onJoin}
+          sx={{ borderRadius: 20, textTransform: 'none' }}>
+          Invite a friend
+        </Button>
+      </Box>
     </Box>
   );
 }
