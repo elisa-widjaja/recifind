@@ -2122,6 +2122,7 @@ function App() {
 
   const handleMealTypeSelect = (value) => {
     setSelectedMealType((prev) => (prev === value ? '' : value));
+    setCurrentView('recipes');
   };
 
   const handleSnackbarClose = () => {
@@ -3412,6 +3413,7 @@ function App() {
     };
 
     const resetFormState = (message) => {
+      setCurrentView('recipes');
       setSelectedMealType('');
       setIngredientInput('');
       setVisibleCount(RESULTS_PAGE_SIZE);
@@ -3557,7 +3559,12 @@ function App() {
               <MenuIcon />
             </Badge>
           </IconButton>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 700 }}>
+          <Typography
+            variant="h6"
+            component="div"
+            onClick={() => setCurrentView('home')}
+            sx={{ flexGrow: 1, fontWeight: 700, cursor: 'pointer', userSelect: 'none' }}
+          >
             ReciFind
           </Typography>
           <Stack direction="row" spacing="6px" alignItems="center">
@@ -3754,8 +3761,7 @@ function App() {
               <Box
                 component="button"
                 onClick={() => {
-                  setShowFavoritesOnly(false);
-                  setSelectedMealType(null);
+                  setCurrentView('recipes');
                   setMobileFilterDrawerOpen(false);
                 }}
                 sx={(theme) => ({
@@ -3841,6 +3847,7 @@ function App() {
                   component="button"
                   onClick={() => {
                     setShowFavoritesOnly((prev) => !prev);
+                    setCurrentView('recipes');
                     setTimeout(() => setMobileFilterDrawerOpen(false), 300);
                   }}
                   sx={(theme) => ({
