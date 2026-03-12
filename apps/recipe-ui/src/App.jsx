@@ -950,6 +950,7 @@ function App() {
     } catch { return new Set(); }
   });
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [currentView, setCurrentView] = useState('home'); // 'home' | 'recipes'
 
   const toggleFavorite = useCallback((recipeId) => {
     setFavorites((prev) => {
@@ -1249,6 +1250,7 @@ function App() {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      setCurrentView('home');
       if (window.gtag) {
         window.gtag('config', 'G-W2LEPNDMF0', { user_id: session?.user?.id ?? undefined });
       }
