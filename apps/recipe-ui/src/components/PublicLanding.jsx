@@ -4,10 +4,15 @@ import {
   Card, CardActionArea
 } from '@mui/material';
 import RecipeShelf from './RecipeShelf';
-import WatchAndCook from './WatchAndCook';
-import { buildVideoEmbedUrl } from '../utils/videoEmbed';
+import DiscoverRecipes from './DiscoverRecipes';
 
 const API_BASE_URL = import.meta.env.VITE_RECIPES_API_BASE_URL || '';
+
+function isSocialVideoRecipe(url) {
+  if (!url) return false;
+  return url.includes('youtube.com') || url.includes('youtu.be')
+    || url.includes('tiktok.com') || url.includes('instagram.com');
+}
 
 async function fetchJson(path) {
   const res = await fetch(`${API_BASE_URL}${path}`);
@@ -54,7 +59,11 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
     }
   };
 
-  const videoRecipes = trending.filter(r => buildVideoEmbedUrl(r.sourceUrl) !== null);
+  const allVideoRecipes = trending.filter(r => isSocialVideoRecipe(r.sourceUrl));
+  const youtubeShorts = allVideoRecipes.filter(r => r.sourceUrl?.includes('/shorts/')).slice(0, 2);
+  const instagramRecipes = allVideoRecipes.filter(r => r.sourceUrl?.includes('instagram.com')).slice(0, 2);
+  const tiktokRecipes = allVideoRecipes.filter(r => r.sourceUrl?.includes('tiktok.com')).slice(0, 1);
+  const videoRecipes = [...youtubeShorts, ...instagramRecipes, ...tiktokRecipes];
 
   return (
     <Container maxWidth="sm" disableGutters>
@@ -77,10 +86,11 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
             </Box>
           )}
 
-          {/* ── Watch & Cook ── */}
+          {/* ── Discover New Recipes ── */}
           {videoRecipes.length > 0 && (
             <Box>
-              <WatchAndCook recipes={videoRecipes} onOpen={onOpenRecipe} />
+              <SectionLabel label="Discover new recipes" />
+              <DiscoverRecipes recipes={videoRecipes} onOpen={onOpenRecipe} />
             </Box>
           )}
 

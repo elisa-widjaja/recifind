@@ -2,23 +2,19 @@ import { Box, Typography } from '@mui/material';
 import { buildVideoEmbedUrl, getVideoThumbnailUrl } from '../utils/videoEmbed';
 
 /**
- * "Watch & Cook" — Instagram Suggested-Reels style horizontal shelf.
- * Shows TikTok/YouTube recipes as full-bleed portrait cards with autoplay iframes.
+ * DiscoverRecipes — Instagram Suggested-Reels style horizontal shelf.
+ * Shows TikTok/YouTube/Instagram recipes as full-bleed portrait cards with autoplay iframes.
  * Thumbnail image is always rendered underneath as a fallback background.
  *
  * Props:
- *   recipes — embeddable recipes (parent filters to TikTok/YouTube only)
+ *   recipes — embeddable recipes (parent filters to social video sources)
  *   onOpen  — (recipe) => void, opens full recipe detail
  */
-export default function WatchAndCook({ recipes = [], onOpen = () => {} }) {
+export default function DiscoverRecipes({ recipes = [], onOpen = () => {} }) {
   if (!recipes.length) return null;
 
   return (
     <Box>
-      <Typography fontWeight={700} fontSize={13} sx={{ color: 'text.primary', mb: 1 }}>
-        📺 Watch &amp; Cook
-      </Typography>
-
       {/*
         Bleed to screen edges (mx: -2 negates parent px: 2),
         pl: 2 keeps first card aligned with page content.
