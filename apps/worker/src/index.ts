@@ -1147,12 +1147,22 @@ export async function getAiPicks(
     `SELECT id, title, image_url, meal_types, duration_minutes, source_url, ingredients, steps
      FROM recipes WHERE shared_with_friends = 1 ORDER BY RANDOM() LIMIT 40`
   ).all();
-  // Only include recipes that have both ingredients and steps populated
+  // Only include recipes with clean, structured ingredients and steps (not Instagram captions)
+  const isCleanList = (items: string[]) =>
+    items.length > 0 &&
+    items.every(s =>
+      s.length <= 200 &&                          // no paragraph-length items
+      !/\d+[Kk]?\s+likes/i.test(s) &&            // no engagement metrics
+      !/\d+\s+comments/i.test(s) &&
+      !/@\w{3,}/.test(s) &&                       // no @handles
+      !/^\s*#\w+/.test(s)                         // not a hashtag line
+    );
+
   const candidates = (candidateRows.results as Array<Record<string, unknown>>).filter(r => {
     try {
-      const steps = JSON.parse(String(r.steps || '[]'));
-      const ingredients = JSON.parse(String(r.ingredients || '[]'));
-      return steps.length > 0 && ingredients.length > 0;
+      const steps: string[] = JSON.parse(String(r.steps || '[]'));
+      const ingredients: string[] = JSON.parse(String(r.ingredients || '[]'));
+      return isCleanList(ingredients) && isCleanList(steps);
     } catch { return false; }
   });
   if (!candidates.length) return [];
