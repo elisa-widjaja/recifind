@@ -6,6 +6,7 @@ const GEMINI_SCOPE = 'https://www.googleapis.com/auth/generative-language';
 
 export interface Env {
   DB: D1Database;
+  AI_PICKS_CACHE: KVNamespace;
   AUTH_ISSUER: string;
   AUTH_AUDIENCE: string;
   AUTH_JWKS_URL: string;
@@ -52,7 +53,7 @@ interface Friend {
 }
 
 interface NotificationItem {
-  type: 'friend_request' | 'friend_accepted';
+  type: 'friend_request' | 'friend_accepted' | 'friend_cooked_recipe';
   message: string;
   data: Record<string, string>;
   createdAt: string;
@@ -222,6 +223,42 @@ export default {
         return await handleOembedAuthor(url);
       }
 
+      // Public endpoint to get trending community recipes
+      if (url.pathname === '/public/trending-recipes' && request.method === 'GET') {
+        return await (async () => {
+          const recipes = await getTrendingRecipes(env.DB);
+          return json({ recipes }, 200, withCors());
+        })();
+      }
+
+      // Public endpoint to get discovery feed (social media recipes)
+      if (url.pathname === '/public/discover' && request.method === 'GET') {
+        return await (async () => {
+          const recipes = await getPublicDiscover(env.DB);
+          return json({ recipes }, 200, withCors());
+        })();
+      }
+
+      // Public endpoint to get editor's pick recipes
+      if (url.pathname === '/public/editors-pick' && request.method === 'GET') {
+        return await (async () => {
+          const recipes = await getEditorsPick(env.DB);
+          return json({ recipes }, 200, withCors());
+        })();
+      }
+
+      if (url.pathname === '/public/ai-picks' && request.method === 'GET') {
+        return await (async () => {
+          const prefs = {
+            mealTypes: url.searchParams.get('meal_types') || undefined,
+            diet: url.searchParams.get('diet') || undefined,
+            skill: url.searchParams.get('skill') || undefined,
+          };
+          const picks = await getAiPicks(env.DB, env.AI_PICKS_CACHE, callGemini, env, prefs);
+          return json({ picks }, 200, withCors());
+        })();
+      }
+
       // Public endpoint to submit user feedback
       if (url.pathname === '/feedback' && request.method === 'POST') {
         const body = await request.json() as { message?: string; senderEmail?: string };
@@ -307,6 +344,32 @@ export default {
         }
         const recipeId = decodeURIComponent(shareMatch[1]);
         return await handleCreateShareLink(env, user, recipeId);
+      }
+
+      // Log cook event
+      const cookMatch = url.pathname.match(/^\/recipes\/([^/]+)\/cook$/);
+      if (cookMatch && request.method === 'POST') {
+        if (!user) throw new HttpError(401, 'Unauthorized');
+        return await (async () => {
+          const recipeId = decodeURIComponent(cookMatch[1]);
+          await logCookEvent(env.DB, user.userId, recipeId);
+          // Notify each friend
+          const friends = await env.DB.prepare(`SELECT friend_id FROM friends WHERE user_id = ?`).bind(user.userId).all();
+          const recipe = await env.DB.prepare(`SELECT title FROM recipes WHERE user_id = ? AND id = ?`).bind(user.userId, recipeId).first() as { title?: string } | null;
+          const recipeName = recipe?.title || 'a recipe';
+          const profile = await env.DB.prepare(`SELECT display_name FROM profiles WHERE user_id = ?`).bind(user.userId).first() as { display_name?: string } | null;
+          const cookerName = profile?.display_name || 'Someone';
+          // Use the existing addNotification helper — it handles the 50-row trim side-effect
+          for (const f of (friends.results as Array<{ friend_id: string }>)) {
+            await addNotification(env, f.friend_id as unknown as string, {
+              type: 'friend_cooked_recipe',
+              message: `${cookerName} cooked ${recipeName} 🍳`,
+              data: { cookerId: user.userId, recipeId },
+              created_at: new Date().toISOString(),
+            });
+          }
+          return json({ ok: true }, 200, withCors());
+        })();
       }
 
       if (recipeMatch) {
@@ -400,6 +463,27 @@ export default {
       if (url.pathname === '/friends/notifications/read' && request.method === 'POST') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
         return await handleMarkNotificationsRead(env, user);
+      }
+      if (url.pathname === '/friends/activity' && request.method === 'GET') {
+        if (!user) throw new HttpError(401, 'Unauthorized');
+        return await (async () => {
+          const activity = await getFriendActivity(env.DB, user.userId);
+          return json({ activity }, 200, withCors());
+        })();
+      }
+      if (url.pathname === '/friends/recently-saved' && request.method === 'GET') {
+        if (!user) throw new HttpError(401, 'Unauthorized');
+        return await (async () => {
+          const items = await getFriendsRecentlySaved(env.DB, user.userId);
+          return json({ items }, 200, withCors());
+        })();
+      }
+      if (url.pathname === '/friends/recently-shared' && request.method === 'GET') {
+        if (!user) throw new HttpError(401, 'Unauthorized');
+        return await (async () => {
+          const items = await getFriendsRecentlyShared(env.DB, user.userId);
+          return json({ items }, 200, withCors());
+        })();
       }
       const cancelSentMatch = url.pathname.match(/^\/friends\/requests\/sent\/([^/]+)\/cancel$/);
       if (cancelSentMatch && request.method === 'DELETE') {
@@ -735,18 +819,59 @@ async function handleGetProfile(env: Env, user: AuthenticatedUser) {
 }
 
 async function handleUpdateProfile(request: Request, env: Env, user: AuthenticatedUser) {
-  const body = await request.json() as { displayName?: string };
-  const displayName = body.displayName?.trim();
-  if (!displayName || displayName.length === 0) {
-    throw new HttpError(400, 'Display name is required');
+  const body = await request.json() as { displayName?: string; mealTypePrefs?: string[]; dietaryPrefs?: string[]; skillLevel?: string };
+
+  // Prepare optional fields
+  const mealTypePrefs = typeof body.mealTypePrefs !== 'undefined' ? JSON.stringify(body.mealTypePrefs) : undefined;
+  const dietaryPrefs = typeof body.dietaryPrefs !== 'undefined' ? JSON.stringify(body.dietaryPrefs) : undefined;
+  const skillLevel = typeof body.skillLevel !== 'undefined' ? String(body.skillLevel) : undefined;
+
+  // Validate displayName if provided
+  if (body.displayName !== undefined) {
+    const displayName = body.displayName?.trim();
+    if (!displayName || displayName.length === 0) {
+      throw new HttpError(400, 'Display name is required');
+    }
+    if (displayName.length > 50) {
+      throw new HttpError(400, 'Display name must be 50 characters or less');
+    }
   }
-  if (displayName.length > 50) {
-    throw new HttpError(400, 'Display name must be 50 characters or less');
+
+  // Build dynamic UPDATE for only provided fields
+  const fields: string[] = [];
+  const values: unknown[] = [];
+  if (body.displayName !== undefined) {
+    fields.push('display_name = ?');
+    values.push(String(body.displayName).trim());
   }
-  await env.DB.prepare(
-    'UPDATE profiles SET display_name = ? WHERE user_id = ?'
-  ).bind(displayName, user.userId).run();
-  return json({ displayName });
+  if (mealTypePrefs !== undefined) {
+    fields.push('meal_type_prefs = ?');
+    values.push(mealTypePrefs);
+  }
+  if (dietaryPrefs !== undefined) {
+    fields.push('dietary_prefs = ?');
+    values.push(dietaryPrefs);
+  }
+  if (skillLevel !== undefined) {
+    fields.push('skill_level = ?');
+    values.push(skillLevel);
+  }
+
+  if (fields.length === 0) {
+    throw new HttpError(400, 'At least one field must be provided for update');
+  }
+
+  values.push(user.userId);
+  await env.DB.prepare(`UPDATE profiles SET ${fields.join(', ')} WHERE user_id = ?`).bind(...values).run();
+
+  // Return updated fields
+  const response: Record<string, any> = {};
+  if (body.displayName !== undefined) response.displayName = String(body.displayName).trim();
+  if (mealTypePrefs !== undefined) response.mealTypePrefs = body.mealTypePrefs;
+  if (dietaryPrefs !== undefined) response.dietaryPrefs = body.dietaryPrefs;
+  if (skillLevel !== undefined) response.skillLevel = body.skillLevel;
+
+  return json(response);
 }
 
 async function handleGetRecipe(request: Request, env: Env, user: AuthenticatedUser, recipeId: string) {
@@ -889,6 +1014,269 @@ async function handleOembedAuthor(url: URL) {
   } catch {
     return json({ author: null }, 200, withCors());
   }
+}
+
+export async function getPublicDiscover(db: D1Database): Promise<Array<{
+  id: string; title: string; sourceUrl: string; imageUrl: string;
+  mealTypes: string[]; durationMinutes: number | null;
+}>> {
+  const rows = await db.prepare(
+    `SELECT id, title, source_url, image_url, meal_types, duration_minutes
+     FROM recipes
+     WHERE (source_url LIKE '%tiktok.com%' OR source_url LIKE '%instagram.com%')
+     ORDER BY created_at DESC
+     LIMIT 10`
+  ).all();
+  return (rows.results as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    title: String(r.title),
+    sourceUrl: String(r.source_url),
+    imageUrl: String(r.image_url),
+    mealTypes: JSON.parse(String(r.meal_types || '[]')),
+    durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
+  }));
+}
+
+const CURATED_COMMUNITY_IDS = [
+  '2c8627ea-2cf1-447c-8c45-8118f0db88a0',
+  'bbb0b42d-fc3f-4f3d-a6ad-8c75dcae6ab3',
+  'c49498b7-3772-4304-86a1-b62a8eb42aad',
+  'ce72aae2-d5a0-4e3c-b088-fbfd8a6d870f',
+  '953bdf9f-6088-4449-8692-0c68d6822a0a',
+  '40267c63-abe5-4c66-8477-94d26626de1b',
+  'e0853763-d134-4547-8496-efa18bfa5062',
+  '3190c934-f0d4-45b9-8379-4efdc839189a',
+];
+
+export async function getTrendingRecipes(db: D1Database): Promise<Array<{
+  id: string; title: string; sourceUrl: string; imageUrl: string;
+  mealTypes: string[]; durationMinutes: number | null;
+  ingredients: string[]; steps: string[];
+}>> {
+  const placeholders = CURATED_COMMUNITY_IDS.map(() => '?').join(', ');
+  const rows = await db.prepare(
+    `SELECT id, title, source_url, image_url, meal_types, duration_minutes, ingredients, steps
+     FROM recipes WHERE id IN (${placeholders})`
+  ).bind(...CURATED_COMMUNITY_IDS).all();
+  return (rows.results as Array<Record<string, unknown>>).map((r) => ({
+    id: String(r.id),
+    title: String(r.title),
+    sourceUrl: String(r.source_url),
+    imageUrl: String(r.image_url),
+    mealTypes: JSON.parse(String(r.meal_types || '[]')),
+    durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
+    ingredients: JSON.parse(String(r.ingredients || '[]')),
+    steps: JSON.parse(String(r.steps || '[]')),
+  }));
+}
+
+// IMPORTANT: These titles must exactly match the `title` column values stored in D1.
+// Before deploying, verify by running:
+//   npx wrangler d1 execute recipes-db --remote --command="SELECT title FROM recipes WHERE title LIKE '%Stew%' OR title LIKE '%moco%' LIMIT 20"
+// Adjust casing below to match what is actually stored. SQLite IN() is case-sensitive for ASCII.
+const EDITOR_PICK_TITLES = [
+  'Beef and Guiness Stew', 'Loco moco', 'Galbi tang',
+  'Watermelon salad', 'Broccoli cheddar soup', 'Honey lime chicken bowl',
+  'Blueberry cream pancake', 'Banana Bread', 'Swiss croissant bake',
+  'Pear puff pastry', 'Berry yogurt bake',
+];
+
+export async function getEditorsPick(db: D1Database, titles: string[] = EDITOR_PICK_TITLES): Promise<Array<{
+  id: string; title: string; sourceUrl: string; imageUrl: string;
+  mealTypes: string[]; durationMinutes: number | null;
+  ingredients: string[]; steps: string[];
+}>> {
+  const placeholders = titles.map(() => '?').join(', ');
+  // Pick one row per title: prefer rows where duration_minutes IS NOT NULL.
+  // Subquery selects the best rowid per title (non-null duration first, else any).
+  const rows = await db.prepare(
+    `SELECT r.id, r.title, r.source_url, r.image_url, r.meal_types, r.duration_minutes, r.ingredients, r.steps
+     FROM recipes r
+     INNER JOIN (
+       SELECT title,
+              COALESCE(MIN(CASE WHEN duration_minutes IS NOT NULL THEN rowid END), MIN(rowid)) AS best_rowid
+       FROM recipes
+       WHERE title IN (${placeholders})
+       GROUP BY title
+     ) best ON r.rowid = best.best_rowid`
+  ).bind(...titles).all();
+  // Re-sort results to match the original titles order
+  const byTitle = new Map(
+    (rows.results as Array<Record<string, unknown>>).map((r) => [String(r.title).toLowerCase(), r])
+  );
+  const ordered = titles
+    .map(t => byTitle.get(t.toLowerCase()))
+    .filter((r): r is Record<string, unknown> => r != null);
+  return ordered.map((r) => ({
+    id: String(r.id),
+    title: String(r.title),
+    sourceUrl: String(r.source_url),
+    imageUrl: String(r.image_url),
+    mealTypes: JSON.parse(String(r.meal_types || '[]')),
+    durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
+    ingredients: JSON.parse(String(r.ingredients || '[]')),
+    steps: JSON.parse(String(r.steps || '[]')),
+  }));
+}
+
+type AiPick = {
+  topic: string;
+  hashtag: string;
+  reason: string;
+  recipe: {
+    id: string; title: string; imageUrl: string;
+    mealTypes: string[]; durationMinutes: number | null;
+    sourceUrl: string; ingredients: string[]; steps: string[];
+  }
+};
+
+export async function getAiPicks(
+  db: D1Database,
+  kv: KVNamespace,
+  gemini: (env: Env, prompt: string) => Promise<string>,
+  env: Partial<Env>,
+  prefs: { mealTypes?: string; diet?: string; skill?: string } = {}
+): Promise<AiPick[]> {
+  // v2: includes ingredients, steps, sourceUrl in cached recipe objects
+  const cacheKey = `ai-picks:v2:${prefs.mealTypes || 'all'}:${prefs.diet || 'any'}:${prefs.skill || 'any'}`;
+  const cached = await kv.get(cacheKey);
+  if (cached) return JSON.parse(cached) as AiPick[];
+
+  // Fetch a pool of candidate recipes from D1 so Gemini picks from real titles
+  const candidateRows = await db.prepare(
+    `SELECT id, title, image_url, meal_types, duration_minutes, source_url, ingredients, steps
+     FROM recipes WHERE shared_with_friends = 1 ORDER BY RANDOM() LIMIT 40`
+  ).all();
+  // Only include recipes with clean, structured ingredients and steps (not Instagram captions)
+  const isCleanList = (items: string[]) =>
+    items.length > 0 &&
+    items.every(s =>
+      s.length <= 200 &&                          // no paragraph-length items
+      !/\d+[Kk]?\s+likes/i.test(s) &&            // no engagement metrics
+      !/\d+\s+comments/i.test(s) &&
+      !/@\w{3,}/.test(s) &&                       // no @handles
+      !/^\s*#\w+/.test(s)                         // not a hashtag line
+    );
+
+  const candidates = (candidateRows.results as Array<Record<string, unknown>>).filter(r => {
+    try {
+      const steps: string[] = JSON.parse(String(r.steps || '[]'));
+      const ingredients: string[] = JSON.parse(String(r.ingredients || '[]'));
+      return isCleanList(ingredients) && isCleanList(steps);
+    } catch { return false; }
+  });
+  if (!candidates.length) return [];
+
+  const titleList = candidates.map(r => String(r.title)).join('\n');
+  const prefsNote = prefs.mealTypes || prefs.diet
+    ? `User preferences: meal types=${prefs.mealTypes || 'any'}, diet=${prefs.diet || 'any'}, skill=${prefs.skill || 'any'}.`
+    : '';
+
+  const prompt = `You are a cooking trend analyst. ${prefsNote} Below is a list of real recipes. Pick 3 that best match current trending health or nutrition topics. For each pick, name the topic, create a hashtag, write a one-sentence reason why this recipe fits the trend, and copy the recipe title EXACTLY as it appears in the list. Return ONLY a JSON array with no markdown:\n[{"topic":"string","hashtag":"string","reason":"one sentence why this fits the trend","match":"exact recipe title from list"}]\n\nRecipes:\n${titleList}`;
+
+  let parsed: Array<{ topic: string; hashtag: string; reason: string; match: string }> = [];
+  try {
+    const raw = await gemini(env as Env, prompt);
+    const cleaned = raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+    parsed = JSON.parse(cleaned);
+  } catch (err) {
+    console.error('[getAiPicks] Gemini parse/call failed:', err);
+    return [];
+  }
+
+  // Build a lookup map from title → candidate row
+  const byTitle = new Map(candidates.map(r => [String(r.title).toLowerCase(), r]));
+
+  const picks: AiPick[] = [];
+  for (const item of parsed.slice(0, 3)) {
+    const row = byTitle.get(item.match?.toLowerCase()) ?? null;
+    if (row) {
+      picks.push({
+        topic: item.topic,
+        hashtag: item.hashtag,
+        reason: item.reason || '',
+        recipe: {
+          id: String(row.id),
+          title: String(row.title),
+          imageUrl: String(row.image_url),
+          mealTypes: JSON.parse(String(row.meal_types || '[]')),
+          durationMinutes: row.duration_minutes != null ? Number(row.duration_minutes) : null,
+          sourceUrl: String(row.source_url || ''),
+          ingredients: JSON.parse(String(row.ingredients || '[]')),
+          steps: JSON.parse(String(row.steps || '[]')),
+        }
+      });
+    }
+  }
+
+  if (picks.length > 0) {
+    await kv.put(cacheKey, JSON.stringify(picks), { expirationTtl: 604800 }); // 7 days
+  }
+  return picks;
+}
+
+type FriendRecipeItem = { friendName: string; friendId: string; recipe: { id: string; title: string; imageUrl: string; mealTypes: string[]; durationMinutes: number | null; createdAt: string } };
+
+export async function getFriendActivity(db: D1Database, userId: string): Promise<Array<{ id: number; type: string; message: string; data: unknown; createdAt: string; read: boolean }>> {
+  const rows = await db.prepare(
+    `SELECT id, type, message, data, created_at, read FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 10`
+  ).bind(userId).all();
+  return (rows.results as Array<Record<string, unknown>>).map(r => ({
+    id: Number(r.id),
+    type: String(r.type),
+    message: String(r.message),
+    data: JSON.parse(String(r.data || '{}')),
+    createdAt: String(r.created_at),
+    read: Boolean(r.read),
+  }));
+}
+
+export async function getFriendsRecentlySaved(db: D1Database, userId: string): Promise<FriendRecipeItem[]> {
+  const friends = await db.prepare(
+    `SELECT friend_id, friend_name FROM friends WHERE user_id = ?`
+  ).bind(userId).all();
+  const items: FriendRecipeItem[] = [];
+  for (const friend of (friends.results as Array<Record<string, unknown>>)) {
+    const rows = await db.prepare(
+      // No shared_with_friends filter — show any recipe the friend has, all visible to friends
+      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at FROM recipes WHERE user_id = ? ORDER BY created_at DESC LIMIT 2`
+    ).bind(String(friend.friend_id)).all();
+    for (const r of (rows.results as Array<Record<string, unknown>>)) {
+      items.push({
+        friendName: String(friend.friend_name),
+        friendId: String(friend.friend_id),
+        recipe: { id: String(r.id), title: String(r.title), imageUrl: String(r.image_url), mealTypes: JSON.parse(String(r.meal_types || '[]')), durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null, createdAt: String(r.created_at) }
+      });
+    }
+  }
+  return items.sort((a, b) => b.recipe.createdAt.localeCompare(a.recipe.createdAt)).slice(0, 8);
+}
+
+export async function getFriendsRecentlyShared(db: D1Database, userId: string): Promise<FriendRecipeItem[]> {
+  const friends = await db.prepare(
+    `SELECT friend_id, friend_name FROM friends WHERE user_id = ?`
+  ).bind(userId).all();
+  const items: FriendRecipeItem[] = [];
+  for (const friend of (friends.results as Array<Record<string, unknown>>)) {
+    const rows = await db.prepare(
+      // shared_with_friends = 1 filter only — ORDER BY created_at (updated_at not in schema)
+      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at FROM recipes WHERE user_id = ? AND shared_with_friends = 1 ORDER BY created_at DESC LIMIT 2`
+    ).bind(String(friend.friend_id)).all();
+    for (const r of (rows.results as Array<Record<string, unknown>>)) {
+      items.push({
+        friendName: String(friend.friend_name),
+        friendId: String(friend.friend_id),
+        recipe: { id: String(r.id), title: String(r.title), imageUrl: String(r.image_url), mealTypes: JSON.parse(String(r.meal_types || '[]')), durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null, createdAt: String(r.created_at) }
+      });
+    }
+  }
+  return items.sort((a, b) => b.recipe.createdAt.localeCompare(a.recipe.createdAt)).slice(0, 8);
+}
+
+export async function logCookEvent(db: D1Database, userId: string, recipeId: string): Promise<void> {
+  await db.prepare(
+    `INSERT INTO cook_events (user_id, recipe_id, cooked_at) VALUES (?, ?, ?)`
+  ).bind(userId, recipeId, new Date().toISOString()).run();
 }
 
 async function handleGetSharedRecipe(request: Request, env: Env, token: string) {
