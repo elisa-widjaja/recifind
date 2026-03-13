@@ -364,8 +364,8 @@ export default {
             await addNotification(env, f.friend_id as unknown as string, {
               type: 'friend_cooked_recipe',
               message: `${cookerName} cooked ${recipeName} 🍳`,
-              data: { cookerId: user.userId, recipeId },
-              created_at: new Date().toISOString(),
+              data: { cookerId: user.userId, recipeId, friendName: cookerName },
+              createdAt: new Date().toISOString(),
             });
           }
           return json({ ok: true }, 200, withCors());
@@ -1217,11 +1217,24 @@ export async function getAiPicks(
 
 type FriendRecipeItem = { friendName: string; friendId: string; recipe: { id: string; title: string; imageUrl: string; mealTypes: string[]; durationMinutes: number | null; createdAt: string } };
 
-export async function getFriendActivity(db: D1Database, userId: string): Promise<Array<{ id: number; type: string; message: string; data: unknown; createdAt: string; read: boolean }>> {
+export async function getFriendActivity(
+  db: D1Database,
+  userId: string
+): Promise<Array<{
+  id: number;
+  type: string;
+  message: string;
+  friendName: string | null;
+  recipe: { id: string; title: string; imageUrl: string } | null;
+  data: unknown;
+  createdAt: string;
+  read: boolean;
+}>> {
   const rows = await db.prepare(
     `SELECT id, type, message, data, created_at, read FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 10`
   ).bind(userId).all();
-  return (rows.results as Array<Record<string, unknown>>).map(r => ({
+
+  const parsed = (rows.results as Array<Record<string, unknown>>).map(r => ({
     id: Number(r.id),
     type: String(r.type),
     message: String(r.message),
@@ -1229,6 +1242,42 @@ export async function getFriendActivity(db: D1Database, userId: string): Promise
     createdAt: String(r.created_at),
     read: Boolean(r.read),
   }));
+
+  // Collect unique recipeIds for batch fetch
+  const recipeIds = [...new Set(
+    parsed
+      .map(item => (item.data as Record<string, unknown>).recipeId as string | undefined)
+      .filter((id): id is string => Boolean(id))
+  )];
+
+  // Batch fetch recipes in one query
+  const recipeMap = new Map<string, { id: string; title: string; imageUrl: string }>();
+  if (recipeIds.length > 0) {
+    const placeholders = recipeIds.map(() => '?').join(', ');
+    const recipeRows = await db.prepare(
+      `SELECT id, title, image_url FROM recipes WHERE id IN (${placeholders})`
+    ).bind(...recipeIds).all();
+    for (const r of (recipeRows.results as Array<Record<string, unknown>>)) {
+      recipeMap.set(String(r.id), {
+        id: String(r.id),
+        title: String(r.title),
+        imageUrl: String(r.image_url || ''),
+      });
+    }
+  }
+
+  return parsed.map(item => {
+    const d = item.data as Record<string, unknown>;
+    const recipeId = d.recipeId as string | undefined;
+    const friendName: string | null =
+      (d.friendName as string | undefined) ?? item.message.split(' ')[0] ?? null;
+
+    return {
+      ...item,
+      friendName,
+      recipe: recipeId ? (recipeMap.get(recipeId) ?? null) : null,
+    };
+  });
 }
 
 export async function getFriendsRecentlySaved(db: D1Database, userId: string): Promise<FriendRecipeItem[]> {
@@ -1239,13 +1288,13 @@ export async function getFriendsRecentlySaved(db: D1Database, userId: string): P
   for (const friend of (friends.results as Array<Record<string, unknown>>)) {
     const rows = await db.prepare(
       // No shared_with_friends filter — show any recipe the friend has, all visible to friends
-      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at FROM recipes WHERE user_id = ? ORDER BY created_at DESC LIMIT 2`
+      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at, ingredients, steps FROM recipes WHERE user_id = ? ORDER BY created_at DESC LIMIT 2`
     ).bind(String(friend.friend_id)).all();
     for (const r of (rows.results as Array<Record<string, unknown>>)) {
       items.push({
         friendName: String(friend.friend_name),
         friendId: String(friend.friend_id),
-        recipe: { id: String(r.id), title: String(r.title), imageUrl: String(r.image_url), mealTypes: JSON.parse(String(r.meal_types || '[]')), durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null, createdAt: String(r.created_at) }
+        recipe: { id: String(r.id), title: String(r.title), sourceUrl: r.source_url ? String(r.source_url) : null, imageUrl: r.image_url ? String(r.image_url) : null, mealTypes: JSON.parse(String(r.meal_types || '[]')), durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null, createdAt: String(r.created_at), ingredients: JSON.parse(String(r.ingredients || '[]')), steps: JSON.parse(String(r.steps || '[]')) }
       });
     }
   }
@@ -1260,13 +1309,13 @@ export async function getFriendsRecentlyShared(db: D1Database, userId: string): 
   for (const friend of (friends.results as Array<Record<string, unknown>>)) {
     const rows = await db.prepare(
       // shared_with_friends = 1 filter only — ORDER BY created_at (updated_at not in schema)
-      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at FROM recipes WHERE user_id = ? AND shared_with_friends = 1 ORDER BY created_at DESC LIMIT 2`
+      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at, ingredients, steps FROM recipes WHERE user_id = ? AND shared_with_friends = 1 ORDER BY created_at DESC LIMIT 2`
     ).bind(String(friend.friend_id)).all();
     for (const r of (rows.results as Array<Record<string, unknown>>)) {
       items.push({
         friendName: String(friend.friend_name),
         friendId: String(friend.friend_id),
-        recipe: { id: String(r.id), title: String(r.title), imageUrl: String(r.image_url), mealTypes: JSON.parse(String(r.meal_types || '[]')), durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null, createdAt: String(r.created_at) }
+        recipe: { id: String(r.id), title: String(r.title), sourceUrl: r.source_url ? String(r.source_url) : null, imageUrl: r.image_url ? String(r.image_url) : null, mealTypes: JSON.parse(String(r.meal_types || '[]')), durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null, createdAt: String(r.created_at), ingredients: JSON.parse(String(r.ingredients || '[]')), steps: JSON.parse(String(r.steps || '[]')) }
       });
     }
   }
