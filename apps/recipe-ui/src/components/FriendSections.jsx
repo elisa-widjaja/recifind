@@ -71,7 +71,7 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
   return (
     <Stack sx={{ gap: '32px' }}>
       {hasActivity && (
-        <Box>
+        <Box sx={{ pt: '30px' }}>
           <SectionLabel>Friend Activity</SectionLabel>
           <Box sx={{
             bgcolor: 'background.paper',
