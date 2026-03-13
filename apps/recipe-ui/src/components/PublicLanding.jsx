@@ -144,7 +144,9 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
                 ))}
               </Box>
               <RecipeShelf
-                recipes={aiPicks.map(p => ({ ...p.recipe, _hashtag: p.hashtag, _topic: p.topic }))}
+                recipes={aiPicks
+                  .filter(p => p.recipe.ingredients?.length > 0 && p.recipe.steps?.length > 0)
+                  .map(p => ({ ...p.recipe, _hashtag: p.hashtag, _topic: p.topic }))}
                 onSave={onJoin} onOpen={onOpenRecipe} cardWidth={180} gap="8px"
               />
             </Box>

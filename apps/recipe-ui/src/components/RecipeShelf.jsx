@@ -131,8 +131,8 @@ function RecipeCard({ recipe, onSave, onShare, onOpen, cardWidth, thumbHeight })
         )}
       </Box>
 
-      {/* ── Text + actions ── */}
-      <Box sx={{ px: 1, py: 0.75 }}>
+      {/* ── Text + actions — fixed height so icons never shift ── */}
+      <Box sx={{ px: 1, py: 0.75, height: 72, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
         <Typography
           sx={{
             fontWeight: 700,
@@ -143,7 +143,6 @@ function RecipeCard({ recipe, onSave, onShare, onOpen, cardWidth, thumbHeight })
             WebkitLineClamp: 2,
             WebkitBoxOrient: 'vertical',
             overflow: 'hidden',
-            mb: 0.5,
           }}
         >
           {recipe.title}
