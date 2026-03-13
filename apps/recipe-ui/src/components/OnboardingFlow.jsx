@@ -91,9 +91,21 @@ export default function OnboardingFlow({ open, onComplete, onSkip }) {
           </>
         )}
 
-        <Button fullWidth variant="contained" disableElevation onClick={handleNext}
-          sx={{ borderRadius: 20, textTransform: 'none', fontWeight: 700 }}>
-          {screen < 2 ? 'Next →' : "Let's cook! 🍳"}
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          {screen > 0 && (
+            <Button variant="outlined" disableElevation onClick={() => setScreen(s => s - 1)}
+              sx={{ borderRadius: 20, textTransform: 'none', fontWeight: 700, flex: '0 0 auto' }}>
+              ← Back
+            </Button>
+          )}
+          <Button fullWidth variant="contained" disableElevation onClick={handleNext}
+            sx={{ borderRadius: 20, textTransform: 'none', fontWeight: 700 }}>
+            {screen < 2 ? 'Next →' : "Let's cook! 🍳"}
+          </Button>
+        </Box>
+        <Button fullWidth size="small" onClick={onSkip}
+          sx={{ color: 'text.disabled', textTransform: 'none', fontSize: 12, mt: 0.5 }}>
+          Don't show this again
         </Button>
       </DialogContent>
     </Dialog>

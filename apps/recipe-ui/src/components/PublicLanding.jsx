@@ -1,15 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  Box, Container, Typography, Button, Stack, IconButton, Chip,
-  Card, CardActionArea, Tooltip, Fab
+  Box, Container, Typography, Button, Stack, Chip,
+  Tooltip, Fab
 } from '@mui/material';
-import IosShareOutlinedIcon from '@mui/icons-material/IosShareOutlined';
-import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
-import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
-import { formatDuration } from '../utils/videoEmbed';
 import RecipeShelf from './RecipeShelf';
 import DiscoverRecipes from './DiscoverRecipes';
+import RecipeListCard from './RecipeListCard';
 
 const API_BASE_URL = import.meta.env.VITE_RECIPES_API_BASE_URL || '';
 
@@ -32,7 +29,7 @@ async function fetchJson(path) {
  *   onOpenRecipe: (recipe) => void — opens recipe detail
  *   darkMode: boolean
  */
-export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
+export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare }) {
   const [trending, setTrending] = useState([]);
   const [editorsPick, setEditorsPick] = useState([]);
   const [aiPicks, setAiPicks] = useState([]);
@@ -59,24 +56,6 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
 
   const visibleEditors = editorsExpanded ? editorsPick : editorsPick.slice(0, 3);
 
-  const handleShare = async (recipe) => {
-    const url = recipe.sourceUrl || window.location.href;
-    const title = recipe.title || 'Recipe';
-    if (navigator.share) {
-      try {
-        await navigator.share({ title, url });
-      } catch {
-        // user cancelled or share failed — ignore
-      }
-    } else {
-      try {
-        await navigator.clipboard.writeText(url);
-      } catch {
-        // clipboard blocked — ignore
-      }
-    }
-  };
-
   const allVideoRecipes = trending.filter(r => isSocialVideoRecipe(r.sourceUrl));
   const youtubeShorts = allVideoRecipes.filter(r => r.sourceUrl?.includes('/shorts/')).slice(0, 2);
   const instagramRecipes = allVideoRecipes.filter(r => r.sourceUrl?.includes('instagram.com')).slice(0, 2);
@@ -96,7 +75,7 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
               <RecipeShelf
                 recipes={trending}
                 onSave={onJoin}
-                onShare={handleShare}
+                onShare={(recipe, e) => onShare?.(recipe, e)}
                 onOpen={onOpenRecipe}
                 cardWidth={180}
                 gap="8px"
@@ -118,7 +97,7 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
               <SectionLabel label="Editor's Picks" />
               <Stack spacing={1}>
                 {visibleEditors.map(recipe => (
-                  <EditorCard key={recipe.id} recipe={recipe} onSave={onJoin} onShare={handleShare} onOpen={onOpenRecipe} />
+                  <RecipeListCard key={recipe.id} recipe={recipe} onSave={onJoin} onShare={onShare} onOpen={onOpenRecipe} />
                 ))}
               </Stack>
               {editorsPick.length > 3 && (
@@ -167,7 +146,7 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
                     return clean(ingredients) && clean(steps);
                   })
                   .map(p => ({ ...p.recipe, _hashtag: p.hashtag, _topic: p.topic }))}
-                onSave={onJoin} onOpen={onOpenRecipe} cardWidth={180} gap="8px"
+                onSave={onJoin} onShare={(recipe, e) => onShare?.(recipe, e)} onOpen={onOpenRecipe} cardWidth={180} gap="8px"
               />
             </Box>
           )}
@@ -217,66 +196,6 @@ function SectionLabel({ emoji, label, inline = false }) {
   );
   if (inline) return el;
   return <Box sx={{ mb: 1 }}>{el}</Box>;
-}
-
-function EditorCard({ recipe, onSave, onShare, onOpen }) {
-  return (
-    <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
-      <CardActionArea
-        onClick={() => onOpen?.(recipe)}
-        sx={{
-          display: 'flex',
-          alignItems: 'stretch',
-          pt: '8px',
-          pb: '8px',
-          pl: '8px',
-          pr: 1.5,
-          gap: '12px',
-          '&:hover .MuiCardActionArea-focusHighlight': { opacity: 0 },
-        }}
-      >
-        <Box sx={{ position: 'relative', width: 90, height: 90, flexShrink: 0, overflow: 'hidden', borderRadius: '6px', bgcolor: 'action.hover' }}>
-          {recipe.imageUrl
-            ? <Box component="img" src={recipe.imageUrl} alt={recipe.title} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            : <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>🍳</Box>
-          }
-        </Box>
-        <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          <Typography
-            sx={{
-              fontWeight: 700,
-              fontSize: '0.8125rem',
-              lineHeight: 1.4,
-              textTransform: 'uppercase',
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-            }}
-          >
-            {recipe.title}
-          </Typography>
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            {recipe.durationMinutes ? (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
-                <Typography variant="caption" color="text.secondary">{formatDuration(recipe.durationMinutes)}</Typography>
-              </Box>
-            ) : <Box />}
-            <Box sx={{ flexGrow: 1 }} />
-            <IconButton size="small" onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}
-              onClick={(e) => { e.stopPropagation(); e.preventDefault(); onSave?.(); }} sx={{ p: 0.5, mr: '9px' }}>
-              <BookmarkBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
-            </IconButton>
-            <IconButton size="small" onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}
-              onClick={(e) => { e.stopPropagation(); e.preventDefault(); onShare?.(recipe); }} sx={{ p: 0.5 }}>
-              <IosShareOutlinedIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
-            </IconButton>
-          </Box>
-        </Box>
-      </CardActionArea>
-    </Card>
-  );
 }
 
 // Flat list of ticker items — one white card shows at a time, cycling through all

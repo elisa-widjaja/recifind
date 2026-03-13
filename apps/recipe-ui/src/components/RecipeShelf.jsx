@@ -168,7 +168,7 @@ function RecipeCard({ recipe, onSave, onShare, onOpen, cardWidth, thumbHeight })
           </IconButton>
           <IconButton
             size="small"
-            onClick={(e) => { e.stopPropagation(); onShare(recipe); }}
+            onClick={(e) => { e.stopPropagation(); onShare(recipe, e); }}
             aria-label="Share recipe"
             sx={{ p: 0.5 }}
           >

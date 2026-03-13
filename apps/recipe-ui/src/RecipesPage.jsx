@@ -2,18 +2,15 @@ import React from 'react';
 import {
   Box, Stack, TextField, InputAdornment, IconButton, Paper, List,
   ListItemButton, ListItemText, Button, Typography, CircularProgress,
-  Card, CardActionArea
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
 import AddIcon from '@mui/icons-material/Add';
-import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import FavoriteIcon from '@mui/icons-material/Favorite';
 import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
-import IosShareOutlinedIcon from '@mui/icons-material/IosShareOutlined';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import { formatDuration } from './utils/videoEmbed';
+import RecipeListCard from './components/RecipeListCard';
 
 export default function RecipesPage({
   displayedRecipes,
@@ -222,137 +219,50 @@ export default function RecipesPage({
         >
           {displayedRecipes.map((recipe) => {
             const displayImageUrl = resolveRecipeImageUrl(recipe.title, recipe.imageUrl);
+            const hasVideo = Boolean(buildEmbedUrl(recipe.sourceUrl));
             return (
-              <Card
+              <RecipeListCard
                 key={recipe.id}
-                elevation={0}
-                sx={{
-                  display: 'flex',
-                  borderRadius: '8px',
-                  overflow: 'hidden',
-                  border: 1, borderColor: 'divider',
-                  backgroundColor: 'background.paper',
-                  transition: 'box-shadow 200ms ease',
-                  '&:hover': {
-                    boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05)'
-                  }
+                recipe={recipe}
+                onOpen={handleOpenRecipe}
+                onSave={() => { if (!session) { openAuthDialog(); return; } toggleFavorite(recipe.id); }}
+                onShare={(_, e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  handleShare(recipe, { top: rect.bottom, left: rect.right });
                 }}
-              >
-                <CardActionArea
-                  onClick={() => handleOpenRecipe(recipe)}
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'stretch',
-                    pt: '8px',
-                    pb: '8px',
-                    pl: '8px',
-                    pr: 1.5,
-                    gap: '12px',
-                    '&:hover .MuiCardActionArea-focusHighlight': {
-                      opacity: 0
-                    }
-                  }}
-                >
+                saveIcon={
+                  !session
+                    ? <BookmarkBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
+                    : favorites.has(recipe.id)
+                      ? <FavoriteIcon sx={{ fontSize: 18, color: '#e53935' }} />
+                      : <FavoriteBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
+                }
+                thumbnail={
                   <Box
-                    role={buildEmbedUrl(recipe.sourceUrl) ? 'button' : undefined}
-                    aria-label={buildEmbedUrl(recipe.sourceUrl) ? `Play ${recipe.title} video` : undefined}
-                    onClick={buildEmbedUrl(recipe.sourceUrl) ? (event) => handleVideoThumbnailClick(event, recipe) : undefined}
-                    sx={{
-                      position: 'relative',
-                      width: 90,
-                      height: 90,
-                      flexShrink: 0,
-                      cursor: buildEmbedUrl(recipe.sourceUrl) ? 'pointer' : 'default',
-                      overflow: 'hidden',
-                      borderRadius: '6px'
-                    }}
+                    role={hasVideo ? 'button' : undefined}
+                    aria-label={hasVideo ? `Play ${recipe.title} video` : undefined}
+                    onClick={hasVideo ? (event) => handleVideoThumbnailClick(event, recipe) : undefined}
+                    sx={{ position: 'relative', width: 90, height: 90, flexShrink: 0, cursor: hasVideo ? 'pointer' : 'default', overflow: 'hidden', borderRadius: '6px' }}
                   >
                     <RecipeThumbnail
                       src={displayImageUrl}
                       alt={recipe.title || 'Recipe preview'}
                       onError={createImageFallbackHandler(recipe.title)}
                     />
-                    {buildEmbedUrl(recipe.sourceUrl) && (
-                      <Box
-                        sx={{
-                          position: 'absolute',
-                          inset: 0,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          backgroundColor: 'rgba(0,0,0,0.2)'
-                        }}
-                      >
+                    {hasVideo && (
+                      <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.2)' }}>
                         <PlayArrowIcon sx={{ fontSize: 36, color: 'white', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.4))' }} />
                       </Box>
                     )}
                   </Box>
-                  <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                    <Typography
-                      variant="subtitle1"
-                      component="div"
-                      sx={{
-                        fontWeight: 700,
-                        fontSize: '0.8125rem',
-                        lineHeight: 1.4,
-                        textTransform: 'uppercase',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden'
-                      }}
-                    >
-                      {recipe.title}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      {recipe.durationMinutes ? (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
-                          <Typography variant="caption" color="text.secondary">
-                            {formatDuration(recipe.durationMinutes)}
-                          </Typography>
-                        </Box>
-                      ) : <Box />}
-                      <Box sx={{ flexGrow: 1 }} />
-                      <IconButton
-                        size="small"
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onTouchStart={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          if (!session) { openAuthDialog(); return; }
-                          toggleFavorite(recipe.id);
-                        }}
-                        aria-label={session && favorites.has(recipe.id) ? 'Unsave recipe' : 'Save recipe'}
-                        sx={{ p: 0.5, mr: '9px' }}
-                      >
-                        {!session
-                          ? <BookmarkBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
-                          : favorites.has(recipe.id)
-                            ? <FavoriteIcon sx={{ fontSize: 18, color: '#e53935' }} />
-                            : <FavoriteBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />}
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onTouchStart={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const anchorPosition = { top: rect.bottom, left: rect.right };
-                          handleShare(recipe, anchorPosition);
-                        }}
-                        sx={{ p: 0.5 }}
-                        aria-label="Share recipe"
-                      >
-                        <IosShareOutlinedIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
-                      </IconButton>
-                    </Box>
-                  </Box>
-                </CardActionArea>
-              </Card>
+                }
+                cardSx={{
+                  borderRadius: '8px',
+                  backgroundColor: 'background.paper',
+                  transition: 'box-shadow 200ms ease',
+                  '&:hover': { boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05)' },
+                }}
+              />
             );
           })}
         </Box>

@@ -1164,6 +1164,9 @@ function App() {
   const [isFriendsDialogOpen, setIsFriendsDialogOpen] = useState(false);
   const [friendsTab, setFriendsTab] = useState(0);
   const [isAddFriendOpen, setIsAddFriendOpen] = useState(false);
+  const [isInviteSheetOpen, setIsInviteSheetOpen] = useState(false);
+  const [inviteSheetUrl, setInviteSheetUrl] = useState(null);
+  const [inviteSheetLoading, setInviteSheetLoading] = useState(false);
   const [openInviteLink, setOpenInviteLink] = useState(null);
   const [openInviteLinkLoading, setOpenInviteLinkLoading] = useState(false);
   const [openInviteLinkLoaded, setOpenInviteLinkLoaded] = useState(false);
@@ -1376,6 +1379,68 @@ function App() {
     const res = await callRecipesApi('/friends/open-invite', { method: 'POST' }, accessToken);
     if (!res?.token) return null;
     return `${window.location.origin}?invite=${res.token}`;
+  };
+
+  const openInviteSheet = async () => {
+    setIsInviteSheetOpen(true);
+    setInviteSheetUrl(null);
+    setInviteSheetLoading(true);
+    try {
+      const url = await generateOpenInviteUrl();
+      setInviteSheetUrl(url);
+    } finally {
+      setInviteSheetLoading(false);
+    }
+  };
+
+  const handleSavePublicRecipe = async (recipe) => {
+    try {
+      const token = (await supabase?.auth.getSession())?.data?.session?.access_token;
+      if (!token) { openAuthDialog(); return; }
+      const payload = {
+        title: recipe.title,
+        sourceUrl: recipe.sourceUrl || '',
+        imageUrl: recipe.imageUrl || '',
+        mealTypes: recipe.mealTypes || [],
+        ingredients: recipe.ingredients || [],
+        steps: recipe.steps || null,
+        durationMinutes: recipe.durationMinutes || null,
+        notes: '',
+      };
+      const res = await fetch(`${API_BASE_URL}/recipes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('Failed to save');
+      const { recipe: saved } = await res.json();
+      setRecipes((prev) => {
+        const updated = [saved, ...prev.filter((r) => r.id !== saved.id)];
+        saveRecipesToCache(updated, session?.user?.id || null, serverVersionRef.current);
+        return updated;
+      });
+      setSnackbarState({ open: true, message: `"${recipe.title}" saved to your collection!`, severity: 'success' });
+    } catch {
+      setSnackbarState({ open: true, message: 'Failed to save recipe', severity: 'error' });
+    }
+  };
+
+  const handleSharePublicRecipe = (recipe, event) => {
+    const anchorPosition = event?.currentTarget
+      ? { top: event.currentTarget.getBoundingClientRect().bottom, left: event.currentTarget.getBoundingClientRect().left }
+      : { top: window.innerHeight / 2, left: window.innerWidth / 2 };
+    setShareMenuState({ anchorPosition, url: window.location.origin, title: recipe.title, imageUrl: recipe.imageUrl || '' });
+  };
+
+  const handleOpenEditorPickRecipe = (recipe) => {
+    const safe = {
+      ...recipe,
+      ingredients: Array.isArray(recipe.ingredients) ? recipe.ingredients : [],
+      steps: Array.isArray(recipe.steps) ? recipe.steps : [],
+    };
+    setActiveRecipe(safe);
+    setActiveRecipeDraft(safe);
+    setIsSharedRecipeView(true);
   };
 
   const handleInviteByText = async () => {
@@ -3536,11 +3601,30 @@ function App() {
         if (response.ok) {
           const { token } = await response.json();
           const shareUrl = `${window.location.origin}?share=${token}`;
-          setShareMenuState({ anchorPosition, url: shareUrl, title: recipe.title });
+          setShareMenuState({ anchorPosition, url: shareUrl, title: recipe.title, imageUrl: recipe.imageUrl || '' });
           return;
         }
+        // Recipe not in user's collection — save a copy silently, then share
+        if (response.status === 404) {
+          const payload = await buildApiRecipePayload(recipe);
+          const saveRes = await callRecipesApi('/recipes', { method: 'POST', body: JSON.stringify(payload) }, accessToken);
+          const savedRecipe = normalizeRecipeFromApi(saveRes?.recipe);
+          if (savedRecipe?.id) {
+            const shareRes2 = await fetch(`${API_BASE_URL}/recipes/${encodeURIComponent(savedRecipe.id)}/share`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+            });
+            if (shareRes2.ok) {
+              const { token } = await shareRes2.json();
+              const shareUrl = `${window.location.origin}?share=${token}`;
+              setShareMenuState({ anchorPosition, url: shareUrl, title: recipe.title, imageUrl: recipe.imageUrl || '' });
+              return;
+            }
+          }
+        }
       }
-      setSnackbarState({ open: true, message: 'Unable to share this recipe', severity: 'error' });
+      // Last-resort fallback
+      setShareMenuState({ anchorPosition, url: window.location.origin, title: recipe.title, imageUrl: recipe.imageUrl || '' });
     } catch (error) {
       console.error('Error sharing:', error);
       setSnackbarState({ open: true, message: 'Failed to share', severity: 'error' });
@@ -3991,7 +4075,7 @@ function App() {
         recipes={welcomeRecipes}
       />
       <OnboardingFlow
-        open={onboardingOpen}
+        open={false /* hidden until new screens are ready */}
         onComplete={handleOnboardingComplete}
         onSkip={handleOnboardingSkip}
       />
@@ -4003,6 +4087,7 @@ function App() {
           onOpenRecipe={handleOpenRecipeDetails}
           darkMode={darkMode}
           onCookWithFriendsVisible={setCookWithFriendsVisible}
+          onShare={handleSharePublicRecipe}
         />
       )}
 
@@ -4021,15 +4106,24 @@ function App() {
                   accessToken={accessToken}
                   onAddRecipe={openAddDialog}
                   onViewRecipes={() => setCurrentView('recipes')}
-                  onOpenFriends={() => setIsFriendsDialogOpen(true)}
+                  onAddFriends={() => { setIsFriendsDialogOpen(true); setIsAddFriendOpen(true); fetchFriends(); }}
+                  onViewFriends={() => setIsFriendsDialogOpen(true)}
                 />
+                <Box sx={{ mt: '70px' }}>
                 <FriendSections
                   accessToken={accessToken}
-                  onOpenRecipe={handleOpenRecipeDetails}
-                  onSaveRecipe={handleOpenRecipeDetails}
+                  onOpenRecipe={handleOpenEditorPickRecipe}
+                  onSaveRecipe={handleSavePublicRecipe}
+                  onShareRecipe={(recipe, event) => {
+                    const anchorPosition = event?.currentTarget
+                      ? { top: event.currentTarget.getBoundingClientRect().bottom, left: event.currentTarget.getBoundingClientRect().left }
+                      : { top: window.innerHeight / 2, left: window.innerWidth / 2 };
+                    handleShare(recipe, anchorPosition);
+                  }}
                   onInviteFriend={() => setIsFriendsDialogOpen(true)}
                   darkMode={darkMode}
                 />
+                </Box>
               </>
             )}
             {currentView === 'recipes' && (
@@ -4606,38 +4700,9 @@ function App() {
                     color="inherit"
                     startIcon={<IosShareOutlinedIcon />}
                     sx={{ flex: 1 }}
-                    onClick={async () => {
-                      const title = activeRecipe?.title || 'Recipe';
-                      const doShare = async (url) => {
-                        if (navigator.share) {
-                          try { await navigator.share({ title, url }); return; } catch (err) { if (err.name === 'AbortError') return; }
-                        }
-                        try {
-                          await navigator.clipboard.writeText(url);
-                          setSnackbarState({ open: true, message: 'Link copied to clipboard', severity: 'success' });
-                        } catch { /* ignore */ }
-                      };
-                      // If opened via a share token URL, share that directly
-                      if (window.location.search.includes('share=')) {
-                        await doShare(window.location.href);
-                        return;
-                      }
-                      // Friend recipe from drawer — generate a ReciFind share link
-                      if (selectedFriend && activeRecipe?.id && API_BASE_URL) {
-                        try {
-                          const resp = await fetch(
-                            `${API_BASE_URL}/friends/${encodeURIComponent(selectedFriend.friendId)}/recipes/${encodeURIComponent(activeRecipe.id)}/share`,
-                            { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }
-                          );
-                          if (resp.ok) {
-                            const { token } = await resp.json();
-                            await doShare(`${window.location.origin}?share=${token}`);
-                            return;
-                          }
-                        } catch { /* fall through */ }
-                      }
-                      // Fallback: share the source URL if available
-                      await doShare(activeRecipe?.sourceUrl || window.location.href);
+                    onClick={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      handleShare(activeRecipe, { top: rect.bottom, left: rect.left });
                     }}
                   >
                     Share
@@ -5710,6 +5775,65 @@ function App() {
           <Button onClick={closeAuthDialog} sx={(theme) => ({ ...(theme.palette.mode === 'dark' && { color: '#fff' }) })}>Cancel</Button>
         </DialogActions>
       </Dialog>
+      {/* Invite Friends Sheet */}
+      <Drawer
+        anchor="bottom"
+        open={isInviteSheetOpen}
+        onClose={() => setIsInviteSheetOpen(false)}
+        PaperProps={{ sx: { borderRadius: '16px 16px 0 0', pb: 'env(safe-area-inset-bottom)' } }}
+      >
+        <Box sx={{ p: 3 }}>
+          <Typography sx={{ fontWeight: 700, fontSize: 17, mb: 0.5 }}>Invite Friends</Typography>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 2.5 }}>
+            Share ReciFind with people you cook with
+          </Typography>
+          <Stack spacing={1.5}>
+            <Button
+              fullWidth
+              variant="contained"
+              startIcon={<EmailOutlinedIcon />}
+              disabled={inviteSheetLoading || !inviteSheetUrl}
+              onClick={() => {
+                const subject = encodeURIComponent('Join me on ReciFind!');
+                const body = encodeURIComponent(`Hey! I'm using ReciFind to save and share recipes. Join me here: ${inviteSheetUrl}`);
+                window.location.href = `mailto:?subject=${subject}&body=${body}`;
+              }}
+              sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 700 }}
+            >
+              Email
+            </Button>
+            <Button
+              fullWidth
+              variant="contained"
+              startIcon={<SmsOutlinedIcon />}
+              disabled={inviteSheetLoading || !inviteSheetUrl}
+              onClick={() => {
+                const msg = encodeURIComponent(`Hey! I'm using ReciFind to save and share recipes. Join me: ${inviteSheetUrl}`);
+                window.open(`sms:?body=${msg}`);
+              }}
+              sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 700 }}
+            >
+              Text
+            </Button>
+            <Button
+              fullWidth
+              variant="outlined"
+              startIcon={inviteSheetLoading ? <CircularProgress size={16} /> : <ContentCopyIcon />}
+              disabled={inviteSheetLoading || !inviteSheetUrl}
+              onClick={() => {
+                navigator.clipboard.writeText(inviteSheetUrl);
+                setSnackbarState({ open: true, message: 'Invite link copied!', severity: 'success' });
+                setIsInviteSheetOpen(false);
+                trackEvent('invite_friend', { method: 'copy_link', source: 'stats_tile' });
+              }}
+              sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 600 }}
+            >
+              {inviteSheetLoading ? 'Getting link…' : 'Copy link'}
+            </Button>
+          </Stack>
+        </Box>
+      </Drawer>
+
       {/* Feedback widget */}
       {showFeedbackWidget && !mobileFilterDrawerOpen && !isAddDialogOpen && !isFriendsDialogOpen && <Box sx={{ position: 'fixed', bottom: 'calc(20px + env(safe-area-inset-bottom))', right: 20, zIndex: 1300 }}>
         <Tooltip title="Send feedback" placement="left">
