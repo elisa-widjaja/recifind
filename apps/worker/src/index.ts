@@ -1239,7 +1239,7 @@ export async function getFriendActivity(
   type: string;
   message: string;
   friendName: string | null;
-  recipe: { id: string; title: string; imageUrl: string | null } | null;
+  recipe: { id: string; title: string; imageUrl: string | null; sourceUrl: string; ingredients: string[]; steps: string[] } | null;
   createdAt: string;
   read: boolean;
 }>> {
@@ -1264,17 +1264,20 @@ export async function getFriendActivity(
   )];
 
   // Batch fetch recipes in one query
-  const recipeMap = new Map<string, { id: string; title: string; imageUrl: string | null }>();
+  const recipeMap = new Map<string, { id: string; title: string; imageUrl: string | null; sourceUrl: string; ingredients: string[]; steps: string[] }>();
   if (recipeIds.length > 0) {
     const placeholders = recipeIds.map(() => '?').join(', ');
     const recipeRows = await db.prepare(
-      `SELECT id, title, image_url FROM recipes WHERE id IN (${placeholders})`
+      `SELECT id, title, image_url, source_url, ingredients, steps FROM recipes WHERE id IN (${placeholders})`
     ).bind(...recipeIds).all();
     for (const r of (recipeRows.results as Array<Record<string, unknown>>)) {
       recipeMap.set(String(r.id), {
         id: String(r.id),
         title: String(r.title),
         imageUrl: r.image_url ? String(r.image_url) : null,
+        sourceUrl: r.source_url ? String(r.source_url) : '',
+        ingredients: (() => { try { return JSON.parse(String(r.ingredients || '[]')); } catch { return []; } })(),
+        steps: (() => { try { return JSON.parse(String(r.steps || '[]')); } catch { return []; } })(),
       });
     }
   }

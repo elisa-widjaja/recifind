@@ -16,7 +16,7 @@ describe('getFriendActivity', () => {
       },
     ];
     const recipeRows = [
-      { id: 'recipe-1', title: 'Spicy Thai Noodles', image_url: 'https://example.com/img.jpg' },
+      { id: 'recipe-1', title: 'Spicy Thai Noodles', image_url: 'https://example.com/img.jpg', source_url: '', ingredients: '["noodles","chili"]', steps: '["boil","mix"]' },
     ];
 
     const mockDb = {
@@ -30,6 +30,8 @@ describe('getFriendActivity', () => {
     expect(result[0].friendName).toBe('Sarah');
     expect(result[0].recipe?.title).toBe('Spicy Thai Noodles');
     expect(result[0].recipe?.imageUrl).toBe('https://example.com/img.jpg');
+    expect(result[0].recipe?.ingredients).toEqual(['noodles', 'chili']);
+    expect(result[0].recipe?.steps).toEqual(['boil', 'mix']);
   });
 
   it('falls back to first word of message when friendName not in data blob', async () => {
@@ -92,7 +94,7 @@ describe('getFriendsRecentlySaved', () => {
         all: vi.fn()
           .mockResolvedValueOnce({ results: [{ friend_id: 'friend-1', friend_name: 'Sarah' }] })
           .mockResolvedValueOnce({ results: [
-            { id: 'r1', title: 'Berry Bake', source_url: '', image_url: '', meal_types: '[]', duration_minutes: null, created_at: '2026-03-09' }
+            { id: 'r1', title: 'Berry Bake', source_url: '', image_url: '', meal_types: '[]', duration_minutes: null, created_at: '2026-03-09', ingredients: '["berries"]', steps: '["bake"]' }
           ]})
       })
     } as unknown as D1Database;
@@ -101,6 +103,7 @@ describe('getFriendsRecentlySaved', () => {
     expect(result).toHaveLength(1);
     expect(result[0].recipe.title).toBe('Berry Bake');
     expect(result[0].friendName).toBe('Sarah');
+    expect(result[0].recipe.ingredients).toEqual(['berries']);
   });
 });
 
@@ -112,12 +115,13 @@ describe('getFriendsRecentlyShared', () => {
         all: vi.fn()
           .mockResolvedValueOnce({ results: [{ friend_id: 'friend-1', friend_name: 'Elisa' }] })
           .mockResolvedValueOnce({ results: [
-            { id: 'r2', title: 'Miso Ramen', source_url: '', image_url: '', meal_types: '[]', duration_minutes: 20, created_at: '2026-03-09' }
+            { id: 'r2', title: 'Miso Ramen', source_url: '', image_url: '', meal_types: '[]', duration_minutes: 20, created_at: '2026-03-09', ingredients: '["miso","ramen"]', steps: '["boil","serve"]' }
           ]})
       })
     } as unknown as D1Database;
 
     const result = await getFriendsRecentlyShared(mockDb, mockUserId);
     expect(result[0].recipe.title).toBe('Miso Ramen');
+    expect(result[0].recipe.ingredients).toEqual(['miso', 'ramen']);
   });
 });
