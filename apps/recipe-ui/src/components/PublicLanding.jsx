@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Box, Container, Typography, Button, Stack, IconButton, Chip,
-  Card, CardActionArea, Tooltip
+  Card, CardActionArea, Tooltip, Fab
 } from '@mui/material';
 import IosShareOutlinedIcon from '@mui/icons-material/IosShareOutlined';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
@@ -37,11 +37,24 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
   const [editorsPick, setEditorsPick] = useState([]);
   const [aiPicks, setAiPicks] = useState([]);
   const [editorsExpanded, setEditorsExpanded] = useState(false);
+  const [fabVisible, setFabVisible] = useState(true);
+  const cookWithFriendsRef = useRef(null);
 
   useEffect(() => {
     fetchJson('/public/trending-recipes').then(d => setTrending(d?.recipes || []));
     fetchJson('/public/editors-pick').then(d => setEditorsPick(d?.recipes || []));
     fetchJson('/public/ai-picks').then(d => setAiPicks(d?.picks || []));
+  }, []);
+
+  useEffect(() => {
+    const el = cookWithFriendsRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setFabVisible(!entry.isIntersecting),
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
   }, []);
 
   const visibleEditors = editorsExpanded ? editorsPick : editorsPick.slice(0, 3);
@@ -160,10 +173,38 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
           )}
 
           {/* ── Section 4: Cook with Friends ── */}
-          <CookWithFriends onJoin={onJoin} darkMode={darkMode} />
+          <Box ref={cookWithFriendsRef}>
+            <CookWithFriends onJoin={onJoin} darkMode={darkMode} />
+          </Box>
 
         </Stack>
       </Box>
+
+      {/* ── Floating Join CTA — hidden when Cook with Friends is visible ── */}
+      <Fab
+        variant="extended"
+        onClick={onJoin}
+        sx={{
+          position: 'fixed',
+          bottom: 24,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 1200,
+          bgcolor: 'primary.main',
+          color: '#fff',
+          fontWeight: 700,
+          fontSize: 14,
+          textTransform: 'none',
+          px: 4,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+          transition: 'opacity 0.25s, transform 0.25s',
+          opacity: fabVisible ? 1 : 0,
+          pointerEvents: fabVisible ? 'auto' : 'none',
+          '&:hover': { bgcolor: 'primary.dark' },
+        }}
+      >
+        Join Free
+      </Fab>
     </Container>
   );
 }
