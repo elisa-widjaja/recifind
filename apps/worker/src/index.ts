@@ -1215,7 +1215,21 @@ export async function getAiPicks(
   return picks;
 }
 
-type FriendRecipeItem = { friendName: string; friendId: string; recipe: { id: string; title: string; imageUrl: string; mealTypes: string[]; durationMinutes: number | null; createdAt: string } };
+type FriendRecipeItem = {
+  friendName: string;
+  friendId: string;
+  recipe: {
+    id: string;
+    title: string;
+    imageUrl: string | null;
+    sourceUrl: string;
+    mealTypes: string[];
+    durationMinutes: number | null;
+    createdAt: string;
+    ingredients: string[];
+    steps: string[];
+  }
+};
 
 export async function getFriendActivity(
   db: D1Database,
@@ -1225,8 +1239,7 @@ export async function getFriendActivity(
   type: string;
   message: string;
   friendName: string | null;
-  recipe: { id: string; title: string; imageUrl: string } | null;
-  data: unknown;
+  recipe: { id: string; title: string; imageUrl: string | null } | null;
   createdAt: string;
   read: boolean;
 }>> {
@@ -1243,7 +1256,7 @@ export async function getFriendActivity(
     read: Boolean(r.read),
   }));
 
-  // Collect unique recipeIds for batch fetch
+  // Collect unique recipeIds for batch fetch — bounded to ≤10 by the LIMIT 10 in the notifications query above
   const recipeIds = [...new Set(
     parsed
       .map(item => (item.data as Record<string, unknown>).recipeId as string | undefined)
@@ -1251,7 +1264,7 @@ export async function getFriendActivity(
   )];
 
   // Batch fetch recipes in one query
-  const recipeMap = new Map<string, { id: string; title: string; imageUrl: string }>();
+  const recipeMap = new Map<string, { id: string; title: string; imageUrl: string | null }>();
   if (recipeIds.length > 0) {
     const placeholders = recipeIds.map(() => '?').join(', ');
     const recipeRows = await db.prepare(
@@ -1261,7 +1274,7 @@ export async function getFriendActivity(
       recipeMap.set(String(r.id), {
         id: String(r.id),
         title: String(r.title),
-        imageUrl: String(r.image_url || ''),
+        imageUrl: r.image_url ? String(r.image_url) : null,
       });
     }
   }
@@ -1271,11 +1284,14 @@ export async function getFriendActivity(
     const recipeId = d.recipeId as string | undefined;
     const friendName: string | null =
       (d.friendName as string | undefined) ?? item.message.split(' ')[0] ?? null;
-
     return {
-      ...item,
+      id: item.id,
+      type: item.type,
+      message: item.message,
       friendName,
       recipe: recipeId ? (recipeMap.get(recipeId) ?? null) : null,
+      createdAt: item.createdAt,
+      read: item.read,
     };
   });
 }
