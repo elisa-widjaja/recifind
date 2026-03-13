@@ -3783,8 +3783,8 @@ function App() {
           </>
         )}
 
-        {/* Filter by meal type */}
-        <Box sx={{ px: 2.5, pt: 2, pb: 2 }}>
+        {/* Filter by meal type — logged-in only */}
+        {session && <Box sx={{ px: 2.5, pt: 2, pb: 2 }}>
           <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1.5, fontSize: 13, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             Filter
           </Typography>
@@ -3835,7 +3835,7 @@ function App() {
               );
             })}
           </Box>
-        </Box>
+        </Box>}
 
         {/* Nav shortcuts */}
         {session && (
@@ -3926,7 +3926,7 @@ function App() {
 
         {/* Settings */}
         <Box>
-          <Divider />
+          {session && <Divider />}
           <Box sx={{ py: 1 }}>
             {/* Dark mode */}
             <Box
