@@ -236,7 +236,6 @@ const TICKER_ITEMS = [
   { initial: 'E', name: 'Elisa', color: '#7c3aed', text: 'saved Miso Ramen ❤️', time: '2h' },
   { initial: 'H', name: 'Henny', color: '#10b981', text: 'shared Beef Stew with you', time: '5h' },
   { initial: 'M', name: 'Max',   color: '#f59e0b', text: 'is cooking Tacos tonight 🌮', time: 'now' },
-  { initial: 'E', name: 'Elisa', color: '#7c3aed', text: 'shared Pad Thai with Sarah', time: '1d' },
   { initial: 'H', name: 'Henny', color: '#10b981', text: 'saved Salmon Bowl 🐟', time: '3h' },
   { initial: 'M', name: 'Max',   color: '#f59e0b', text: 'saved Chicken Tikka Masala 🍛', time: '6h' },
 ];
@@ -319,10 +318,10 @@ function ActivityTicker() {
           }}>
             <Typography sx={{ color: '#fff', fontSize: 11, fontWeight: 700 }}>{item.initial}</Typography>
           </Box>
-          <Typography variant="caption" sx={{ flex: 1, fontSize: 11, color: 'text.secondary' }}>
+          <Typography variant="caption" sx={{ flex: 1, fontSize: 11, color: 'text.secondary', lineHeight: 1.2 }}>
             <Box component="span" sx={{ color: item.color, fontWeight: 600 }}>{item.name}</Box>{' '}{item.text}
           </Typography>
-          <Typography variant="caption" sx={{ fontSize: 10, color: 'text.disabled', flexShrink: 0 }}>{item.time}</Typography>
+          <Typography variant="caption" sx={{ fontSize: 10, color: 'text.disabled', flexShrink: 0, lineHeight: 1.2 }}>{item.time}</Typography>
         </Box>
       ))}
     </Box>
