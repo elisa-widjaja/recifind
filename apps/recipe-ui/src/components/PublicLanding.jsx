@@ -120,19 +120,17 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
           {aiPicks.length > 0 && (
             <Box>
               <SectionLabel label="Trending in health and nutrition" />
-              <Stack spacing={0.5} sx={{ mb: 1.5 }}>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1.5, overflow: 'hidden', maxHeight: '52px' }}>
                 {aiPicks.map(p => (
-                  <Box key={p.topic} sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                    <Chip
-                      label={p.hashtag}
-                      size="small"
-                      variant="outlined"
-                      sx={{ color: darkMode ? '#fff' : 'text.secondary', borderColor: 'divider', fontSize: 11, height: 20, borderRadius: '10px', flexShrink: 0 }}
-                    />
-                    <Typography variant="caption" sx={{ fontSize: 11, color: 'text.secondary', lineHeight: 1.4 }}>{p.reason}</Typography>
-                  </Box>
+                  <Chip
+                    key={p.topic}
+                    label={p.hashtag}
+                    size="small"
+                    variant="outlined"
+                    sx={{ color: darkMode ? '#fff' : 'text.secondary', borderColor: 'divider', fontSize: 11, height: 20, borderRadius: '10px' }}
+                  />
                 ))}
-              </Stack>
+              </Box>
               <RecipeShelf
                 recipes={aiPicks.map(p => ({ ...p.recipe, _hashtag: p.hashtag, _topic: p.topic }))}
                 onSave={onJoin} onOpen={onOpenRecipe} cardWidth={180} gap="8px"

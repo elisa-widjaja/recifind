@@ -1146,7 +1146,14 @@ export async function getAiPicks(
     `SELECT id, title, image_url, meal_types, duration_minutes, source_url, ingredients, steps
      FROM recipes WHERE shared_with_friends = 1 ORDER BY RANDOM() LIMIT 40`
   ).all();
-  const candidates = (candidateRows.results as Array<Record<string, unknown>>);
+  // Only include recipes that have both ingredients and steps populated
+  const candidates = (candidateRows.results as Array<Record<string, unknown>>).filter(r => {
+    try {
+      const steps = JSON.parse(String(r.steps || '[]'));
+      const ingredients = JSON.parse(String(r.ingredients || '[]'));
+      return steps.length > 0 && ingredients.length > 0;
+    } catch { return false; }
+  });
   if (!candidates.length) return [];
 
   const titleList = candidates.map(r => String(r.title)).join('\n');
