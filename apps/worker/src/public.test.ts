@@ -86,6 +86,7 @@ describe('getAiPicks', () => {
     const cached = JSON.stringify([{
       topic: 'Gut health',
       hashtag: '#GutHealth',
+      reason: 'Great for gut health.',
       recipe: {
         id: 'r1', title: 'Berry Bake', imageUrl: '',
         mealTypes: [], durationMinutes: null,
@@ -126,7 +127,7 @@ describe('getAiPicks', () => {
       })
     } as unknown as D1Database;
     const mockCallGemini = vi.fn().mockResolvedValue(
-      '[{"topic":"Gut health","hashtag":"#GutHealth","match":"Berry Bake"}]'
+      '[{"topic":"Gut health","hashtag":"#GutHealth","reason":"Berries support gut health.","match":"Berry Bake"}]'
     );
 
     const result = await getAiPicks(mockDb, mockKV, mockCallGemini, {}, {});

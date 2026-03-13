@@ -1122,6 +1122,7 @@ export async function getEditorsPick(db: D1Database, titles: string[] = EDITOR_P
 type AiPick = {
   topic: string;
   hashtag: string;
+  reason: string;
   recipe: {
     id: string; title: string; imageUrl: string;
     mealTypes: string[]; durationMinutes: number | null;
@@ -1161,9 +1162,9 @@ export async function getAiPicks(
     ? `User preferences: meal types=${prefs.mealTypes || 'any'}, diet=${prefs.diet || 'any'}, skill=${prefs.skill || 'any'}.`
     : '';
 
-  const prompt = `You are a cooking trend analyst. ${prefsNote} Below is a list of real recipes. Pick 3 that best match current trending health or nutrition topics. For each pick, name the topic, create a hashtag, and copy the recipe title EXACTLY as it appears in the list. Return ONLY a JSON array with no markdown:\n[{"topic":"string","hashtag":"string","match":"exact recipe title from list"}]\n\nRecipes:\n${titleList}`;
+  const prompt = `You are a cooking trend analyst. ${prefsNote} Below is a list of real recipes. Pick 3 that best match current trending health or nutrition topics. For each pick, name the topic, create a hashtag, write a one-sentence reason why this recipe fits the trend, and copy the recipe title EXACTLY as it appears in the list. Return ONLY a JSON array with no markdown:\n[{"topic":"string","hashtag":"string","reason":"one sentence why this fits the trend","match":"exact recipe title from list"}]\n\nRecipes:\n${titleList}`;
 
-  let parsed: Array<{ topic: string; hashtag: string; match: string }> = [];
+  let parsed: Array<{ topic: string; hashtag: string; reason: string; match: string }> = [];
   try {
     const raw = await gemini(env as Env, prompt);
     const cleaned = raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
@@ -1183,6 +1184,7 @@ export async function getAiPicks(
       picks.push({
         topic: item.topic,
         hashtag: item.hashtag,
+        reason: item.reason || '',
         recipe: {
           id: String(row.id),
           title: String(row.title),

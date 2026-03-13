@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Box, Container, Typography, Button, Stack, IconButton, Chip,
-  Card, CardActionArea
+  Card, CardActionArea, Tooltip
 } from '@mui/material';
 import IosShareOutlinedIcon from '@mui/icons-material/IosShareOutlined';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { formatDuration } from '../utils/videoEmbed';
 import RecipeShelf from './RecipeShelf';
 import DiscoverRecipes from './DiscoverRecipes';
@@ -122,13 +123,24 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode }) {
               <SectionLabel label="Trending in health and nutrition" />
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1.5, overflow: 'hidden', maxHeight: '52px' }}>
                 {aiPicks.map(p => (
-                  <Chip
-                    key={p.topic}
-                    label={p.hashtag}
-                    size="small"
-                    variant="outlined"
-                    sx={{ color: darkMode ? '#fff' : 'text.secondary', borderColor: 'divider', fontSize: 11, height: 20, borderRadius: '10px' }}
-                  />
+                  <Box key={p.topic} sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                    <Chip
+                      label={p.hashtag}
+                      size="small"
+                      variant="outlined"
+                      sx={{ color: darkMode ? '#fff' : 'text.secondary', borderColor: 'divider', fontSize: 11, height: 20, borderRadius: '10px' }}
+                    />
+                    {p.reason && (
+                      <Tooltip
+                        title={p.reason}
+                        enterTouchDelay={0}
+                        leaveTouchDelay={4000}
+                        arrow
+                      >
+                        <InfoOutlinedIcon sx={{ fontSize: 13, color: 'text.disabled', cursor: 'pointer' }} />
+                      </Tooltip>
+                    )}
+                  </Box>
                 ))}
               </Box>
               <RecipeShelf
