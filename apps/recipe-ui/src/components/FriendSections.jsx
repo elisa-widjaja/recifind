@@ -184,33 +184,35 @@ const VERB_MAP = {
   friend_shared_recipe: 'shared',
 };
 
+// Notification types that carry a recipe — show structured sentence + thumbnail
+const RECIPE_TYPES = new Set(['friend_cooked_recipe', 'friend_saved_recipe', 'friend_shared_recipe']);
+
 function ActivityItem({ item, onOpenRecipe }) {
   const friendName = item.friendName ?? '?';
   const color = AVATAR_COLORS[Math.abs(item.id) % AVATAR_COLORS.length];
   const initial = friendName.charAt(0).toUpperCase();
-  const verb = VERB_MAP[item.type] ?? 'interacted with';
-  const recipeTitle = item.recipe?.title ?? '';
+  const isRecipeNotif = RECIPE_TYPES.has(item.type) && item.recipe;
 
   function handleClick() {
-    if (item.recipe) onOpenRecipe?.(item.recipe);
+    if (isRecipeNotif) onOpenRecipe?.(item.recipe);
   }
 
   return (
     <Box
       onClick={handleClick}
-      role={item.recipe ? 'button' : undefined}
-      tabIndex={item.recipe ? 0 : undefined}
-      aria-label={item.recipe ? `View ${recipeTitle}` : undefined}
-      onKeyDown={item.recipe ? (e) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); } : undefined}
+      role={isRecipeNotif ? 'button' : undefined}
+      tabIndex={isRecipeNotif ? 0 : undefined}
+      aria-label={isRecipeNotif ? `View ${item.recipe.title}` : undefined}
+      onKeyDown={isRecipeNotif ? (e) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); } : undefined}
       sx={{
         display: 'flex',
         alignItems: 'center',
         gap: '10px',
         px: 1.25,
         py: '8px',
-        cursor: item.recipe ? 'pointer' : 'default',
-        '&:hover': item.recipe ? { bgcolor: 'action.hover' } : {},
-        '&:focus-visible': item.recipe ? { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: '-2px' } : {},
+        cursor: isRecipeNotif ? 'pointer' : 'default',
+        '&:hover': isRecipeNotif ? { bgcolor: 'action.hover' } : {},
+        '&:focus-visible': isRecipeNotif ? { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: '-2px' } : {},
       }}
     >
       {/* Avatar */}
@@ -221,38 +223,45 @@ function ActivityItem({ item, onOpenRecipe }) {
         <Typography sx={{ color: '#fff', fontSize: 13, fontWeight: 700, lineHeight: 1 }}>{initial}</Typography>
       </Box>
 
-      {/* Sentence */}
-      <Typography sx={{
-        flex: 1,
-        fontSize: 12,
-        lineHeight: 1.4,
-        display: '-webkit-box',
-        WebkitLineClamp: 2,
-        WebkitBoxOrient: 'vertical',
-        overflow: 'hidden',
-      }}>
-        <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>{friendName}</Box>
-        <Box component="span" sx={{ color: 'text.secondary' }}> {verb} </Box>
-        <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>{recipeTitle}</Box>
-      </Typography>
+      {isRecipeNotif ? (
+        /* Recipe notification: "Sarah saved Spicy Thai Noodles" */
+        <Typography sx={{
+          flex: 1, fontSize: 12, lineHeight: 1.4,
+          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+        }}>
+          <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>{friendName}</Box>
+          <Box component="span" sx={{ color: 'text.secondary' }}> {VERB_MAP[item.type]} </Box>
+          <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>{item.recipe.title}</Box>
+        </Typography>
+      ) : (
+        /* Connection notification: use pre-formatted message from the server */
+        <Typography sx={{
+          flex: 1, fontSize: 12, lineHeight: 1.4, color: 'text.secondary',
+          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+        }}>
+          {item.message}
+        </Typography>
+      )}
 
       {/* Timestamp */}
       <Typography sx={{ fontSize: 10, color: 'text.disabled', flexShrink: 0 }}>
         {timeAgo(item.createdAt)}
       </Typography>
 
-      {/* Thumbnail */}
-      <Box sx={{
-        width: 44, height: 44, borderRadius: '8px', flexShrink: 0,
-        overflow: 'hidden', bgcolor: 'action.hover',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        {item.recipe?.imageUrl
-          ? <Box component="img" src={item.recipe.imageUrl} alt={recipeTitle}
-              sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          : <Typography sx={{ fontSize: 20 }}>🍳</Typography>
-        }
-      </Box>
+      {/* Thumbnail — only for recipe notifications */}
+      {isRecipeNotif && (
+        <Box sx={{
+          width: 44, height: 44, borderRadius: '8px', flexShrink: 0,
+          overflow: 'hidden', bgcolor: 'action.hover',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {item.recipe.imageUrl
+            ? <Box component="img" src={item.recipe.imageUrl} alt={item.recipe.title}
+                sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : <Typography sx={{ fontSize: 20 }}>🍳</Typography>
+          }
+        </Box>
+      )}
     </Box>
   );
 }

@@ -53,7 +53,7 @@ interface Friend {
 }
 
 interface NotificationItem {
-  type: 'friend_request' | 'friend_accepted' | 'friend_cooked_recipe';
+  type: 'friend_request' | 'friend_accepted' | 'friend_cooked_recipe' | 'friend_saved_recipe';
   message: string;
   data: Record<string, string>;
   createdAt: string;
@@ -1405,6 +1405,22 @@ async function handleCreateRecipe(request: Request, env: Env, user: Authenticate
     recipe.sharedWithFriends ? 1 : 0, recipe.createdAt, recipe.updatedAt
   ).run();
   await updateCollectionMeta(env, user.userId, { countDelta: 1 });
+
+  // Notify friends that this user saved a recipe
+  const [friendRows, profileRow] = await Promise.all([
+    env.DB.prepare(`SELECT friend_id FROM friends WHERE user_id = ?`).bind(user.userId).all(),
+    env.DB.prepare(`SELECT display_name FROM profiles WHERE user_id = ?`).bind(user.userId).first() as Promise<{ display_name?: string } | null>,
+  ]);
+  const saverName = profileRow?.display_name || 'Someone';
+  for (const f of (friendRows.results as Array<{ friend_id: string }>)) {
+    await addNotification(env, f.friend_id, {
+      type: 'friend_saved_recipe',
+      message: `${saverName} saved ${recipe.title}`,
+      data: { saverId: user.userId, recipeId: recipe.id, friendName: saverName },
+      createdAt: new Date().toISOString(),
+    });
+  }
+
   return json({ recipe }, 201);
 }
 
