@@ -33,6 +33,7 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
   const [recentlySaved, setRecentlySaved] = useState([]);
   const [recentlyShared, setRecentlyShared] = useState([]);
   const [loaded, setLoaded] = useState(false);
+  const [activityExpanded, setActivityExpanded] = useState(false);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -60,26 +61,44 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
     <Stack spacing={2.5}>
       {hasActivity && (
         <Box>
-          <SectionLabel>📣 Friend activity</SectionLabel>
+          <SectionLabel>Friend activity</SectionLabel>
           <Stack spacing={0.75}>
-            {activity.slice(0, 5).map(item => (
+            {activity.slice(0, activityExpanded ? 5 : 2).map(item => (
               <ActivityItem key={item.id} item={item} />
             ))}
           </Stack>
+          {activity.length > 2 && (
+            <Typography
+              component="button"
+              onClick={() => setActivityExpanded((prev) => !prev)}
+              sx={{
+                background: 'none',
+                border: 'none',
+                p: 0,
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 500,
+                color: 'primary.main',
+                fontFamily: 'inherit',
+              }}
+            >
+              {activityExpanded ? 'Show less' : 'Show more'}
+            </Typography>
+          )}
         </Box>
       )}
 
       {hasSaved && (
         <Box>
-          <SectionLabel>🔖 Recently saved by friends</SectionLabel>
-          <RecipeShelf recipes={recentlySaved} onSave={onSaveRecipe} onOpen={onOpenRecipe} cardWidth={130} />
+          <SectionLabel>Recently saved by friends</SectionLabel>
+          <RecipeShelf recipes={recentlySaved} onSave={onSaveRecipe} onOpen={onOpenRecipe} cardWidth={180} gap="8px" />
         </Box>
       )}
 
       {hasShared && (
         <Box>
-          <SectionLabel>📤 Recently shared by friends</SectionLabel>
-          <RecipeShelf recipes={recentlyShared} onSave={onSaveRecipe} onOpen={onOpenRecipe} cardWidth={130} />
+          <SectionLabel>Recently shared by friends</SectionLabel>
+          <RecipeShelf recipes={recentlyShared} onSave={onSaveRecipe} onOpen={onOpenRecipe} cardWidth={180} gap="8px" />
         </Box>
       )}
 
@@ -89,7 +108,7 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
 }
 
 function SectionLabel({ children }) {
-  return <Typography fontWeight={700} fontSize={13} mb={1}>{children}</Typography>;
+  return <Typography fontWeight={700} fontSize={13} sx={{ color: 'text.primary', mb: 1 }}>{children}</Typography>;
 }
 
 const AVATAR_COLORS = ['#7c3aed', '#10b981', '#f59e0b', '#ef4444', '#06b6d4'];
