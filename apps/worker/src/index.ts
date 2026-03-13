@@ -1190,7 +1190,9 @@ export async function getAiPicks(
     }
   }
 
-  await kv.put(cacheKey, JSON.stringify(picks), { expirationTtl: 604800 }); // 7 days
+  if (picks.length > 0) {
+    await kv.put(cacheKey, JSON.stringify(picks), { expirationTtl: 604800 }); // 7 days
+  }
   return picks;
 }
 
