@@ -95,6 +95,7 @@ import PublicLanding from './components/PublicLanding';
 import WelcomeModal from './components/WelcomeModal';
 import OnboardingFlow from './components/OnboardingFlow';
 import FriendSections from './components/FriendSections';
+import StatsTiles from './components/StatsTiles';
 import RecipesPage from './RecipesPage';
 import { formatDuration } from './utils/videoEmbed';
 import recipesData from '../recipes.json';
@@ -4014,13 +4015,22 @@ function App() {
         >
           <Stack spacing={1.5}>
             {currentView === 'home' && session && (
-              <FriendSections
-                accessToken={accessToken}
-                onOpenRecipe={handleOpenRecipeDetails}
-                onSaveRecipe={handleOpenRecipeDetails}
-                onInviteFriend={() => setIsFriendsDialogOpen(true)}
-                darkMode={darkMode}
-              />
+              <>
+                <StatsTiles
+                  recipeCount={userProfile?.recipeCount ?? recipes.length}
+                  accessToken={accessToken}
+                  onAddRecipe={openAddDialog}
+                  onViewRecipes={() => setCurrentView('recipes')}
+                  onOpenFriends={() => setIsFriendsDialogOpen(true)}
+                />
+                <FriendSections
+                  accessToken={accessToken}
+                  onOpenRecipe={handleOpenRecipeDetails}
+                  onSaveRecipe={handleOpenRecipeDetails}
+                  onInviteFriend={() => setIsFriendsDialogOpen(true)}
+                  darkMode={darkMode}
+                />
+              </>
             )}
             {currentView === 'recipes' && (
               <RecipesPage
