@@ -83,7 +83,7 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
               <Box key={item.id}>
                 <ActivityItem item={item} onOpenRecipe={onOpenRecipe} />
                 {index < arr.length - 1 && (
-                  <Box sx={{ height: '1px', bgcolor: '#f0f0f0', mx: '12px' }} />
+                  <Box sx={{ height: '1px', bgcolor: 'divider', mx: 1.5 }} />
                 )}
               </Box>
             ))}
@@ -96,6 +96,7 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
                 background: 'none',
                 border: 'none',
                 p: 0,
+                mt: 0.75,
                 cursor: 'pointer',
                 fontSize: 12,
                 fontWeight: 500,
@@ -185,8 +186,7 @@ const VERB_MAP = {
 
 function ActivityItem({ item, onOpenRecipe }) {
   const friendName = item.friendName ?? '?';
-  const colorIndex = item.id % AVATAR_COLORS.length;
-  const color = AVATAR_COLORS[Math.abs(colorIndex)];
+  const color = AVATAR_COLORS[Math.abs(item.id) % AVATAR_COLORS.length];
   const initial = friendName.charAt(0).toUpperCase();
   const verb = VERB_MAP[item.type] ?? 'interacted with';
   const recipeTitle = item.recipe?.title ?? '';
@@ -198,14 +198,19 @@ function ActivityItem({ item, onOpenRecipe }) {
   return (
     <Box
       onClick={handleClick}
+      role={item.recipe ? 'button' : undefined}
+      tabIndex={item.recipe ? 0 : undefined}
+      aria-label={item.recipe ? `View ${recipeTitle}` : undefined}
+      onKeyDown={item.recipe ? (e) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); } : undefined}
       sx={{
         display: 'flex',
         alignItems: 'center',
         gap: '10px',
-        px: '10px',
+        px: 1.25,
         py: '8px',
         cursor: item.recipe ? 'pointer' : 'default',
         '&:hover': item.recipe ? { bgcolor: 'action.hover' } : {},
+        '&:focus-visible': item.recipe ? { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: '-2px' } : {},
       }}
     >
       {/* Avatar */}
@@ -221,17 +226,18 @@ function ActivityItem({ item, onOpenRecipe }) {
         flex: 1,
         fontSize: 12,
         lineHeight: 1.4,
+        display: '-webkit-box',
+        WebkitLineClamp: 2,
+        WebkitBoxOrient: 'vertical',
         overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
       }}>
-        <Box component="span" sx={{ fontWeight: 600, color: '#111' }}>{friendName}</Box>
-        <Box component="span" sx={{ color: '#666' }}> {verb} </Box>
-        <Box component="span" sx={{ fontWeight: 600, color: '#111' }}>{recipeTitle}</Box>
+        <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>{friendName}</Box>
+        <Box component="span" sx={{ color: 'text.secondary' }}> {verb} </Box>
+        <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>{recipeTitle}</Box>
       </Typography>
 
       {/* Timestamp */}
-      <Typography sx={{ fontSize: 10, color: '#bbb', flexShrink: 0 }}>
+      <Typography sx={{ fontSize: 10, color: 'text.disabled', flexShrink: 0 }}>
         {timeAgo(item.createdAt)}
       </Typography>
 
