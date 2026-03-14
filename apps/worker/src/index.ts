@@ -841,6 +841,11 @@ async function handleUpdateProfile(request: Request, env: Env, user: Authenticat
     }
   }
 
+  // Validate cuisinePrefs if provided
+  if (body.cuisinePrefs !== undefined && !Array.isArray(body.cuisinePrefs)) {
+    throw new HttpError(400, 'cuisinePrefs must be an array');
+  }
+
   // Build dynamic UPDATE for only provided fields
   const fields: string[] = [];
   const values: unknown[] = [];
