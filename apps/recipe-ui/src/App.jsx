@@ -1267,6 +1267,9 @@ function App() {
   // Show welcome modal once after first sign-in
   useEffect(() => {
     if (!isAuthChecked || !session) return;
+    if (new URLSearchParams(window.location.search).get('reset_onboarding') === '1') {
+      localStorage.removeItem('onboarding_seen');
+    }
     const onboardingSeen = localStorage.getItem('onboarding_seen');
     if (onboardingSeen) return;
 
@@ -1527,6 +1530,11 @@ function App() {
     }
   };
 
+  const handleWelcomeSkip = () => {
+    setWelcomeOpen(false);
+    localStorage.setItem('onboarding_seen', '1');
+  };
+
   const handleOnboardingComplete = async (prefs) => {
     setOnboardingOpen(false);
     localStorage.setItem('onboarding_seen', '1');
@@ -1543,6 +1551,10 @@ function App() {
   const handleOnboardingSkip = () => {
     setOnboardingOpen(false);
     localStorage.setItem('onboarding_seen', '1');
+  };
+
+  const handleOnboardingDismiss = () => {
+    setOnboardingOpen(false);
   };
 
   const fetchFriendRecipes = async (friend) => {
@@ -2010,6 +2022,7 @@ function App() {
     if (isPwaInstalled()) return;
     if (localStorage.getItem('recifind-install-banner-dismissed')) return;
     if (sessionStorage.getItem('pending_invite_token')) return;
+    if (onboardingOpen) return;
     let timer;
     const handler = (e) => {
       e.preventDefault();
@@ -2025,7 +2038,7 @@ function App() {
       window.removeEventListener('beforeinstallprompt', handler);
       clearTimeout(timer);
     };
-  }, []);
+  }, [onboardingOpen]);
 
 
   // Show install banner on iOS as soon as auth check completes (no login required)
@@ -2037,9 +2050,10 @@ function App() {
     if (localStorage.getItem('recifind-install-banner-dismissed')) return;
     if (sessionStorage.getItem('pending_invite_token')) return;
     if (sessionStorage.getItem('invite_entry')) return;
+    if (onboardingOpen) return;
     const timer = setTimeout(() => setShowInstallBanner(true), 30000);
     return () => clearTimeout(timer);
-  }, [isAuthChecked, session]);
+  }, [isAuthChecked, session, onboardingOpen]);
 
   // Handle Web Share Target: open add dialog pre-filled with shared URL
   useEffect(() => {
@@ -4073,6 +4087,7 @@ function App() {
       <WelcomeModal
         open={welcomeOpen}
         onDismiss={handleWelcomeDismiss}
+        onSkip={handleWelcomeSkip}
         inviterName={inviterName}
         recipes={welcomeRecipes}
       />
@@ -4080,6 +4095,7 @@ function App() {
         open={onboardingOpen}
         onComplete={handleOnboardingComplete}
         onSkip={handleOnboardingSkip}
+        onDismiss={handleOnboardingDismiss}
       />
 
       {/* Logged-out: show discovery landing page. Only render after auth is checked to avoid flash. */}
