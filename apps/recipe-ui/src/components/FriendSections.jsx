@@ -30,7 +30,7 @@ function timeAgo(iso) {
  *   onOpenRecipe: (recipe) => void
  *   onSaveRecipe: (recipe) => void
  */
-export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe, onShareRecipe }) {
+export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, onOpenRecipe, onSaveRecipe, onShareRecipe, onInviteFriend }) {
   const [activity, setActivity] = useState([]);
   const [recentlySaved, setRecentlySaved] = useState([]);
   const [recentlyShared, setRecentlyShared] = useState([]);
@@ -38,6 +38,7 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
   const [activityExpanded, setActivityExpanded] = useState(false);
   const [editorsPick, setEditorsPick] = useState([]);
   const [editorsExpanded, setEditorsExpanded] = useState(false);
+  const [aiPicks, setAiPicks] = useState([]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -56,6 +57,18 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
   useEffect(() => {
     fetchJson('/public/editors-pick').then(d => setEditorsPick(d?.recipes || []));
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (cuisinePrefs?.length && !cuisinePrefs.includes('All of the above')) {
+      params.set('cuisine', cuisinePrefs.join(','));
+    }
+    if (cookingFor) params.set('cooking_for', cookingFor);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    fetchJson(`/public/ai-picks${query}`).then(d => setAiPicks(d?.picks || []));
+  }, [cookingFor, cuisinePrefs]);
+  // Note: cuisinePrefs is null (not []) when profile hasn't loaded yet.
+  // This prevents the effect re-firing on every render before userProfile is available.
 
   if (!loaded) return null;
 
@@ -165,6 +178,36 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
               {editorsExpanded ? 'Show less' : `+ ${editorsPick.length - 3} more picks`}
             </Typography>
           )}
+        </Box>
+      )}
+
+      {aiPicks.length > 0 && (
+        <Box>
+          <SectionLabel>Trending in health & nutrition</SectionLabel>
+          <Stack spacing={1}>
+            {aiPicks.map((pick, i) => (
+              <Box key={i} sx={{ p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <Typography variant="body2" fontWeight={700} sx={{ flex: 1 }}>{pick.topic}</Typography>
+                  <Typography variant="caption" sx={{ bgcolor: 'primary.main', color: '#fff', px: 1, py: 0.25, borderRadius: 10, fontWeight: 600, fontSize: 10 }}>
+                    {pick.hashtag}
+                  </Typography>
+                </Box>
+                <Typography variant="caption" color="text.secondary">{pick.reason}</Typography>
+                {pick.recipe && (
+                  <Box
+                    onClick={() => onOpenRecipe?.(pick.recipe)}
+                    sx={{ mt: 1, p: 1, borderRadius: 1.5, bgcolor: 'action.hover', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 1 }}
+                  >
+                    {pick.recipe.imageUrl && (
+                      <Box component="img" src={pick.recipe.imageUrl} sx={{ width: 40, height: 40, borderRadius: 1, objectFit: 'cover', flexShrink: 0 }} />
+                    )}
+                    <Typography variant="caption" fontWeight={600} sx={{ flex: 1 }}>{pick.recipe.title}</Typography>
+                  </Box>
+                )}
+              </Box>
+            ))}
+          </Stack>
         </Box>
       )}
 
