@@ -17,22 +17,36 @@ Start the Vite dev server (if not running) and spin up the named Cloudflare tunn
    sleep 3
    ```
 
-2. **Kill any existing cloudflared tunnel** to avoid stale processes:
+2. **Check if the worker is running on port 8787**
+   ```bash
+   lsof -i :8787 | grep LISTEN
+   ```
+   If nothing is listening, start it in the background (use `--remote` so it connects to real D1/KV):
+   ```bash
+   cd /Users/elisa/Desktop/VibeCode/apps/worker && npx wrangler dev --port 8787 --remote > /tmp/worker-dev.log 2>&1 &
+   sleep 8
+   ```
+   Verify it started:
+   ```bash
+   lsof -i :8787 | grep LISTEN
+   ```
+
+3. **Kill any existing cloudflared tunnel** to avoid stale processes:
    ```bash
    pkill -f "cloudflared tunnel" 2>/dev/null
    ```
 
-3. **Start the named tunnel** in the background:
+4. **Start the named tunnel** in the background:
    ```bash
    cloudflared tunnel run recifind-dev > /tmp/cf-tunnel.log 2>&1 &
    ```
 
-4. **Wait and verify it connected**:
+5. **Wait and verify it connected**:
    ```bash
    sleep 5 && grep "Registered tunnel connection" /tmp/cf-tunnel.log | tail -1
    ```
 
-5. **Report to the user**:
+6. **Report to the user**:
    - Local URL: `http://localhost:5173`
    - Tunnel URL: `https://dev-recifind.elisawidjaja.com` (permanent — no Supabase update needed)
 

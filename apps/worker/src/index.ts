@@ -42,6 +42,8 @@ interface UserProfile {
   email: string;
   displayName: string;
   createdAt: string;
+  cookingFor: string | null;
+  cuisinePrefs: string[];
 }
 
 
@@ -253,6 +255,8 @@ export default {
             mealTypes: url.searchParams.get('meal_types') || undefined,
             diet: url.searchParams.get('diet') || undefined,
             skill: url.searchParams.get('skill') || undefined,
+            cuisine: url.searchParams.get('cuisine') || undefined,
+            cookingFor: url.searchParams.get('cooking_for') || undefined,
           };
           const picks = await getAiPicks(env.DB, env.AI_PICKS_CACHE, callGemini, env, prefs);
           return json({ picks }, 200, withCors());
@@ -364,8 +368,8 @@ export default {
             await addNotification(env, f.friend_id as unknown as string, {
               type: 'friend_cooked_recipe',
               message: `${cookerName} cooked ${recipeName} 🍳`,
-              data: { cookerId: user.userId, recipeId },
-              created_at: new Date().toISOString(),
+              data: { cookerId: user.userId, recipeId, friendName: cookerName },
+              createdAt: new Date().toISOString(),
             });
           }
           return json({ ok: true }, 200, withCors());
@@ -815,11 +819,13 @@ async function handleGetProfile(env: Env, user: AuthenticatedUser) {
     email: profile.email,
     createdAt: profile.createdAt,
     recipeCount: meta?.count ?? 0,
+    cookingFor: profile.cookingFor,
+    cuisinePrefs: profile.cuisinePrefs,
   });
 }
 
 async function handleUpdateProfile(request: Request, env: Env, user: AuthenticatedUser) {
-  const body = await request.json() as { displayName?: string; mealTypePrefs?: string[]; dietaryPrefs?: string[]; skillLevel?: string };
+  const body = await request.json() as { displayName?: string; mealTypePrefs?: string[]; dietaryPrefs?: string[]; skillLevel?: string; cookingFor?: string; cuisinePrefs?: string[] };
 
   // Prepare optional fields
   const mealTypePrefs = typeof body.mealTypePrefs !== 'undefined' ? JSON.stringify(body.mealTypePrefs) : undefined;
@@ -835,6 +841,11 @@ async function handleUpdateProfile(request: Request, env: Env, user: Authenticat
     if (displayName.length > 50) {
       throw new HttpError(400, 'Display name must be 50 characters or less');
     }
+  }
+
+  // Validate cuisinePrefs if provided
+  if (body.cuisinePrefs !== undefined && !Array.isArray(body.cuisinePrefs)) {
+    throw new HttpError(400, 'cuisinePrefs must be an array');
   }
 
   // Build dynamic UPDATE for only provided fields
@@ -856,6 +867,14 @@ async function handleUpdateProfile(request: Request, env: Env, user: Authenticat
     fields.push('skill_level = ?');
     values.push(skillLevel);
   }
+  if (body.cookingFor !== undefined) {
+    fields.push('cooking_for = ?');
+    values.push(String(body.cookingFor));
+  }
+  if (body.cuisinePrefs !== undefined) {
+    fields.push('cuisine_prefs = ?');
+    values.push(JSON.stringify(body.cuisinePrefs));
+  }
 
   if (fields.length === 0) {
     throw new HttpError(400, 'At least one field must be provided for update');
@@ -870,6 +889,8 @@ async function handleUpdateProfile(request: Request, env: Env, user: Authenticat
   if (mealTypePrefs !== undefined) response.mealTypePrefs = body.mealTypePrefs;
   if (dietaryPrefs !== undefined) response.dietaryPrefs = body.dietaryPrefs;
   if (skillLevel !== undefined) response.skillLevel = body.skillLevel;
+  if (body.cookingFor !== undefined) response.cookingFor = body.cookingFor;
+  if (body.cuisinePrefs !== undefined) response.cuisinePrefs = body.cuisinePrefs;
 
   return json(response);
 }
@@ -1135,10 +1156,13 @@ export async function getAiPicks(
   kv: KVNamespace,
   gemini: (env: Env, prompt: string) => Promise<string>,
   env: Partial<Env>,
-  prefs: { mealTypes?: string; diet?: string; skill?: string } = {}
+  prefs: { diet?: string; cuisine?: string; cookingFor?: string } = {}
 ): Promise<AiPick[]> {
-  // v2: includes ingredients, steps, sourceUrl in cached recipe objects
-  const cacheKey = `ai-picks:v2:${prefs.mealTypes || 'all'}:${prefs.diet || 'any'}:${prefs.skill || 'any'}`;
+  // v3: personalizes by diet, cuisine, cookingFor (dropped mealTypes and skill)
+  const cuisineSorted = prefs.cuisine
+    ? prefs.cuisine.split(',').map(s => s.trim().toLowerCase()).sort().join(',')
+    : 'all';
+  const cacheKey = `ai-picks:v3:${prefs.diet || 'any'}:${cuisineSorted}:${prefs.cookingFor || 'any'}`;
   const cached = await kv.get(cacheKey);
   if (cached) return JSON.parse(cached) as AiPick[];
 
@@ -1168,8 +1192,13 @@ export async function getAiPicks(
   if (!candidates.length) return [];
 
   const titleList = candidates.map(r => String(r.title)).join('\n');
-  const prefsNote = prefs.mealTypes || prefs.diet
-    ? `User preferences: meal types=${prefs.mealTypes || 'any'}, diet=${prefs.diet || 'any'}, skill=${prefs.skill || 'any'}.`
+  const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9, \-]/g, '').slice(0, 200);
+  const contextParts: string[] = [];
+  if (prefs.diet) contextParts.push(`diet=${sanitize(prefs.diet)}`);
+  if (prefs.cuisine) contextParts.push(`preferred cuisines=${sanitize(prefs.cuisine)}`);
+  if (prefs.cookingFor) contextParts.push(`cooking for=${sanitize(prefs.cookingFor)}`);
+  const prefsNote = contextParts.length > 0
+    ? `User context: ${contextParts.join(', ')}.`
     : '';
 
   const prompt = `You are a cooking trend analyst. ${prefsNote} Below is a list of real recipes. Pick 3 that best match current trending health or nutrition topics. For each pick, name the topic, create a hashtag, write a one-sentence reason why this recipe fits the trend, and copy the recipe title EXACTLY as it appears in the list. Return ONLY a JSON array with no markdown:\n[{"topic":"string","hashtag":"string","reason":"one sentence why this fits the trend","match":"exact recipe title from list"}]\n\nRecipes:\n${titleList}`;
@@ -1215,7 +1244,21 @@ export async function getAiPicks(
   return picks;
 }
 
-type FriendRecipeItem = { friendName: string; friendId: string; recipe: { id: string; title: string; imageUrl: string; mealTypes: string[]; durationMinutes: number | null; createdAt: string } };
+type FriendRecipeItem = {
+  friendName: string;
+  friendId: string;
+  recipe: {
+    id: string;
+    title: string;
+    imageUrl: string | null;
+    sourceUrl: string;
+    mealTypes: string[];
+    durationMinutes: number | null;
+    createdAt: string;
+    ingredients: string[];
+    steps: string[];
+  }
+};
 
 export async function getFriendActivity(
   db: D1Database,
@@ -1242,13 +1285,14 @@ export async function getFriendActivity(
     read: Boolean(r.read),
   }));
 
-  // Collect unique recipeIds for batch fetch — bounded to ≤10 by the LIMIT 10 above
+  // Collect unique recipeIds for batch fetch — bounded to ≤10 by the LIMIT 10 in the notifications query above
   const recipeIds = [...new Set(
     parsed
       .map(item => (item.data as Record<string, unknown>).recipeId as string | undefined)
       .filter((id): id is string => Boolean(id))
   )];
 
+  // Batch fetch recipes in one query
   const recipeMap = new Map<string, { id: string; title: string; imageUrl: string | null; sourceUrl: string; ingredients: string[]; steps: string[] }>();
   if (recipeIds.length > 0) {
     const placeholders = recipeIds.map(() => '?').join(', ');
@@ -1292,13 +1336,13 @@ export async function getFriendsRecentlySaved(db: D1Database, userId: string): P
   for (const friend of (friends.results as Array<Record<string, unknown>>)) {
     const rows = await db.prepare(
       // No shared_with_friends filter — show any recipe the friend has, all visible to friends
-      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at FROM recipes WHERE user_id = ? ORDER BY created_at DESC LIMIT 2`
+      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at, ingredients, steps FROM recipes WHERE user_id = ? ORDER BY created_at DESC LIMIT 2`
     ).bind(String(friend.friend_id)).all();
     for (const r of (rows.results as Array<Record<string, unknown>>)) {
       items.push({
         friendName: String(friend.friend_name),
         friendId: String(friend.friend_id),
-        recipe: { id: String(r.id), title: String(r.title), imageUrl: String(r.image_url), mealTypes: JSON.parse(String(r.meal_types || '[]')), durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null, createdAt: String(r.created_at) }
+        recipe: { id: String(r.id), title: String(r.title), sourceUrl: r.source_url ? String(r.source_url) : null, imageUrl: r.image_url ? String(r.image_url) : null, mealTypes: JSON.parse(String(r.meal_types || '[]')), durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null, createdAt: String(r.created_at), ingredients: JSON.parse(String(r.ingredients || '[]')), steps: JSON.parse(String(r.steps || '[]')) }
       });
     }
   }
@@ -1313,13 +1357,13 @@ export async function getFriendsRecentlyShared(db: D1Database, userId: string): 
   for (const friend of (friends.results as Array<Record<string, unknown>>)) {
     const rows = await db.prepare(
       // shared_with_friends = 1 filter only — ORDER BY created_at (updated_at not in schema)
-      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at FROM recipes WHERE user_id = ? AND shared_with_friends = 1 ORDER BY created_at DESC LIMIT 2`
+      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at, ingredients, steps FROM recipes WHERE user_id = ? AND shared_with_friends = 1 ORDER BY created_at DESC LIMIT 2`
     ).bind(String(friend.friend_id)).all();
     for (const r of (rows.results as Array<Record<string, unknown>>)) {
       items.push({
         friendName: String(friend.friend_name),
         friendId: String(friend.friend_id),
-        recipe: { id: String(r.id), title: String(r.title), imageUrl: String(r.image_url), mealTypes: JSON.parse(String(r.meal_types || '[]')), durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null, createdAt: String(r.created_at) }
+        recipe: { id: String(r.id), title: String(r.title), sourceUrl: r.source_url ? String(r.source_url) : null, imageUrl: r.image_url ? String(r.image_url) : null, mealTypes: JSON.parse(String(r.meal_types || '[]')), durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null, createdAt: String(r.created_at), ingredients: JSON.parse(String(r.ingredients || '[]')), steps: JSON.parse(String(r.steps || '[]')) }
       });
     }
   }
@@ -2542,6 +2586,8 @@ async function getOrCreateProfile(env: Env, userId: string, email?: string): Pro
       email: row.email as string,
       displayName: row.display_name as string,
       createdAt: row.created_at as string,
+      cookingFor: (row.cooking_for as string | null | undefined) ?? null,
+      cuisinePrefs: (() => { try { return row.cuisine_prefs ? JSON.parse(row.cuisine_prefs as string) : []; } catch { return []; } })(),
     };
   }
 
@@ -2549,7 +2595,9 @@ async function getOrCreateProfile(env: Env, userId: string, email?: string): Pro
     userId,
     email: email || '',
     displayName: email?.split('@')[0] || 'User',
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    cookingFor: null,
+    cuisinePrefs: [],
   };
   await env.DB.prepare(
     'INSERT INTO profiles (user_id, email, display_name, created_at) VALUES (?, ?, ?, ?)'

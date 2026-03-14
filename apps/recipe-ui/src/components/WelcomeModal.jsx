@@ -8,12 +8,15 @@ import { Dialog, DialogContent, Box, Typography, Button, Stack } from '@mui/mate
  *   inviterName: string | null
  *   recipes: Array<{ id, title, imageUrl }>   — 3 recipes to preview
  */
-export default function WelcomeModal({ open, onDismiss, inviterName, recipes = [] }) {
+export default function WelcomeModal({ open, onDismiss, onSkip, inviterName, recipes = [] }) {
   const hasInviter = Boolean(inviterName);
 
   return (
-    <Dialog open={open} fullWidth maxWidth="xs" PaperProps={{ sx: { borderRadius: 3 } }}>
-      <DialogContent sx={{ pt: 4, pb: 3, px: 3, textAlign: 'center' }}>
+    <Dialog open={open} fullWidth maxWidth="xs" onClose={onDismiss} PaperProps={{ sx: { borderRadius: 3 } }}>
+      <DialogContent sx={{ pt: 3, pb: 3, px: 3, textAlign: 'center' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+          <Button size="small" onClick={onDismiss} sx={{ color: 'text.disabled', minWidth: 0, p: 0.5, lineHeight: 1, fontSize: 18 }}>✕</Button>
+        </Box>
         <Typography fontSize={40} mb={1}>👋</Typography>
         <Typography variant="h6" fontWeight={800} mb={0.5}>
           {hasInviter ? `${inviterName} invited you to ReciFind` : 'Welcome to ReciFind!'}
@@ -24,32 +27,14 @@ export default function WelcomeModal({ open, onDismiss, inviterName, recipes = [
             : 'Discover and save recipes. Share them with friends.'}
         </Typography>
 
-        {recipes.length > 0 && (
-          <Box sx={{ display: 'flex', gap: 1, mb: 3, justifyContent: 'center' }}>
-            {recipes.slice(0, 3).map(recipe => (
-              <Box key={recipe.id} sx={{ flex: 1, maxWidth: 90, textAlign: 'center' }}>
-                <Box sx={{ width: '100%', aspectRatio: '1', borderRadius: 2, overflow: 'hidden', bgcolor: 'action.hover', mb: 0.5 }}>
-                  {recipe.imageUrl
-                    ? <Box component="img" src={recipe.imageUrl} alt={recipe.title} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    : <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>🍳</Box>
-                  }
-                </Box>
-                <Typography variant="caption" display="block" noWrap sx={{ fontSize: 10, color: 'text.secondary' }}>
-                  {recipe.title}
-                </Typography>
-              </Box>
-            ))}
-          </Box>
-        )}
-
         <Stack spacing={1}>
           <Button fullWidth variant="contained" disableElevation onClick={onDismiss}
             sx={{ borderRadius: 20, textTransform: 'none', fontWeight: 700 }}>
             {hasInviter ? 'Explore ReciFind →' : 'Get started →'}
           </Button>
-          <Button fullWidth size="small" onClick={onDismiss}
+          <Button fullWidth size="small" onClick={onSkip}
             sx={{ color: 'text.disabled', textTransform: 'none', fontSize: 12 }}>
-            Skip for now
+            Don't show this again
           </Button>
         </Stack>
       </DialogContent>
