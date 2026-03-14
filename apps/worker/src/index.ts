@@ -255,6 +255,8 @@ export default {
             mealTypes: url.searchParams.get('meal_types') || undefined,
             diet: url.searchParams.get('diet') || undefined,
             skill: url.searchParams.get('skill') || undefined,
+            cuisine: url.searchParams.get('cuisine') || undefined,
+            cookingFor: url.searchParams.get('cooking_for') || undefined,
           };
           const picks = await getAiPicks(env.DB, env.AI_PICKS_CACHE, callGemini, env, prefs);
           return json({ picks }, 200, withCors());
@@ -1154,10 +1156,10 @@ export async function getAiPicks(
   kv: KVNamespace,
   gemini: (env: Env, prompt: string) => Promise<string>,
   env: Partial<Env>,
-  prefs: { mealTypes?: string; diet?: string; skill?: string } = {}
+  prefs: { mealTypes?: string; diet?: string; skill?: string; cuisine?: string; cookingFor?: string } = {}
 ): Promise<AiPick[]> {
   // v2: includes ingredients, steps, sourceUrl in cached recipe objects
-  const cacheKey = `ai-picks:v2:${prefs.mealTypes || 'all'}:${prefs.diet || 'any'}:${prefs.skill || 'any'}`;
+  const cacheKey = `ai-picks:v3:${prefs.diet || 'any'}:${prefs.cuisine || 'all'}:${prefs.cookingFor || 'any'}`;
   const cached = await kv.get(cacheKey);
   if (cached) return JSON.parse(cached) as AiPick[];
 
@@ -1187,8 +1189,12 @@ export async function getAiPicks(
   if (!candidates.length) return [];
 
   const titleList = candidates.map(r => String(r.title)).join('\n');
-  const prefsNote = prefs.mealTypes || prefs.diet
-    ? `User preferences: meal types=${prefs.mealTypes || 'any'}, diet=${prefs.diet || 'any'}, skill=${prefs.skill || 'any'}.`
+  const contextParts: string[] = [];
+  if (prefs.diet) contextParts.push(`diet=${prefs.diet}`);
+  if (prefs.cuisine) contextParts.push(`preferred cuisines=${prefs.cuisine}`);
+  if (prefs.cookingFor) contextParts.push(`cooking for=${prefs.cookingFor}`);
+  const prefsNote = contextParts.length > 0
+    ? `User context: ${contextParts.join(', ')}.`
     : '';
 
   const prompt = `You are a cooking trend analyst. ${prefsNote} Below is a list of real recipes. Pick 3 that best match current trending health or nutrition topics. For each pick, name the topic, create a hashtag, write a one-sentence reason why this recipe fits the trend, and copy the recipe title EXACTLY as it appears in the list. Return ONLY a JSON array with no markdown:\n[{"topic":"string","hashtag":"string","reason":"one sentence why this fits the trend","match":"exact recipe title from list"}]\n\nRecipes:\n${titleList}`;
