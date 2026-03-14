@@ -53,7 +53,7 @@ interface Friend {
 }
 
 interface NotificationItem {
-  type: 'friend_request' | 'friend_accepted' | 'friend_cooked_recipe';
+  type: 'friend_request' | 'friend_accepted' | 'friend_cooked_recipe' | 'friend_saved_recipe';
   message: string;
   data: Record<string, string>;
   createdAt: string;
@@ -1217,11 +1217,23 @@ export async function getAiPicks(
 
 type FriendRecipeItem = { friendName: string; friendId: string; recipe: { id: string; title: string; imageUrl: string; mealTypes: string[]; durationMinutes: number | null; createdAt: string } };
 
-export async function getFriendActivity(db: D1Database, userId: string): Promise<Array<{ id: number; type: string; message: string; data: unknown; createdAt: string; read: boolean }>> {
+export async function getFriendActivity(
+  db: D1Database,
+  userId: string
+): Promise<Array<{
+  id: number;
+  type: string;
+  message: string;
+  friendName: string | null;
+  recipe: { id: string; title: string; imageUrl: string | null; sourceUrl: string; ingredients: string[]; steps: string[] } | null;
+  createdAt: string;
+  read: boolean;
+}>> {
   const rows = await db.prepare(
     `SELECT id, type, message, data, created_at, read FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 10`
   ).bind(userId).all();
-  return (rows.results as Array<Record<string, unknown>>).map(r => ({
+
+  const parsed = (rows.results as Array<Record<string, unknown>>).map(r => ({
     id: Number(r.id),
     type: String(r.type),
     message: String(r.message),
@@ -1229,6 +1241,47 @@ export async function getFriendActivity(db: D1Database, userId: string): Promise
     createdAt: String(r.created_at),
     read: Boolean(r.read),
   }));
+
+  // Collect unique recipeIds for batch fetch — bounded to ≤10 by the LIMIT 10 above
+  const recipeIds = [...new Set(
+    parsed
+      .map(item => (item.data as Record<string, unknown>).recipeId as string | undefined)
+      .filter((id): id is string => Boolean(id))
+  )];
+
+  const recipeMap = new Map<string, { id: string; title: string; imageUrl: string | null; sourceUrl: string; ingredients: string[]; steps: string[] }>();
+  if (recipeIds.length > 0) {
+    const placeholders = recipeIds.map(() => '?').join(', ');
+    const recipeRows = await db.prepare(
+      `SELECT id, title, image_url, source_url, ingredients, steps FROM recipes WHERE id IN (${placeholders})`
+    ).bind(...recipeIds).all();
+    for (const r of (recipeRows.results as Array<Record<string, unknown>>)) {
+      recipeMap.set(String(r.id), {
+        id: String(r.id),
+        title: String(r.title),
+        imageUrl: r.image_url ? String(r.image_url) : null,
+        sourceUrl: r.source_url ? String(r.source_url) : '',
+        ingredients: (() => { try { return JSON.parse(String(r.ingredients || '[]')); } catch { return []; } })(),
+        steps: (() => { try { return JSON.parse(String(r.steps || '[]')); } catch { return []; } })(),
+      });
+    }
+  }
+
+  return parsed.map(item => {
+    const d = item.data as Record<string, unknown>;
+    const recipeId = d.recipeId as string | undefined;
+    const friendName: string | null =
+      (d.friendName as string | undefined) ?? item.message.split(' ')[0] ?? null;
+    return {
+      id: item.id,
+      type: item.type,
+      message: item.message,
+      friendName,
+      recipe: recipeId ? (recipeMap.get(recipeId) ?? null) : null,
+      createdAt: item.createdAt,
+      read: item.read,
+    };
+  });
 }
 
 export async function getFriendsRecentlySaved(db: D1Database, userId: string): Promise<FriendRecipeItem[]> {
@@ -1337,6 +1390,22 @@ async function handleCreateRecipe(request: Request, env: Env, user: Authenticate
     recipe.sharedWithFriends ? 1 : 0, recipe.createdAt, recipe.updatedAt
   ).run();
   await updateCollectionMeta(env, user.userId, { countDelta: 1 });
+
+  // Notify friends that this user saved a recipe
+  const [friendRows, profileRow] = await Promise.all([
+    env.DB.prepare(`SELECT friend_id FROM friends WHERE user_id = ?`).bind(user.userId).all(),
+    env.DB.prepare(`SELECT display_name FROM profiles WHERE user_id = ?`).bind(user.userId).first() as Promise<{ display_name?: string } | null>,
+  ]);
+  const saverName = profileRow?.display_name || 'Someone';
+  for (const f of (friendRows.results as Array<{ friend_id: string }>)) {
+    await addNotification(env, f.friend_id, {
+      type: 'friend_saved_recipe',
+      message: `${saverName} saved ${recipe.title}`,
+      data: { saverId: user.userId, recipeId: recipe.id, friendName: saverName },
+      createdAt: new Date().toISOString(),
+    });
+  }
+
   return json({ recipe }, 201);
 }
 
