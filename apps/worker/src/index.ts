@@ -2559,8 +2559,8 @@ async function getOrCreateProfile(env: Env, userId: string, email?: string): Pro
       email: row.email as string,
       displayName: row.display_name as string,
       createdAt: row.created_at as string,
-      cookingFor: (row.cooking_for as string | null) ?? null,
-      cuisinePrefs: row.cuisine_prefs ? JSON.parse(row.cuisine_prefs as string) : [],
+      cookingFor: (row.cooking_for as string | null | undefined) ?? null,
+      cuisinePrefs: (() => { try { return row.cuisine_prefs ? JSON.parse(row.cuisine_prefs as string) : []; } catch { return []; } })(),
     };
   }
 
