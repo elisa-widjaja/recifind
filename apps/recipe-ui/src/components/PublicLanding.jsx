@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  Box, Container, Typography, Button, Stack, Chip,
-  Tooltip, Fab
+  Box, Container, Typography, Button, Stack, Fab
 } from '@mui/material';
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import RecipeShelf from './RecipeShelf';
 import DiscoverRecipes from './DiscoverRecipes';
 import RecipeListCard from './RecipeListCard';
@@ -112,42 +110,29 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare 
           {/* ── Section 3: AI Picks ── */}
           {aiPicks.length > 0 && (
             <Box>
-              <SectionLabel label="Trending in health and nutrition" />
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1.5, overflow: 'hidden', maxHeight: '52px' }}>
-                {aiPicks.map(p => (
-                  <Box key={p.topic} sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-                    <Chip
-                      label={p.hashtag}
-                      size="small"
-                      variant="outlined"
-                      sx={{ color: darkMode ? '#fff' : 'text.secondary', borderColor: 'divider', fontSize: 11, height: 20, borderRadius: '10px' }}
-                    />
-                    {p.reason && (
-                      <Tooltip
-                        title={p.reason}
-                        enterTouchDelay={0}
-                        leaveTouchDelay={4000}
-                        arrow
+              <SectionLabel label="Trending in health & nutrition" />
+              <Stack spacing={1}>
+                {aiPicks.map((pick, i) => (
+                  <Box key={i} sx={{ p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+                    <Typography variant="body2" fontWeight={700} sx={{ display: 'block', mb: 0.5 }}>{pick.topic}</Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.3, display: 'block', mb: 0.75 }}>{pick.reason}</Typography>
+                    <Typography variant="caption" sx={{ border: '1px solid', borderColor: theme => theme.palette.mode === 'dark' ? 'primary.light' : 'primary.main', color: theme => theme.palette.mode === 'dark' ? 'primary.light' : 'primary.main', px: 1, py: 0.25, borderRadius: 10, fontWeight: 600, fontSize: 10, display: 'inline-block' }}>
+                      {pick.hashtag}
+                    </Typography>
+                    {pick.recipe && (
+                      <Box
+                        onClick={() => onOpenRecipe?.(pick.recipe)}
+                        sx={{ mt: 1, p: 1, borderRadius: 1.5, bgcolor: 'action.hover', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 1 }}
                       >
-                        <InfoOutlinedIcon sx={{ fontSize: 13, color: 'text.disabled', cursor: 'pointer' }} />
-                      </Tooltip>
+                        {pick.recipe.imageUrl && (
+                          <Box component="img" src={pick.recipe.imageUrl} sx={{ width: 40, height: 40, borderRadius: 1, objectFit: 'cover', flexShrink: 0 }} />
+                        )}
+                        <Typography variant="caption" fontWeight={600} sx={{ flex: 1, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{pick.recipe.title}</Typography>
+                      </Box>
                     )}
                   </Box>
                 ))}
-              </Box>
-              <RecipeShelf
-                recipes={aiPicks
-                  .filter(p => {
-                    const { ingredients = [], steps = [] } = p.recipe;
-                    const clean = items => items.length > 0 && items.every(s =>
-                      s.length <= 200 && !/\d+[Kk]?\s+likes/i.test(s) &&
-                      !/\d+\s+comments/i.test(s) && !/@\w{3,}/.test(s) && !/^\s*#\w+/.test(s)
-                    );
-                    return clean(ingredients) && clean(steps);
-                  })
-                  .map(p => ({ ...p.recipe, _hashtag: p.hashtag, _topic: p.topic }))}
-                onSave={onJoin} onShare={(recipe, e) => onShare?.(recipe, e)} onOpen={onOpenRecipe} cardWidth={180} gap="8px"
-              />
+              </Stack>
             </Box>
           )}
 

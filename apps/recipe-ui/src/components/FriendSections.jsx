@@ -113,7 +113,7 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
                 cursor: 'pointer',
                 fontSize: 12,
                 fontWeight: 500,
-                color: 'primary.main',
+                color: theme => theme.palette.mode === 'dark' ? 'primary.light' : 'primary.main',
                 fontFamily: 'inherit',
               }}
             >
@@ -171,7 +171,7 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
                 cursor: 'pointer',
                 fontSize: 12,
                 fontWeight: 500,
-                color: 'primary.main',
+                color: theme => theme.palette.mode === 'dark' ? 'primary.light' : 'primary.main',
                 fontFamily: 'inherit',
               }}
             >
@@ -187,13 +187,11 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
           <Stack spacing={1}>
             {aiPicks.map((pick, i) => (
               <Box key={i} sx={{ p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                  <Typography variant="body2" fontWeight={700} sx={{ flex: 1 }}>{pick.topic}</Typography>
-                  <Typography variant="caption" sx={{ bgcolor: 'primary.main', color: '#fff', px: 1, py: 0.25, borderRadius: 10, fontWeight: 600, fontSize: 10 }}>
-                    {pick.hashtag}
-                  </Typography>
-                </Box>
-                <Typography variant="caption" color="text.secondary">{pick.reason}</Typography>
+                <Typography variant="body2" fontWeight={700} sx={{ display: 'block', mb: 0.5 }}>{pick.topic}</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.3, display: 'block', mb: 0.75 }}>{pick.reason}</Typography>
+                <Typography variant="caption" sx={{ border: '1px solid', borderColor: theme => theme.palette.mode === 'dark' ? 'primary.light' : 'primary.main', color: theme => theme.palette.mode === 'dark' ? 'primary.light' : 'primary.main', px: 1, py: 0.25, borderRadius: 10, fontWeight: 600, fontSize: 10, display: 'inline-block' }}>
+                  {pick.hashtag}
+                </Typography>
                 {pick.recipe && (
                   <Box
                     onClick={() => onOpenRecipe?.(pick.recipe)}
@@ -202,7 +200,7 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
                     {pick.recipe.imageUrl && (
                       <Box component="img" src={pick.recipe.imageUrl} sx={{ width: 40, height: 40, borderRadius: 1, objectFit: 'cover', flexShrink: 0 }} />
                     )}
-                    <Typography variant="caption" fontWeight={600} sx={{ flex: 1 }}>{pick.recipe.title}</Typography>
+                    <Typography variant="caption" fontWeight={600} sx={{ flex: 1, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{pick.recipe.title}</Typography>
                   </Box>
                 )}
               </Box>
