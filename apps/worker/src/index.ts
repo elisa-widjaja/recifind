@@ -817,11 +817,13 @@ async function handleGetProfile(env: Env, user: AuthenticatedUser) {
     email: profile.email,
     createdAt: profile.createdAt,
     recipeCount: meta?.count ?? 0,
+    cookingFor: profile.cookingFor,
+    cuisinePrefs: profile.cuisinePrefs,
   });
 }
 
 async function handleUpdateProfile(request: Request, env: Env, user: AuthenticatedUser) {
-  const body = await request.json() as { displayName?: string; mealTypePrefs?: string[]; dietaryPrefs?: string[]; skillLevel?: string };
+  const body = await request.json() as { displayName?: string; mealTypePrefs?: string[]; dietaryPrefs?: string[]; skillLevel?: string; cookingFor?: string; cuisinePrefs?: string[] };
 
   // Prepare optional fields
   const mealTypePrefs = typeof body.mealTypePrefs !== 'undefined' ? JSON.stringify(body.mealTypePrefs) : undefined;
@@ -858,6 +860,14 @@ async function handleUpdateProfile(request: Request, env: Env, user: Authenticat
     fields.push('skill_level = ?');
     values.push(skillLevel);
   }
+  if (body.cookingFor !== undefined) {
+    fields.push('cooking_for = ?');
+    values.push(String(body.cookingFor));
+  }
+  if (body.cuisinePrefs !== undefined) {
+    fields.push('cuisine_prefs = ?');
+    values.push(JSON.stringify(body.cuisinePrefs));
+  }
 
   if (fields.length === 0) {
     throw new HttpError(400, 'At least one field must be provided for update');
@@ -872,6 +882,8 @@ async function handleUpdateProfile(request: Request, env: Env, user: Authenticat
   if (mealTypePrefs !== undefined) response.mealTypePrefs = body.mealTypePrefs;
   if (dietaryPrefs !== undefined) response.dietaryPrefs = body.dietaryPrefs;
   if (skillLevel !== undefined) response.skillLevel = body.skillLevel;
+  if (body.cookingFor !== undefined) response.cookingFor = body.cookingFor;
+  if (body.cuisinePrefs !== undefined) response.cuisinePrefs = body.cuisinePrefs;
 
   return json(response);
 }
