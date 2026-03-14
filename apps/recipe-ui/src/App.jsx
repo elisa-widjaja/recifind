@@ -1530,11 +1530,13 @@ function App() {
   const handleOnboardingComplete = async (prefs) => {
     setOnboardingOpen(false);
     localStorage.setItem('onboarding_seen', '1');
-    if (accessToken && (prefs.mealTypePrefs.length || prefs.dietaryPrefs.length || prefs.skillLevel)) {
+    if (accessToken && (prefs.dietaryPrefs?.length || prefs.cookingFor || prefs.cuisinePrefs?.length)) {
       await callRecipesApi('/profile', {
         method: 'PATCH',
-        body: JSON.stringify({ mealTypePrefs: prefs.mealTypePrefs, dietaryPrefs: prefs.dietaryPrefs, skillLevel: prefs.skillLevel })
+        body: JSON.stringify({ dietaryPrefs: prefs.dietaryPrefs, cookingFor: prefs.cookingFor, cuisinePrefs: prefs.cuisinePrefs })
       }, accessToken);
+      // Re-fetch profile so FriendSections gets the new prefs in the same session
+      fetchProfile();
     }
   };
 
@@ -4075,7 +4077,7 @@ function App() {
         recipes={welcomeRecipes}
       />
       <OnboardingFlow
-        open={false /* hidden until new screens are ready */}
+        open={onboardingOpen}
         onComplete={handleOnboardingComplete}
         onSkip={handleOnboardingSkip}
       />
@@ -4112,6 +4114,8 @@ function App() {
                 <Box sx={{ mt: '70px' }}>
                 <FriendSections
                   accessToken={accessToken}
+                  cookingFor={userProfile?.cookingFor ?? null}
+                  cuisinePrefs={userProfile?.cuisinePrefs ?? null}
                   onOpenRecipe={handleOpenEditorPickRecipe}
                   onSaveRecipe={handleSavePublicRecipe}
                   onShareRecipe={(recipe, event) => {
