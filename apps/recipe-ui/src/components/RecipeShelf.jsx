@@ -23,6 +23,7 @@ export default function RecipeShelf({
   cardWidth = 140,
   cardHeight,
   gap = '12px',
+  peek = false,
 }) {
   if (!recipes.length) return null;
 
@@ -30,7 +31,7 @@ export default function RecipeShelf({
 
   return (
     // Outer wrapper: negative margin extends the scroll container to screen edges
-    <Box sx={{ mx: -2, overflow: 'hidden' }}>
+    <Box sx={{ mx: -2, overflow: 'hidden', position: 'relative' }}>
       {/* Inner scroll row: px:2 aligns first card with page content */}
       <Box
         sx={{
@@ -41,6 +42,9 @@ export default function RecipeShelf({
           pb: 1,
           scrollbarWidth: 'none',
           '&::-webkit-scrollbar': { display: 'none' },
+          ...(peek && {
+            scrollSnapType: 'x mandatory',
+          }),
         }}
       >
         {recipes.map((recipe) => (
@@ -52,14 +56,29 @@ export default function RecipeShelf({
             onOpen={onOpen}
             cardWidth={cardWidth}
             thumbHeight={thumbHeight}
+            peek={peek}
           />
         ))}
       </Box>
+      {/* Right-edge gradient to signal more content */}
+      {peek && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            bottom: 8,
+            width: 48,
+            pointerEvents: 'none',
+            background: theme => `linear-gradient(to right, transparent, ${theme.palette.background.default})`,
+          }}
+        />
+      )}
     </Box>
   );
 }
 
-function RecipeCard({ recipe, onSave, onShare, onOpen, cardWidth, thumbHeight }) {
+function RecipeCard({ recipe, onSave, onShare, onOpen, cardWidth, thumbHeight, peek }) {
   const embedUrl = buildVideoEmbedUrl(recipe.sourceUrl);
   const thumbSrc = getVideoThumbnailUrl(recipe.sourceUrl) || recipe.imageUrl;
 
@@ -75,6 +94,7 @@ function RecipeCard({ recipe, onSave, onShare, onOpen, cardWidth, thumbHeight })
         bgcolor: 'background.paper',
         overflow: 'hidden',
         cursor: 'pointer',
+        ...(peek && { scrollSnapAlign: 'start' }),
       }}
     >
       {/* ── Thumbnail ── */}

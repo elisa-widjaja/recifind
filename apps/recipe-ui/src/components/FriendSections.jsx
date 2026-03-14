@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Box, Typography, Stack } from '@mui/material';
 import RecipeShelf from './RecipeShelf';
 import RecipeListCard from './RecipeListCard';
+import TrendingHealthCarousel from './TrendingHealthCarousel';
 
 const API_BASE_URL = import.meta.env.VITE_RECIPES_API_BASE_URL || '';
 
@@ -89,7 +90,9 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
           <Box sx={{
             bgcolor: 'background.paper',
             borderRadius: '12px',
-            boxShadow: '0 1px 4px rgba(0,0,0,.08)',
+            boxShadow: theme => theme.palette.mode === 'dark'
+              ? '0 0 0 1px rgba(255,255,255,0.10)'
+              : '0 1px 4px rgba(0,0,0,.08)',
             overflow: 'hidden',
           }}>
             {activity.slice(0, activityExpanded ? 5 : 2).map((item, index, arr) => (
@@ -184,28 +187,7 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
       {aiPicks.length > 0 && (
         <Box>
           <SectionLabel>Trending in health & nutrition</SectionLabel>
-          <Stack spacing={1}>
-            {aiPicks.map((pick, i) => (
-              <Box key={i} sx={{ p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
-                <Typography variant="body2" fontWeight={700} sx={{ display: 'block', mb: 0.5 }}>{pick.topic}</Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.3, display: 'block', mb: 0.75 }}>{pick.reason}</Typography>
-                <Typography variant="caption" sx={{ border: '1px solid', borderColor: theme => theme.palette.mode === 'dark' ? 'primary.light' : 'primary.main', color: theme => theme.palette.mode === 'dark' ? 'primary.light' : 'primary.main', px: 1, py: 0.25, borderRadius: 10, fontWeight: 600, fontSize: 10, display: 'inline-block' }}>
-                  {pick.hashtag}
-                </Typography>
-                {pick.recipe && (
-                  <Box
-                    onClick={() => onOpenRecipe?.(pick.recipe)}
-                    sx={{ mt: 1, p: 1, borderRadius: 1.5, bgcolor: 'action.hover', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 1 }}
-                  >
-                    {pick.recipe.imageUrl && (
-                      <Box component="img" src={pick.recipe.imageUrl} sx={{ width: 40, height: 40, borderRadius: 1, objectFit: 'cover', flexShrink: 0 }} />
-                    )}
-                    <Typography variant="caption" fontWeight={600} sx={{ flex: 1, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{pick.recipe.title}</Typography>
-                  </Box>
-                )}
-              </Box>
-            ))}
-          </Stack>
+          <TrendingHealthCarousel picks={aiPicks} onOpen={onOpenRecipe} onSave={onSaveRecipe} />
         </Box>
       )}
 

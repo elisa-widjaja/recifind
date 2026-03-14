@@ -1432,7 +1432,10 @@ function App() {
     const anchorPosition = event?.currentTarget
       ? { top: event.currentTarget.getBoundingClientRect().bottom, left: event.currentTarget.getBoundingClientRect().left }
       : { top: window.innerHeight / 2, left: window.innerWidth / 2 };
-    setShareMenuState({ anchorPosition, url: window.location.origin, title: recipe.title, imageUrl: recipe.imageUrl || '' });
+    const url = recipe.id && recipe.userId
+      ? `${window.location.origin}?recipe=${encodeURIComponent(recipe.id)}&user=${encodeURIComponent(recipe.userId)}`
+      : window.location.origin;
+    setShareMenuState({ anchorPosition, url, title: recipe.title, imageUrl: recipe.imageUrl || '' });
   };
 
   const handleOpenEditorPickRecipe = (recipe) => {
