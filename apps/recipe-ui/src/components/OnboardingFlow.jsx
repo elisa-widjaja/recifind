@@ -83,7 +83,7 @@ export default function OnboardingFlow({ open, onComplete, onSkip }) {
             <Typography variant="body2" color="text.secondary" mb={2}>Helps us suggest the right recipes for your table</Typography>
             <Stack spacing={1} mb={3}>
               {COOKING_FOR.map(c => (
-                <Box key={c.value} onClick={() => setCookingFor(c.value)}
+                <Box key={c.value} onClick={() => setCookingFor(prev => prev === c.value ? '' : c.value)}
                   sx={{ p: 1.5, borderRadius: 2, border: 2, cursor: 'pointer',
                     borderColor: cookingFor === c.value ? 'primary.main' : 'divider',
                     bgcolor: cookingFor === c.value ? 'primary.main' + '14' : 'transparent' }}>
