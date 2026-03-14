@@ -292,6 +292,27 @@ export default {
         return await handleGetSharedRecipe(request, env, shareToken);
       }
 
+      // Public endpoint to get a recipe by userId + recipeId (used by OG tag middleware)
+      const publicRecipeMatch = url.pathname.match(/^\/public\/recipe\/([^/]+)\/([^/]+)$/);
+      if (publicRecipeMatch && request.method === 'GET') {
+        return await (async () => {
+          const userId = decodeURIComponent(publicRecipeMatch[1]);
+          const recipeId = decodeURIComponent(publicRecipeMatch[2]);
+          const row = await env.DB.prepare(
+            `SELECT id, title, source_url, image_url, ingredients, steps FROM recipes WHERE user_id = ? AND id = ?`
+          ).bind(userId, recipeId).first<Record<string, unknown>>();
+          if (!row) return json({ error: 'Not found' }, 404, withCors());
+          return json({
+            id: String(row.id),
+            title: String(row.title),
+            sourceUrl: String(row.source_url),
+            imageUrl: String(row.image_url),
+            ingredients: JSON.parse(String(row.ingredients || '[]')),
+            steps: JSON.parse(String(row.steps || '[]')),
+          }, 200, withCors());
+        })();
+      }
+
       const isImageRequest = /^\/images\/[^/]+$/.test(url.pathname);
       const requiresAuth = !isImageRequest;
 
@@ -1038,11 +1059,11 @@ async function handleOembedAuthor(url: URL) {
 }
 
 export async function getPublicDiscover(db: D1Database): Promise<Array<{
-  id: string; title: string; sourceUrl: string; imageUrl: string;
+  id: string; userId: string; title: string; sourceUrl: string; imageUrl: string;
   mealTypes: string[]; durationMinutes: number | null;
 }>> {
   const rows = await db.prepare(
-    `SELECT id, title, source_url, image_url, meal_types, duration_minutes
+    `SELECT id, user_id, title, source_url, image_url, meal_types, duration_minutes
      FROM recipes
      WHERE (source_url LIKE '%tiktok.com%' OR source_url LIKE '%instagram.com%')
      ORDER BY created_at DESC
@@ -1050,6 +1071,7 @@ export async function getPublicDiscover(db: D1Database): Promise<Array<{
   ).all();
   return (rows.results as Array<Record<string, unknown>>).map((r) => ({
     id: String(r.id),
+    userId: String(r.user_id),
     title: String(r.title),
     sourceUrl: String(r.source_url),
     imageUrl: String(r.image_url),
@@ -1070,17 +1092,18 @@ const CURATED_COMMUNITY_IDS = [
 ];
 
 export async function getTrendingRecipes(db: D1Database): Promise<Array<{
-  id: string; title: string; sourceUrl: string; imageUrl: string;
+  id: string; userId: string; title: string; sourceUrl: string; imageUrl: string;
   mealTypes: string[]; durationMinutes: number | null;
   ingredients: string[]; steps: string[];
 }>> {
   const placeholders = CURATED_COMMUNITY_IDS.map(() => '?').join(', ');
   const rows = await db.prepare(
-    `SELECT id, title, source_url, image_url, meal_types, duration_minutes, ingredients, steps
+    `SELECT id, user_id, title, source_url, image_url, meal_types, duration_minutes, ingredients, steps
      FROM recipes WHERE id IN (${placeholders})`
   ).bind(...CURATED_COMMUNITY_IDS).all();
   return (rows.results as Array<Record<string, unknown>>).map((r) => ({
     id: String(r.id),
+    userId: String(r.user_id),
     title: String(r.title),
     sourceUrl: String(r.source_url),
     imageUrl: String(r.image_url),
@@ -1103,7 +1126,7 @@ const EDITOR_PICK_TITLES = [
 ];
 
 export async function getEditorsPick(db: D1Database, titles: string[] = EDITOR_PICK_TITLES): Promise<Array<{
-  id: string; title: string; sourceUrl: string; imageUrl: string;
+  id: string; userId: string; title: string; sourceUrl: string; imageUrl: string;
   mealTypes: string[]; durationMinutes: number | null;
   ingredients: string[]; steps: string[];
 }>> {
@@ -1111,7 +1134,7 @@ export async function getEditorsPick(db: D1Database, titles: string[] = EDITOR_P
   // Pick one row per title: prefer rows where duration_minutes IS NOT NULL.
   // Subquery selects the best rowid per title (non-null duration first, else any).
   const rows = await db.prepare(
-    `SELECT r.id, r.title, r.source_url, r.image_url, r.meal_types, r.duration_minutes, r.ingredients, r.steps
+    `SELECT r.id, r.user_id, r.title, r.source_url, r.image_url, r.meal_types, r.duration_minutes, r.ingredients, r.steps
      FROM recipes r
      INNER JOIN (
        SELECT title,
@@ -1130,6 +1153,7 @@ export async function getEditorsPick(db: D1Database, titles: string[] = EDITOR_P
     .filter((r): r is Record<string, unknown> => r != null);
   return ordered.map((r) => ({
     id: String(r.id),
+    userId: String(r.user_id),
     title: String(r.title),
     sourceUrl: String(r.source_url),
     imageUrl: String(r.image_url),
