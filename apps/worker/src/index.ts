@@ -1156,10 +1156,13 @@ export async function getAiPicks(
   kv: KVNamespace,
   gemini: (env: Env, prompt: string) => Promise<string>,
   env: Partial<Env>,
-  prefs: { mealTypes?: string; diet?: string; skill?: string; cuisine?: string; cookingFor?: string } = {}
+  prefs: { diet?: string; cuisine?: string; cookingFor?: string } = {}
 ): Promise<AiPick[]> {
-  // v2: includes ingredients, steps, sourceUrl in cached recipe objects
-  const cacheKey = `ai-picks:v3:${prefs.diet || 'any'}:${prefs.cuisine || 'all'}:${prefs.cookingFor || 'any'}`;
+  // v3: personalizes by diet, cuisine, cookingFor (dropped mealTypes and skill)
+  const cuisineSorted = prefs.cuisine
+    ? prefs.cuisine.split(',').map(s => s.trim().toLowerCase()).sort().join(',')
+    : 'all';
+  const cacheKey = `ai-picks:v3:${prefs.diet || 'any'}:${cuisineSorted}:${prefs.cookingFor || 'any'}`;
   const cached = await kv.get(cacheKey);
   if (cached) return JSON.parse(cached) as AiPick[];
 
@@ -1189,10 +1192,11 @@ export async function getAiPicks(
   if (!candidates.length) return [];
 
   const titleList = candidates.map(r => String(r.title)).join('\n');
+  const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9, \-]/g, '').slice(0, 200);
   const contextParts: string[] = [];
-  if (prefs.diet) contextParts.push(`diet=${prefs.diet}`);
-  if (prefs.cuisine) contextParts.push(`preferred cuisines=${prefs.cuisine}`);
-  if (prefs.cookingFor) contextParts.push(`cooking for=${prefs.cookingFor}`);
+  if (prefs.diet) contextParts.push(`diet=${sanitize(prefs.diet)}`);
+  if (prefs.cuisine) contextParts.push(`preferred cuisines=${sanitize(prefs.cuisine)}`);
+  if (prefs.cookingFor) contextParts.push(`cooking for=${sanitize(prefs.cookingFor)}`);
   const prefsNote = contextParts.length > 0
     ? `User context: ${contextParts.join(', ')}.`
     : '';
