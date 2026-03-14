@@ -1,34 +1,53 @@
 import { useState } from 'react';
 import { Dialog, DialogContent, Box, Typography, Button, Stack, Chip, LinearProgress } from '@mui/material';
 
-const MEAL_TYPES = ['Breakfast', 'Lunch', 'Dinner', 'Dessert', 'Drinks', 'Meal prep'];
-const DIETARY_PREFS = ['Vegetarian', 'Meat lover', 'Gluten-free', 'Dairy-free', 'High protein', 'Pescatarian', 'None / all good'];
-const SKILL_LEVELS = [
-  { value: 'beginner', label: '🐣 Beginner', sub: 'I follow recipes step by step' },
-  { value: 'home_cook', label: '🍳 Home cook', sub: "I'm comfortable in the kitchen" },
-  { value: 'confident', label: '👨‍🍳 Confident', sub: 'I improvise and experiment' },
+const DIETARY_PREFS = ['Vegetarian', 'Vegan', 'Gluten-free', 'Dairy-free', 'High protein', 'Pescatarian', 'Meat lover', 'None / all good'];
+const COOKING_FOR = [
+  { value: 'solo', label: '👤 Just me', sub: 'Quick meals, single portions' },
+  { value: 'couple', label: '👫 Partner or roommate', sub: 'Easy sharing, 2–3 servings' },
+  { value: 'family', label: '👨‍👩‍👧 Family', sub: 'Kid-friendly, crowd pleasers' },
+  { value: 'entertaining', label: '🎉 I love to entertain', sub: 'Impressive dishes, feeds a crowd' },
 ];
+const CUISINES = ['Italian', 'Asian', 'Mexican', 'Mediterranean', 'American comfort', 'Indian', 'Middle Eastern', 'French', 'Japanese', 'All of the above'];
 
 /**
- * 3-screen onboarding flow, each screen skippable.
+ * 3-screen onboarding flow.
  * Props:
  *   open: boolean
- *   onComplete: (prefs: { mealTypePrefs, dietaryPrefs, skillLevel }) => void
+ *   onComplete: (prefs: { dietaryPrefs, cookingFor, cuisinePrefs }) => void
  *   onSkip: () => void
  */
 export default function OnboardingFlow({ open, onComplete, onSkip }) {
   const [screen, setScreen] = useState(0);
-  const [mealTypes, setMealTypes] = useState([]);
   const [dietary, setDietary] = useState([]);
-  const [skill, setSkill] = useState('');
+  const [cookingFor, setCookingFor] = useState('');
+  const [cuisinePrefs, setCuisinePrefs] = useState([]);
 
-  const toggle = (list, setList, value) => {
-    setList(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]);
+  const toggleDietary = (value) => {
+    if (value === 'None / all good') {
+      setDietary(prev => prev.includes('None / all good') ? [] : ['None / all good']);
+    } else {
+      setDietary(prev => {
+        const without = prev.filter(v => v !== 'None / all good');
+        return without.includes(value) ? without.filter(v => v !== value) : [...without, value];
+      });
+    }
+  };
+
+  const toggleCuisine = (value) => {
+    if (value === 'All of the above') {
+      setCuisinePrefs(prev => prev.includes('All of the above') ? [] : ['All of the above']);
+    } else {
+      setCuisinePrefs(prev => {
+        const without = prev.filter(v => v !== 'All of the above');
+        return without.includes(value) ? without.filter(v => v !== value) : [...without, value];
+      });
+    }
   };
 
   const handleNext = () => {
     if (screen < 2) setScreen(s => s + 1);
-    else onComplete({ mealTypePrefs: mealTypes, dietaryPrefs: dietary, skillLevel: skill });
+    else onComplete({ dietaryPrefs: dietary, cookingFor, cuisinePrefs });
   };
 
   const progress = ((screen + 1) / 3) * 100;
@@ -45,26 +64,11 @@ export default function OnboardingFlow({ open, onComplete, onSkip }) {
 
         {screen === 0 && (
           <>
-            <Typography variant="h6" fontWeight={800} mb={0.5}>What do you love to cook?</Typography>
-            <Typography variant="body2" color="text.secondary" mb={2}>Pick all that apply</Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3 }}>
-              {MEAL_TYPES.map(t => (
-                <Chip key={t} label={t} clickable onClick={() => toggle(mealTypes, setMealTypes, t)}
-                  variant={mealTypes.includes(t) ? 'filled' : 'outlined'}
-                  color={mealTypes.includes(t) ? 'primary' : 'default'}
-                  sx={{ fontWeight: mealTypes.includes(t) ? 700 : 400 }} />
-              ))}
-            </Box>
-          </>
-        )}
-
-        {screen === 1 && (
-          <>
             <Typography variant="h6" fontWeight={800} mb={0.5}>Any dietary preferences?</Typography>
-            <Typography variant="body2" color="text.secondary" mb={2}>We'll tailor your AI picks</Typography>
+            <Typography variant="body2" color="text.secondary" mb={2}>We'll filter out recipes that don't work for you</Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3 }}>
               {DIETARY_PREFS.map(d => (
-                <Chip key={d} label={d} clickable onClick={() => toggle(dietary, setDietary, d)}
+                <Chip key={d} label={d} clickable onClick={() => toggleDietary(d)}
                   variant={dietary.includes(d) ? 'filled' : 'outlined'}
                   color={dietary.includes(d) ? 'primary' : 'default'}
                   sx={{ fontWeight: dietary.includes(d) ? 700 : 400 }} />
@@ -73,21 +77,36 @@ export default function OnboardingFlow({ open, onComplete, onSkip }) {
           </>
         )}
 
-        {screen === 2 && (
+        {screen === 1 && (
           <>
-            <Typography variant="h6" fontWeight={800} mb={0.5}>How confident are you in the kitchen?</Typography>
-            <Typography variant="body2" color="text.secondary" mb={2}>No right answer — helps us suggest recipes</Typography>
+            <Typography variant="h6" fontWeight={800} mb={0.5}>Who are you usually cooking for?</Typography>
+            <Typography variant="body2" color="text.secondary" mb={2}>Helps us suggest the right recipes for your table</Typography>
             <Stack spacing={1} mb={3}>
-              {SKILL_LEVELS.map(s => (
-                <Box key={s.value} onClick={() => setSkill(s.value)}
+              {COOKING_FOR.map(c => (
+                <Box key={c.value} onClick={() => setCookingFor(c.value)}
                   sx={{ p: 1.5, borderRadius: 2, border: 2, cursor: 'pointer',
-                    borderColor: skill === s.value ? 'primary.main' : 'divider',
-                    bgcolor: skill === s.value ? 'primary.main' + '14' : 'transparent' }}>
-                  <Typography variant="body2" fontWeight={skill === s.value ? 700 : 400}>{s.label}</Typography>
-                  <Typography variant="caption" color="text.secondary">{s.sub}</Typography>
+                    borderColor: cookingFor === c.value ? 'primary.main' : 'divider',
+                    bgcolor: cookingFor === c.value ? 'primary.main' + '14' : 'transparent' }}>
+                  <Typography variant="body2" fontWeight={cookingFor === c.value ? 700 : 400}>{c.label}</Typography>
+                  <Typography variant="caption" color="text.secondary">{c.sub}</Typography>
                 </Box>
               ))}
             </Stack>
+          </>
+        )}
+
+        {screen === 2 && (
+          <>
+            <Typography variant="h6" fontWeight={800} mb={0.5}>What cuisines do you love?</Typography>
+            <Typography variant="body2" color="text.secondary" mb={2}>Pick all that apply — we'll surface more of what you're into</Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3 }}>
+              {CUISINES.map(c => (
+                <Chip key={c} label={c} clickable onClick={() => toggleCuisine(c)}
+                  variant={cuisinePrefs.includes(c) ? 'filled' : 'outlined'}
+                  color={cuisinePrefs.includes(c) ? 'primary' : 'default'}
+                  sx={{ fontWeight: cuisinePrefs.includes(c) ? 700 : 400 }} />
+              ))}
+            </Box>
           </>
         )}
 
