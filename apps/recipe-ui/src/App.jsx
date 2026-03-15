@@ -930,18 +930,6 @@ function App() {
   const [showFloatingFab, setShowFloatingFab] = useState(false);
   const [cookWithFriendsVisible, setCookWithFriendsVisible] = useState(false);
   const addRecipeBtnRef = useRef(null);
-
-  useEffect(() => {
-    const el = addRecipeBtnRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => setShowFloatingFab(!entry.isIntersecting),
-      { threshold: 0 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [mobileFilterDrawerOpen, setMobileFilterDrawerOpen] = useState(false);
   const mobileFilterChipsRef = useRef(null);
@@ -953,6 +941,21 @@ function App() {
   });
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [currentView, setCurrentView] = useState('home'); // 'home' | 'recipes'
+
+  useEffect(() => {
+    if (currentView !== 'recipes') {
+      setShowFloatingFab(false);
+      return;
+    }
+    const el = addRecipeBtnRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setShowFloatingFab(!entry.isIntersecting),
+      { threshold: 0 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [currentView]);
 
   const toggleFavorite = useCallback((recipeId) => {
     setFavorites((prev) => {
@@ -3887,8 +3890,8 @@ function App() {
           </>
         )}
 
-        {/* Filter by meal type — logged-in only */}
-        {session && <Box sx={{ px: 2.5, pt: 2, pb: 2 }}>
+        {/* Filter by meal type — recipes view only */}
+        {session && currentView === 'recipes' && <Box sx={{ px: 2.5, pt: 2, pb: 2 }}>
           <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1.5, fontSize: 13, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             Filter
           </Typography>
@@ -6034,20 +6037,21 @@ function App() {
             left: '50%',
             transform: (() => {
               const visible = session
-                ? showFloatingFab && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
+                ? showFloatingFab && currentView === 'recipes' && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
                 : showFloatingFab && !cookWithFriendsVisible;
-              return visible ? 'translateX(-50%) translateY(0)' : 'translateX(-50%) translateY(80px)';
+              return visible ? 'translateX(-50%) translateY(0) scale(1)' : 'translateX(-50%) translateY(20px) scale(0.92)';
             })(),
             opacity: (() => {
               const visible = session
-                ? showFloatingFab && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
+                ? showFloatingFab && currentView === 'recipes' && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
                 : showFloatingFab && !cookWithFriendsVisible;
               return visible ? 1 : 0;
             })(),
-            transition: 'transform 250ms cubic-bezier(0.2, 0, 0, 1), opacity 200ms ease',
+            transition: 'transform 320ms cubic-bezier(0.34, 1.3, 0.64, 1), opacity 220ms ease',
+            willChange: 'transform, opacity',
             pointerEvents: (() => {
               const visible = session
-                ? showFloatingFab && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
+                ? showFloatingFab && currentView === 'recipes' && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
                 : showFloatingFab && !cookWithFriendsVisible;
               return visible ? 'auto' : 'none';
             })(),

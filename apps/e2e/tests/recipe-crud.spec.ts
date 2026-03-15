@@ -98,7 +98,7 @@ test.describe('Recipe CRUD', () => {
   });
 
   test('delete recipe', async ({ page }) => {
-    const titleToDelete = '[TEST] Delete Me';
+    const titleToDelete = `[TEST] Delete Me ${Date.now()}`;
     createdRecipeTitle = ''; // deleted in test, skip afterEach
     const token = await getAuthToken(ALICE_STATE);
     await fetch(`${API_BASE}/recipes`, {
@@ -125,7 +125,7 @@ test.describe('Recipe CRUD', () => {
     await expect(confirmDialog).toBeVisible();
     await confirmDialog.getByRole('button', { name: /delete/i }).click();
 
-    // Wait for both dialogs to close, then verify the card is gone
+    // Wait for both dialogs to close, then verify the recipe card is gone
     await expect(page.getByTestId('delete-confirm-dialog')).not.toBeVisible({ timeout: 5_000 });
     await expect(page.getByTestId('recipe-detail-dialog')).not.toBeVisible({ timeout: 5_000 });
     await expect(page.getByText(titleToDelete)).toHaveCount(0, { timeout: 10_000 });

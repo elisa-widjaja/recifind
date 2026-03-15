@@ -18,14 +18,11 @@ Start the Vite dev server (if not running) and spin up the named Cloudflare tunn
    lsof -i :5173 | grep LISTEN
    ```
 
-2. **Check if the worker is running on port 8787**
+2. **Always kill any existing worker and restart with `--remote`** so it connects to real D1/KV (a worker started without `--remote` will miss data and cause missing sections):
    ```bash
-   lsof -i :8787 | grep LISTEN
-   ```
-   If nothing is listening, start it in the background (use `--remote` so it connects to real D1/KV):
-   ```bash
+   pkill -f "wrangler dev" 2>/dev/null; sleep 2
    cd /Users/elisa/Desktop/VibeCode/apps/worker && npx wrangler dev --port 8787 --remote > /tmp/worker-dev.log 2>&1 &
-   sleep 8
+   sleep 10
    ```
    Verify it started:
    ```bash
