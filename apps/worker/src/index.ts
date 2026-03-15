@@ -1359,8 +1359,8 @@ export async function getFriendsRecentlySaved(db: D1Database, userId: string): P
   const items: FriendRecipeItem[] = [];
   for (const friend of (friends.results as Array<Record<string, unknown>>)) {
     const rows = await db.prepare(
-      // No shared_with_friends filter — show any recipe the friend has, all visible to friends
-      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at, ingredients, steps FROM recipes WHERE user_id = ? ORDER BY created_at DESC LIMIT 2`
+      // Exclude shared recipes — those appear in "recently shared" section to avoid duplicates
+      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at, ingredients, steps FROM recipes WHERE user_id = ? AND (shared_with_friends IS NULL OR shared_with_friends = 0) ORDER BY created_at DESC LIMIT 2`
     ).bind(String(friend.friend_id)).all();
     for (const r of (rows.results as Array<Record<string, unknown>>)) {
       items.push({
