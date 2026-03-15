@@ -66,18 +66,39 @@ async function injectSessionAndSave(page: any, email: string, outputPath: string
   const session = await getSession(email);
 
   // Navigate to the app first so localStorage origin is set
-  await page.goto('http://localhost:5173');
+  await page.goto('/');
 
   // Inject session in the exact format supabase-js v2 stores it under storageKey 'recifind-auth'
+  // Also mark onboarding as seen to prevent modal from blocking tests
   await page.evaluate(({ session }: { session: any }) => {
     localStorage.setItem('recifind-auth', JSON.stringify(session));
+    localStorage.setItem('onboarding_seen', '1');
   }, { session });
 
   // Reload so the app picks up the injected session
   await page.reload();
 
-  // Wait for the Account button — only visible when logged in
-  await page.getByRole('button', { name: 'Account' }).waitFor({ timeout: 15_000 });
+  // Dismiss onboarding/welcome dialogs that appear on first login.
+  // Try clicking "Don't show this again" if the onboarding dialog appears.
+  try {
+    await page.getByRole('button', { name: "Don't show this again" }).click({ timeout: 5_000 });
+    await page.waitForTimeout(500);
+  } catch {
+    // No onboarding dialog — that's fine
+  }
+  // Also try dismissing a second dialog if one appears
+  try {
+    await page.getByRole('button', { name: "Don't show this again" }).click({ timeout: 2_000 });
+    await page.waitForTimeout(500);
+  } catch {
+    // No second dialog
+  }
+
+  // On mobile, Account button is hidden. Open the hamburger menu and check for "Logout"
+  // which only appears when logged in.
+  await page.getByRole('button', { name: 'Open menu' }).waitFor({ timeout: 15_000 });
+  await page.getByRole('button', { name: 'Open menu' }).click();
+  await page.getByText('Logout').waitFor({ timeout: 5_000 });
 
   fs.mkdirSync(AUTH_DIR, { recursive: true });
   await page.context().storageState({ path: outputPath });

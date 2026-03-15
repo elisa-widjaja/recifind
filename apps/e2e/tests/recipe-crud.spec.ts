@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { sel } from '../helpers/selectors';
+import { sel, navigateToRecipesMobile } from '../helpers/selectors';
 import { getAuthToken, deleteRecipeByTitle, deleteRecipeById } from '../helpers/api';
 import path from 'path';
 
 const ALICE_STATE = path.join(__dirname, '../.auth/alice.json');
-const API_BASE = 'http://localhost:8787';
+const API_BASE = process.env.API_BASE!;
 
 test.describe('Recipe CRUD', () => {
   let createdRecipeTitle = '';
@@ -21,6 +21,8 @@ test.describe('Recipe CRUD', () => {
     createdRecipeTitle = '[TEST] Scrambled Eggs';
     await page.goto('/');
 
+    // On mobile, navigate to recipes view, then click Add Recipe
+    await navigateToRecipesMobile(page);
     await sel.addRecipeBtn(page).click();
     const dialog = sel.recipeDialog(page);
     await expect(dialog).toBeVisible();
@@ -50,7 +52,8 @@ test.describe('Recipe CRUD', () => {
     expect(res.ok).toBeTruthy();
 
     await page.goto('/');
-    await page.waitForTimeout(1000); // allow recipes to load from API
+    await navigateToRecipesMobile(page);
+    await page.waitForTimeout(1000);
     await page.getByText(createdRecipeTitle).first().click();
 
     const detail = page.getByRole('dialog');
@@ -76,6 +79,7 @@ test.describe('Recipe CRUD', () => {
     });
 
     await page.goto('/');
+    await navigateToRecipesMobile(page);
     await page.waitForTimeout(1000);
     await page.getByText(originalTitle).first().click();
 
@@ -110,6 +114,7 @@ test.describe('Recipe CRUD', () => {
     });
 
     await page.goto('/');
+    await navigateToRecipesMobile(page);
     await page.waitForTimeout(1000);
     await page.getByText(titleToDelete).first().click();
 

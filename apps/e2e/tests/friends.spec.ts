@@ -1,15 +1,18 @@
 import { test, expect, Page } from '@playwright/test';
 import { getAuthToken, getUserId, getEmail, getDisplayName, removeFriend, deleteRecipeByTitle, acceptFriendRequest, sendFriendRequest } from '../helpers/api';
+import { sel } from '../helpers/selectors';
 import path from 'path';
 import * as fs from 'fs';
 const ALICE_STATE = path.join(__dirname, '../.auth/alice.json');
 const BOB_STATE = path.join(__dirname, '../.auth/bob.json');
-const API_BASE = 'http://localhost:8787';
+const API_BASE = process.env.API_BASE!;
 
 
 async function openFriendsDrawer(page: Page) {
-  await page.getByRole('button', { name: /friends/i }).click();
-  await expect(page.getByRole('button', { name: /add friend/i })).toBeVisible({ timeout: 5_000 });
+  // On mobile, Friends is inside the hamburger drawer
+  await sel.hamburgerBtn(page).click();
+  await page.getByText('Friends', { exact: true }).click();
+  await page.waitForTimeout(500);
 }
 
 test.describe('Friends flow', () => {
@@ -57,9 +60,10 @@ test.describe('Friends flow', () => {
     await page.goto('/');
     await openFriendsDrawer(page);
 
-    // Friends list shows friendName (display name) or friendEmail
+    // Friends list shows a button with the friend's display name inside the friends drawer
+    const friendsDrawer = page.getByTestId('friends-drawer');
     await expect(
-      page.getByText(new RegExp(bobDisplayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'))
+      friendsDrawer.getByText(new RegExp(bobDisplayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')).first()
     ).toBeVisible({ timeout: 10_000 });
   });
 
@@ -87,16 +91,17 @@ test.describe('Friends flow', () => {
     await page.goto('/');
     await openFriendsDrawer(page);
 
-    // Click on Bob's entry in the friends list
-    await page.getByText(new RegExp(bobDisplayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')).first().click();
-    await expect(page.getByText(sharedRecipeTitle)).toBeVisible({ timeout: 8_000 });
+    // Click on Bob's entry inside the friends drawer
+    const friendsDrawer = page.getByTestId('friends-drawer');
+    await friendsDrawer.getByText(new RegExp(bobDisplayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')).first().click();
+    await expect(page.getByText(sharedRecipeTitle).first()).toBeVisible({ timeout: 8_000 });
   });
 
 
   // Tests that the "You're now connected" snackbar appears when a user logs in with
   // a pending open invite. Uses route interception to avoid DB state dependencies
   // (accept-open-invite is mocked to return { message: 'Connected!' }).
-  test('Bob sees "You\'re now connected" snackbar after accepting Alice\'s open invite', async ({ browser }, testInfo) => {
+  test('Bob sees "You\'re now connected" snackbar after accepting Alice\'s open invite', async ({ browser, baseURL }, testInfo) => {
     test.skip(testInfo.project.name !== 'alice-friends', 'Alice-only test');
 
     // Alice's display name — used to verify the snackbar message
@@ -110,7 +115,7 @@ test.describe('Friends flow', () => {
     // Placeholder invite token — the real accept-open-invite call is intercepted below
     const fakeInviteToken = 'e2e-test-invite-token';
 
-    const freshContext = await browser.newContext();
+    const freshContext = await browser.newContext({ baseURL });
     const freshPage = await freshContext.newPage();
 
     const intercepted: string[] = [];
@@ -147,19 +152,19 @@ test.describe('Friends flow', () => {
       });
 
       // Inject session + pending invite via addInitScript so they're present BEFORE
-      // the app's own module-level code runs. page.reload() clears sessionStorage in
-      // Playwright, so this avoids a goto→inject→reload sequence entirely.
+      // the app's own module-level code runs.
       await freshContext.addInitScript(
         ({ sessionValue, inviteToken }: { sessionValue: string; inviteToken: string }) => {
           localStorage.setItem('recifind-auth', sessionValue);
+          localStorage.setItem('onboarding_seen', '1');
           sessionStorage.setItem('pending_open_invite', inviteToken);
           sessionStorage.setItem('invite_entry', '1');
         },
         { sessionValue: bobAuthEntry.value, inviteToken: fakeInviteToken }
       );
 
-      // Single navigation — storage is already primed when the page loads
-      await freshPage.goto('http://localhost:5173');
+      // Use baseURL from config (tunnel URL)
+      await freshPage.goto('/');
 
       // Wait a moment for the API call to be processed and React to re-render
       await freshPage.waitForTimeout(3000);

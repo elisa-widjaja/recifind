@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { getAuthToken, deleteRecipeByTitle } from '../helpers/api';
-import { sel } from '../helpers/selectors';
+import { sel, navigateToRecipesMobile } from '../helpers/selectors';
 import path from 'path';
 
 const ALICE_STATE = path.join(__dirname, '../.auth/alice.json');
-const API_BASE = 'http://localhost:8787';
+const API_BASE = process.env.API_BASE!;
 
 test.describe('Recipe Sharing', () => {
   let createdRecipeTitle = '';
@@ -33,17 +33,17 @@ test.describe('Recipe Sharing', () => {
     });
 
     await page.goto('/');
+    await navigateToRecipesMobile(page);
     // Wait for the recipe card to appear before checking the share button
     await expect(page.getByText(createdRecipeTitle).first()).toBeVisible({ timeout: 10_000 });
 
     // The Share recipe button is an IconButton on the card (aria-label="Share recipe")
-    // It lives on the card itself, not inside the detail dialog
     const card = page.getByRole('button').filter({ hasText: createdRecipeTitle });
     const shareBtn = card.getByLabel('Share recipe');
     await expect(shareBtn).toBeVisible();
   });
 
-  test('open shared recipe as logged-out user', async ({ page, browser }) => {
+  test('open shared recipe as logged-out user', async ({ page, browser, baseURL }) => {
     createdRecipeTitle = '[TEST] Public Share';
     const token = await getAuthToken(ALICE_STATE);
 
@@ -68,14 +68,13 @@ test.describe('Recipe Sharing', () => {
       headers: { Authorization: `Bearer ${token}` },
     });
     const shareData = await shareRes.json() as Record<string, string>;
-    // Worker returns { token: "..." } — fallback chain handles field name variations
     const shareToken = shareData.token ?? shareData.shareToken ?? shareData.share_token;
     expect(shareToken).toBeTruthy();
 
     // Open in a fresh logged-out browser context
     const anonContext = await browser.newContext();
     const anonPage = await anonContext.newPage();
-    await anonPage.goto(`http://localhost:5173/?share=${shareToken}`);
+    await anonPage.goto(`${baseURL}/?share=${shareToken}`);
 
     await expect(anonPage.getByText(createdRecipeTitle).first()).toBeVisible({ timeout: 10_000 });
     await expect(anonPage.getByText('garlic', { exact: true })).toBeVisible();

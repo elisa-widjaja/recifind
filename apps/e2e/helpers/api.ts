@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:8787';
+const API_BASE = process.env.API_BASE || 'http://localhost:8787';
 
 export async function deleteRecipeByTitle(userToken: string, title: string): Promise<void> {
   const listRes = await fetch(`${API_BASE}/recipes`, {

@@ -7,14 +7,15 @@ Start the Vite dev server (if not running) and spin up the named Cloudflare tunn
 
 ## Steps
 
-1. **Check if Vite is running on port 5173**
+1. **Always kill any existing Vite process and restart from the main repo** to avoid stale processes from old worktrees:
    ```bash
-   lsof -i :5173 | grep LISTEN
-   ```
-   If nothing is listening, start it in the background:
-   ```bash
+   pkill -f "vite" 2>/dev/null; sleep 1
    cd /Users/elisa/Desktop/VibeCode/apps/recipe-ui && npm run dev -- --host > /tmp/vite-dev.log 2>&1 &
    sleep 3
+   ```
+   Verify it started:
+   ```bash
+   lsof -i :5173 | grep LISTEN
    ```
 
 2. **Check if the worker is running on port 8787**
