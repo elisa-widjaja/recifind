@@ -88,7 +88,7 @@ function RecipeCard({ recipe, onSave, onShare, onOpen, cardWidth, thumbHeight, p
       sx={{
         flexShrink: 0,
         width: cardWidth,
-        borderRadius: 1,
+        borderRadius: '10px',
         border: 1,
         borderColor: 'divider',
         bgcolor: 'background.paper',

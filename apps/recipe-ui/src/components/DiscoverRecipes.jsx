@@ -56,7 +56,7 @@ function WatchCard({ recipe, onOpen }) {
         flexShrink: 0,
         width: 'calc((100vw - 44px) / 2)',
         aspectRatio: '9 / 16',
-        borderRadius: 2,
+        borderRadius: '10px',
         overflow: 'hidden',
         position: 'relative',
         bgcolor: 'action.hover',

@@ -20,7 +20,7 @@ export default function RecipeListCard({ recipe, onOpen, onSave, onShare, thumbn
   return (
     <Card
       elevation={0}
-      sx={{ border: 1, borderColor: 'divider', borderRadius: 1, overflow: 'hidden', ...cardSx }}
+      sx={{ border: 1, borderColor: 'divider', borderRadius: '10px', overflow: 'hidden', ...cardSx }}
     >
       <CardActionArea
         onClick={() => onOpen?.(recipe)}
@@ -36,7 +36,7 @@ export default function RecipeListCard({ recipe, onOpen, onSave, onShare, thumbn
         }}
       >
         {thumbnail ?? (
-          <Box sx={{ position: 'relative', width: 90, height: 90, flexShrink: 0, overflow: 'hidden', borderRadius: '6px', bgcolor: 'action.hover' }}>
+          <Box sx={{ position: 'relative', width: 90, height: 90, flexShrink: 0, overflow: 'hidden', borderRadius: '7px', bgcolor: 'action.hover' }}>
             {recipe.imageUrl
               ? <Box component="img" src={recipe.imageUrl} alt={recipe.title} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               : <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>🍳</Box>

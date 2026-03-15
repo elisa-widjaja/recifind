@@ -56,7 +56,7 @@ function AiPickCard({ pick, onOpen, onSave }) {
         scrollSnapAlign: 'start',
         border: 1,
         borderColor: 'divider',
-        borderRadius: 2,
+        borderRadius: '10px',
         bgcolor: 'background.paper',
         p: 1.5,
         display: 'flex',

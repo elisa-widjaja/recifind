@@ -31,7 +31,7 @@ export default function StatsTiles({ recipeCount, accessToken, onAddRecipe, onVi
     : { bg: 'linear-gradient(135deg, #ecfdf5, #f0fdf4)', border: '#6ee7b7', label: '#059669', count: '#064e3b', sub: '#059669', btn: '#10b981', btnText: '#fff', link: '#059669' };
 
   const tileBase = {
-    borderRadius: '14px',
+    borderRadius: '12px',
     p: 2,
     display: 'flex',
     flexDirection: 'column',
