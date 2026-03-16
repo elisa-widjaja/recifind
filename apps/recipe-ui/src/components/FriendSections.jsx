@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Box, Typography, Stack } from '@mui/material';
 import RecipeShelf from './RecipeShelf';
 import RecipeListCard from './RecipeListCard';
-import TrendingHealthCarousel from './TrendingHealthCarousel';
+import TrendingHealthCarousel from './TrendingHealthCarouselB';
 
 const API_BASE_URL = import.meta.env.VITE_RECIPES_API_BASE_URL || '';
 
@@ -188,8 +188,8 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
 
       {aiPicks.length > 0 && (
         <Box>
-          <SectionLabel>Trending in health & nutrition</SectionLabel>
-          <TrendingHealthCarousel picks={aiPicks} onOpen={onOpenRecipe} onSave={onSaveRecipe} />
+          <SectionLabel>Trending in Health & Nutrition</SectionLabel>
+          <TrendingHealthCarousel picks={aiPicks} onOpen={onOpenRecipe} onSave={onSaveRecipe} onShare={onShareRecipe} />
         </Box>
       )}
 

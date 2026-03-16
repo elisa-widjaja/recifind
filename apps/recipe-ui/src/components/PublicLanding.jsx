@@ -5,7 +5,7 @@ import {
 import RecipeShelf from './RecipeShelf';
 import DiscoverRecipes from './DiscoverRecipes';
 import RecipeListCard from './RecipeListCard';
-import TrendingHealthCarousel from './TrendingHealthCarousel';
+import TrendingHealthCarousel from './TrendingHealthCarouselB';
 
 const API_BASE_URL = import.meta.env.VITE_RECIPES_API_BASE_URL || '';
 
@@ -126,8 +126,8 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare 
           {/* ── Section 3: AI Picks ── */}
           {aiPicks.length > 0 && (
             <Box>
-              <SectionLabel label="Trending in health & nutrition" />
-              <TrendingHealthCarousel picks={aiPicks} onOpen={onOpenRecipe} onSave={onJoin} />
+              <SectionLabel label="Trending in Health & Nutrition" />
+              <TrendingHealthCarousel picks={aiPicks} onOpen={onOpenRecipe} onSave={onJoin} onShare={onShare} />
             </Box>
           )}
 
