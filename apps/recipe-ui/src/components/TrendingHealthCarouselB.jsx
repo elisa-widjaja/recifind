@@ -95,7 +95,7 @@ function AiPickCard({ pick, onOpen, onSave, onShare }) {
               : <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>🍳</Box>
             }
           </Box>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 56 }}>
             <Typography
               fontSize={12}
               fontWeight={600}
@@ -104,7 +104,7 @@ function AiPickCard({ pick, onOpen, onSave, onShare }) {
             >
               {recipe.title}
             </Typography>
-            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.5, gap: 0.5 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5 }}>
               <IconButton
                 size="small"
                 onMouseDown={(e) => e.stopPropagation()}
