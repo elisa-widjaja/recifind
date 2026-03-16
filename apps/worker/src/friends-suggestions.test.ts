@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { handleFriendSuggestions } from './index';
+import { handleFriendSuggestions, resolveEmailFromUserId } from './index';
 
 describe('handleFriendSuggestions', () => {
   it('returns FOF suggestions sorted by mutual count', async () => {
@@ -46,5 +46,31 @@ describe('handleFriendSuggestions', () => {
     const result = await handleFriendSuggestions(mockDb, 'user-a');
 
     expect(result.suggestions).toHaveLength(0);
+  });
+});
+
+describe('resolveEmailFromUserId', () => {
+  it('returns email string when profile found', async () => {
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnThis(),
+        first: vi.fn().mockResolvedValue({ email: 'maya@example.com' }),
+      }),
+    } as unknown as D1Database;
+
+    const email = await resolveEmailFromUserId(mockDb, 'user-b');
+    expect(email).toBe('maya@example.com');
+  });
+
+  it('returns null when user not found', async () => {
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnThis(),
+        first: vi.fn().mockResolvedValue(null),
+      }),
+    } as unknown as D1Database;
+
+    const email = await resolveEmailFromUserId(mockDb, 'unknown-user');
+    expect(email).toBeNull();
   });
 });

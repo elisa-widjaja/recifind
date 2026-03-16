@@ -1773,6 +1773,13 @@ async function handleImageRequest(
 
 // ── Friends route handlers ───────────────────────────────────────────
 
+export async function resolveEmailFromUserId(db: D1Database, userId: string): Promise<string | null> {
+  const row = await db.prepare(
+    'SELECT email FROM profiles WHERE user_id = ?'
+  ).bind(userId).first<{ email: string }>();
+  return row?.email ?? null;
+}
+
 export async function handleFriendSuggestions(db: D1Database, userId: string): Promise<{ suggestions: Array<{ userId: string; name: string; reason: string }> }> {
   // --- FOF pass ---
   const fofRows = await db.prepare(`
@@ -1854,8 +1861,16 @@ export async function handleFriendSuggestions(db: D1Database, userId: string): P
 
 async function handleSendFriendRequest(request: Request, env: Env, user: AuthenticatedUser, ctx: ExecutionContext) {
   const body = await readJsonBody(request);
-  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
-  if (!email) throw new HttpError(400, 'Email is required');
+  let email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+
+  // userId path: frontend passes userId directly (avoids exposing emails in API responses)
+  if (!email && typeof body.userId === 'string' && body.userId.trim()) {
+    const resolved = await resolveEmailFromUserId(env.DB, body.userId.trim());
+    if (!resolved) throw new HttpError(404, 'User not found');
+    email = resolved.toLowerCase();
+  }
+
+  if (!email) throw new HttpError(400, 'Email or userId is required');
 
   if (user.email && email === user.email.toLowerCase()) {
     throw new HttpError(400, 'You cannot add yourself as a friend');
