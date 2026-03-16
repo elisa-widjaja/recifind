@@ -1058,18 +1058,21 @@ async function handleOembedAuthor(url: URL) {
   }
 }
 
-export async function getPublicDiscover(db: D1Database): Promise<Array<{
+// Hand-picked YouTube Shorts to always appear in the first 2 slots of Discover New Recipes.
+// Add recipe IDs here (must exist in D1). Keep at most 2.
+const CURATED_YOUTUBE_SHORTS_IDS = [
+  '802582a9-2ece-49ca-ab8e-0561d54645c5', // The Best Gouda Grits Recipe
+  'e0853763-d134-4547-8496-efa18bfa5062', // Persian Sheet-Pan Beef Kefta Wraps
+];
+
+type DiscoverRecipe = {
   id: string; userId: string; title: string; sourceUrl: string; imageUrl: string;
   mealTypes: string[]; durationMinutes: number | null;
-}>> {
-  const rows = await db.prepare(
-    `SELECT id, user_id, title, source_url, image_url, meal_types, duration_minutes
-     FROM recipes
-     WHERE (source_url LIKE '%tiktok.com%' OR source_url LIKE '%instagram.com%')
-     ORDER BY created_at DESC
-     LIMIT 10`
-  ).all();
-  return (rows.results as Array<Record<string, unknown>>).map((r) => ({
+  ingredients: string[]; steps: string[];
+};
+
+function mapDiscoverRow(r: Record<string, unknown>): DiscoverRecipe {
+  return {
     id: String(r.id),
     userId: String(r.user_id),
     title: String(r.title),
@@ -1077,17 +1080,49 @@ export async function getPublicDiscover(db: D1Database): Promise<Array<{
     imageUrl: String(r.image_url),
     mealTypes: JSON.parse(String(r.meal_types || '[]')),
     durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
-  }));
+    ingredients: JSON.parse(String(r.ingredients || '[]')),
+    steps: JSON.parse(String(r.steps || '[]')),
+  };
+}
+
+const DISCOVER_SELECT = `SELECT id, user_id, title, source_url, image_url, meal_types, duration_minutes, ingredients, steps FROM recipes`;
+
+export async function getPublicDiscover(db: D1Database): Promise<DiscoverRecipe[]> {
+  // Fetch curated shorts first (if any are configured)
+  let curatedShorts: DiscoverRecipe[] = [];
+  if (CURATED_YOUTUBE_SHORTS_IDS.length > 0) {
+    const placeholders = CURATED_YOUTUBE_SHORTS_IDS.map(() => '?').join(', ');
+    const curatedRows = await db.prepare(
+      `${DISCOVER_SELECT} WHERE id IN (${placeholders})`
+    ).bind(...CURATED_YOUTUBE_SHORTS_IDS).all();
+    curatedShorts = (curatedRows.results as Array<Record<string, unknown>>).map(mapDiscoverRow);
+  }
+
+  const curatedIds = new Set(curatedShorts.map(r => r.id));
+
+  // Fill the rest with recent TikTok/Instagram/YouTube Shorts, excluding already-fetched curated ones
+  const rows = await db.prepare(
+    `${DISCOVER_SELECT}
+     WHERE (source_url LIKE '%tiktok.com%' OR source_url LIKE '%instagram.com%'
+            OR source_url LIKE '%youtube.com/shorts%')
+     ORDER BY created_at DESC
+     LIMIT 20`
+  ).all();
+  const rest = (rows.results as Array<Record<string, unknown>>)
+    .map(mapDiscoverRow)
+    .filter(r => !curatedIds.has(r.id));
+
+  return [...curatedShorts, ...rest];
 }
 
 const CURATED_COMMUNITY_IDS = [
   '2c8627ea-2cf1-447c-8c45-8118f0db88a0',
   'bbb0b42d-fc3f-4f3d-a6ad-8c75dcae6ab3',
-  'c49498b7-3772-4304-86a1-b62a8eb42aad',
+  // 'c49498b7-3772-4304-86a1-b62a8eb42aad', // YouTube Short — moved to Discover
   'ce72aae2-d5a0-4e3c-b088-fbfd8a6d870f',
   '953bdf9f-6088-4449-8692-0c68d6822a0a',
   '40267c63-abe5-4c66-8477-94d26626de1b',
-  'e0853763-d134-4547-8496-efa18bfa5062',
+  // 'e0853763-d134-4547-8496-efa18bfa5062', // YouTube Short — moved to Discover
   '3190c934-f0d4-45b9-8379-4efdc839189a',
 ];
 

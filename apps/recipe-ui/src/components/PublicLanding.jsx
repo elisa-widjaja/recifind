@@ -9,11 +9,6 @@ import TrendingHealthCarousel from './TrendingHealthCarousel';
 
 const API_BASE_URL = import.meta.env.VITE_RECIPES_API_BASE_URL || '';
 
-function isSocialVideoRecipe(url) {
-  if (!url) return false;
-  return url.includes('youtube.com') || url.includes('youtu.be')
-    || url.includes('tiktok.com') || url.includes('instagram.com');
-}
 
 async function fetchJson(path) {
   const res = await fetch(`${API_BASE_URL}${path}`);
@@ -28,8 +23,14 @@ async function fetchJson(path) {
  *   onOpenRecipe: (recipe) => void — opens recipe detail
  *   darkMode: boolean
  */
+function isEmbeddable(url) {
+  if (!url) return false;
+  return url.includes('tiktok.com') || url.includes('youtube.com') || url.includes('youtu.be');
+}
+
 export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare }) {
   const [trending, setTrending] = useState([]);
+  const [discover, setDiscover] = useState([]);
   const [editorsPick, setEditorsPick] = useState([]);
   const [aiPicks, setAiPicks] = useState([]);
   const [editorsExpanded, setEditorsExpanded] = useState(false);
@@ -38,6 +39,7 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare 
 
   useEffect(() => {
     fetchJson('/public/trending-recipes').then(d => setTrending(d?.recipes || []));
+    fetchJson('/public/discover').then(d => setDiscover(d?.recipes || []));
     fetchJson('/public/editors-pick').then(d => setEditorsPick(d?.recipes || []));
     fetchJson('/public/ai-picks').then(d => setAiPicks(d?.picks || []));
   }, []);
@@ -55,11 +57,23 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare 
 
   const visibleEditors = editorsExpanded ? editorsPick : editorsPick.slice(0, 3);
 
-  const allVideoRecipes = trending.filter(r => isSocialVideoRecipe(r.sourceUrl));
-  const youtubeShorts = allVideoRecipes.filter(r => r.sourceUrl?.includes('/shorts/')).slice(0, 2);
-  const instagramRecipes = allVideoRecipes.filter(r => r.sourceUrl?.includes('instagram.com')).slice(0, 2);
-  const tiktokRecipes = allVideoRecipes.filter(r => r.sourceUrl?.includes('tiktok.com')).slice(0, 1);
-  const videoRecipes = [...youtubeShorts, ...instagramRecipes, ...tiktokRecipes];
+  // First 2 slots: YouTube Shorts (autoplay); remaining slots: other social videos
+  const trendingIds = new Set(trending.map(r => r.id));
+  // Deduplicate by source_url (same video saved by multiple users → keep first)
+  const seenUrls = new Set();
+  const discoverUniq = discover.filter(r => {
+    if (trendingIds.has(r.id)) return false;
+    if (!r.sourceUrl || seenUrls.has(r.sourceUrl)) return false;
+    seenUrls.add(r.sourceUrl);
+    return true;
+  });
+  const youtubeShorts = discoverUniq.filter(r => r.sourceUrl?.includes('/shorts/')).slice(0, 2);
+  const youtubeShortsIds = new Set(youtubeShorts.map(r => r.id));
+  const otherVideos = discoverUniq.filter(r => !youtubeShortsIds.has(r.id) && isEmbeddable(r.sourceUrl));
+  const nonEmbeddable = discoverUniq.filter(r => !youtubeShortsIds.has(r.id) && !isEmbeddable(r.sourceUrl));
+  const videoRecipes = [...youtubeShorts, ...otherVideos, ...nonEmbeddable].slice(0, 5);
+
+  const trendingFiltered = trending.slice(0, 5);
 
   return (
     <Container maxWidth="sm" disableGutters>
@@ -68,11 +82,11 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare 
 <Stack spacing={3} sx={{ pt: '20px' }}>
 
           {/* ── Section 1: Trending ── */}
-          {trending.length > 0 && (
+          {trendingFiltered.length > 0 && (
             <Box>
               <SectionLabel label="Trending Now" />
               <RecipeShelf
-                recipes={trending}
+                recipes={trendingFiltered}
                 onSave={onJoin}
                 onShare={(recipe, e) => onShare?.(recipe, e)}
                 onOpen={onOpenRecipe}
