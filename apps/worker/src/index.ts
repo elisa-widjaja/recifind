@@ -1204,7 +1204,7 @@ type AiPick = {
   hashtag: string;
   reason: string;
   recipe: {
-    id: string; title: string; imageUrl: string;
+    id: string; userId: string; title: string; imageUrl: string;
     mealTypes: string[]; durationMinutes: number | null;
     sourceUrl: string; ingredients: string[]; steps: string[];
   }
@@ -1221,13 +1221,13 @@ export async function getAiPicks(
   const cuisineSorted = prefs.cuisine
     ? prefs.cuisine.split(',').map(s => s.trim().toLowerCase()).sort().join(',')
     : 'all';
-  const cacheKey = `ai-picks:v3:${prefs.diet || 'any'}:${cuisineSorted}:${prefs.cookingFor || 'any'}`;
+  const cacheKey = `ai-picks:v4:${prefs.diet || 'any'}:${cuisineSorted}:${prefs.cookingFor || 'any'}`;
   const cached = await kv.get(cacheKey);
   if (cached) return JSON.parse(cached) as AiPick[];
 
   // Fetch a pool of candidate recipes from D1 so Gemini picks from real titles
   const candidateRows = await db.prepare(
-    `SELECT id, title, image_url, meal_types, duration_minutes, source_url, ingredients, steps
+    `SELECT id, user_id, title, image_url, meal_types, duration_minutes, source_url, ingredients, steps
      FROM recipes WHERE shared_with_friends = 1 ORDER BY RANDOM() LIMIT 40`
   ).all();
   // Only include recipes with clean, structured ingredients and steps (not Instagram captions)
@@ -1285,6 +1285,7 @@ export async function getAiPicks(
         reason: item.reason || '',
         recipe: {
           id: String(row.id),
+          userId: String(row.user_id || ''),
           title: String(row.title),
           imageUrl: String(row.image_url),
           mealTypes: JSON.parse(String(row.meal_types || '[]')),

@@ -100,7 +100,7 @@ function AiPickCard({ pick, onOpen, onSave, onShare }) {
               fontSize={12}
               fontWeight={600}
               lineHeight={1.35}
-              sx={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
+              sx={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textTransform: 'uppercase' }}
             >
               {recipe.title}
             </Typography>
