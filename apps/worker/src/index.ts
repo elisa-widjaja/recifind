@@ -1765,6 +1765,85 @@ async function handleImageRequest(
 
 // ── Friends route handlers ───────────────────────────────────────────
 
+export async function handleFriendSuggestions(db: D1Database, userId: string): Promise<{ suggestions: Array<{ userId: string; name: string; reason: string }> }> {
+  // --- FOF pass ---
+  const fofRows = await db.prepare(`
+    SELECT
+      f2.friend_id                         AS userId,
+      p.display_name                       AS name,
+      COUNT(DISTINCT f1.friend_id)         AS mutualCount,
+      GROUP_CONCAT(mp.display_name, '||')  AS mutualNames
+    FROM friends f1
+    JOIN friends f2  ON f2.user_id = f1.friend_id
+    JOIN profiles p  ON p.user_id  = f2.friend_id
+    JOIN profiles mp ON mp.user_id = f1.friend_id
+    WHERE f1.user_id = ?
+      AND f2.friend_id != ?
+      AND f2.friend_id NOT IN (SELECT friend_id FROM friends WHERE user_id = ?)
+      AND f2.friend_id NOT IN (SELECT to_user_id FROM friend_requests_sent WHERE from_user_id = ?)
+    GROUP BY f2.friend_id
+    ORDER BY mutualCount DESC
+    LIMIT 10
+  `).bind(userId, userId, userId, userId).all<{ userId: string; name: string; mutualCount: number; mutualNames: string }>();
+
+  const fofSuggestions = (fofRows.results || []).map(row => {
+    const names = row.mutualNames ? row.mutualNames.split('||') : [];
+    const reason = names.length === 0
+      ? 'Someone you may know'
+      : names.length === 1
+        ? `Friend of ${names[0]}`
+        : `Friend of ${names[0]} and ${names[1]}`;
+    return { userId: row.userId, name: row.name, reason };
+  });
+
+  if (fofSuggestions.length >= 5) {
+    return { suggestions: fofSuggestions };
+  }
+
+  // --- Pref-match fallback ---
+  const alreadySuggested = new Set(fofSuggestions.map(s => s.userId));
+  const myProfile = await db.prepare(
+    'SELECT dietary_prefs, meal_type_prefs FROM profiles WHERE user_id = ?'
+  ).bind(userId).first<{ dietary_prefs: string | null; meal_type_prefs: string | null }>();
+
+  const myDietaryPrefs: string[] = myProfile?.dietary_prefs ? JSON.parse(myProfile.dietary_prefs) : [];
+  const myMealPrefs: string[] = myProfile?.meal_type_prefs ? JSON.parse(myProfile.meal_type_prefs) : [];
+  const allMyPrefs = [...myDietaryPrefs, ...myMealPrefs].filter(p => p && p !== 'None / all good');
+
+  if (allMyPrefs.length === 0) {
+    return { suggestions: fofSuggestions };
+  }
+
+  const remaining = 10 - fofSuggestions.length;
+  // Build LIKE clauses for each pref — D1 stores prefs as JSON strings e.g. '["Vegetarian","Gluten-free"]'
+  const likeClauses = allMyPrefs.map(() => `(p.dietary_prefs LIKE ? OR p.meal_type_prefs LIKE ?)`).join(' OR ');
+  const likeBinds = allMyPrefs.flatMap(pref => [`%${pref}%`, `%${pref}%`]);
+
+  const prefRows = await db.prepare(`
+    SELECT p.user_id AS userId, p.display_name AS name, p.dietary_prefs, p.meal_type_prefs
+    FROM profiles p
+    WHERE p.user_id != ?
+      AND p.user_id NOT IN (SELECT friend_id FROM friends WHERE user_id = ?)
+      AND p.user_id NOT IN (SELECT to_user_id FROM friend_requests_sent WHERE from_user_id = ?)
+      AND (${likeClauses})
+    ORDER BY p.display_name ASC
+    LIMIT ?
+  `).bind(userId, userId, userId, ...likeBinds, remaining).all<{ userId: string; name: string; dietary_prefs: string | null; meal_type_prefs: string | null }>();
+
+  const prefSuggestions = (prefRows.results || [])
+    .filter(row => !alreadySuggested.has(row.userId))
+    .map(row => {
+      const theirPrefs = [
+        ...(row.dietary_prefs ? JSON.parse(row.dietary_prefs) : []),
+        ...(row.meal_type_prefs ? JSON.parse(row.meal_type_prefs) : []),
+      ];
+      const sharedPref = allMyPrefs.find(p => theirPrefs.includes(p)) || theirPrefs[0] || 'cooking';
+      return { userId: row.userId, name: row.name, reason: `Likes ${sharedPref}` };
+    });
+
+  return { suggestions: [...fofSuggestions, ...prefSuggestions] };
+}
+
 async function handleSendFriendRequest(request: Request, env: Env, user: AuthenticatedUser, ctx: ExecutionContext) {
   const body = await readJsonBody(request);
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
