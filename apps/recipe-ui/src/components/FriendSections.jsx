@@ -1,10 +1,23 @@
 import { useState, useEffect } from 'react';
-import { Box, Typography, Stack } from '@mui/material';
+import { Box, Typography, Stack, Button } from '@mui/material';
 import RecipeShelf from './RecipeShelf';
 import RecipeListCard from './RecipeListCard';
 import TrendingHealthCarousel from './TrendingHealthCarouselB';
 
 const API_BASE_URL = import.meta.env.VITE_RECIPES_API_BASE_URL || '';
+
+const SUGGESTION_GRADIENTS = [
+  'linear-gradient(135deg, #f5a623, #e85d3a)',
+  'linear-gradient(135deg, #43b89c, #1976d2)',
+  'linear-gradient(135deg, #9b59b6, #e85d8a)',
+  'linear-gradient(135deg, #27ae60, #f5a623)',
+  'linear-gradient(135deg, #e74c3c, #9b59b6)',
+];
+
+function suggestionGradient(userId) {
+  const idx = userId.charCodeAt(0) % SUGGESTION_GRADIENTS.length;
+  return SUGGESTION_GRADIENTS[idx];
+}
 
 async function fetchJson(path, token) {
   const res = await fetch(`${API_BASE_URL}${path}`, {
@@ -31,12 +44,32 @@ function timeAgo(iso) {
  *   onOpenRecipe: (recipe) => void
  *   onSaveRecipe: (recipe) => void
  */
-export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, onOpenRecipe, onSaveRecipe, onShareRecipe, onInviteFriend }) {
+export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, onOpenRecipe, onSaveRecipe, onShareRecipe, onInviteFriend, onOpenFriends }) {
   const [activity, setActivity] = useState([]);
   const [recentlySaved, setRecentlySaved] = useState([]);
   const [recentlyShared, setRecentlyShared] = useState([]);
   const [loaded, setLoaded] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
+  const [requestedIds, setRequestedIds] = useState(new Set());
   const [activityExpanded, setActivityExpanded] = useState(false);
+
+  async function addFriend(suggestion) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/friends/request`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ userId: suggestion.userId }),
+      });
+      if (res.ok || res.status < 500) {
+        setRequestedIds(prev => new Set([...prev, suggestion.userId]));
+      }
+    } catch (_) {
+      // Network error — silent failure
+    }
+  }
   const [editorsPick, setEditorsPick] = useState([]);
   const [editorsExpanded, setEditorsExpanded] = useState(false);
   const [aiPicks, setAiPicks] = useState([]);
@@ -47,10 +80,12 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
       fetchJson('/friends/activity', accessToken),
       fetchJson('/friends/recently-saved', accessToken),
       fetchJson('/friends/recently-shared', accessToken),
-    ]).then(([act, saved, shared]) => {
+      fetchJson('/friends/suggestions', accessToken),
+    ]).then(([act, saved, shared, sugg]) => {
       setActivity(act?.activity || []);
       setRecentlySaved((saved?.items || []).map(i => ({ ...i.recipe, _friendName: i.friendName })));
       setRecentlyShared((shared?.items || []).map(i => ({ ...i.recipe, _friendName: i.friendName })));
+      setSuggestions(sugg?.suggestions || []);
       setLoaded(true);
     });
   }, [accessToken]);
@@ -153,6 +188,96 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
             cardHeight={120}
             gap="8px"
           />
+        </Box>
+      )}
+
+      {suggestions.length > 0 && (
+        <Box sx={{ mb: 3 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600, fontSize: 15 }}>
+              Friends you may know
+            </Typography>
+            {onOpenFriends && (
+              <Typography
+                variant="body2"
+                sx={{ color: 'text.secondary', cursor: 'pointer', fontSize: 13 }}
+                onClick={onOpenFriends}
+              >
+                See all
+              </Typography>
+            )}
+          </Box>
+          <Box
+            sx={{
+              display: 'flex',
+              gap: 1.5,
+              overflowX: 'auto',
+              pb: 0.5,
+              WebkitMaskImage: 'linear-gradient(to right, black 85%, transparent 100%)',
+              maskImage: 'linear-gradient(to right, black 85%, transparent 100%)',
+              '&::-webkit-scrollbar': { display: 'none' },
+            }}
+          >
+            {suggestions.map(suggestion => {
+              const isRequested = requestedIds.has(suggestion.userId);
+              return (
+                <Box
+                  key={suggestion.userId}
+                  sx={{
+                    minWidth: 130,
+                    maxWidth: 130,
+                    height: 190,
+                    bgcolor: 'background.paper',
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    borderRadius: 3,
+                    p: '16px 10px 12px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Box
+                    sx={{
+                      width: 62,
+                      height: 62,
+                      borderRadius: '50%',
+                      background: suggestionGradient(suggestion.userId),
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 26,
+                      fontWeight: 700,
+                      color: '#fff',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {(suggestion.name || '?')[0].toUpperCase()}
+                  </Box>
+                  <Typography sx={{ fontWeight: 600, fontSize: 13, textAlign: 'center', mt: 1, lineHeight: 1.2 }}>
+                    {suggestion.name}
+                  </Typography>
+                  <Box sx={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+                    <Typography sx={{ fontSize: 11, color: 'text.secondary', textAlign: 'center', lineHeight: 1.3 }}>
+                      {suggestion.reason}
+                    </Typography>
+                  </Box>
+                  <Button
+                    variant={isRequested ? 'outlined' : 'contained'}
+                    disabled={isRequested}
+                    size="small"
+                    fullWidth
+                    onClick={() => !isRequested && addFriend(suggestion)}
+                    sx={{ flexShrink: 0, fontSize: 13, fontWeight: 600, borderRadius: 2, textTransform: 'none' }}
+                  >
+                    {isRequested ? 'Requested' : 'Add friend'}
+                  </Button>
+                </Box>
+              );
+            })}
+          </Box>
         </Box>
       )}
 
