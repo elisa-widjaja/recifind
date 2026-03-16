@@ -91,6 +91,7 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare 
                 onShare={(recipe, e) => onShare?.(recipe, e)}
                 onOpen={onOpenRecipe}
                 cardWidth={180}
+                cardHeight={120}
                 gap="8px"
               />
             </Box>

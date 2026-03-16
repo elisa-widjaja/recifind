@@ -135,6 +135,7 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
             onShare={(recipe, e) => onShareRecipe?.(recipe, e)}
             onOpen={onOpenRecipe}
             cardWidth={180}
+            cardHeight={120}
             gap="8px"
           />
         </Box>
@@ -149,6 +150,7 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
             onShare={(recipe, e) => onShareRecipe?.(recipe, e)}
             onOpen={onOpenRecipe}
             cardWidth={180}
+            cardHeight={120}
             gap="8px"
           />
         </Box>

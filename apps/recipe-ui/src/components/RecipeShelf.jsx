@@ -152,13 +152,14 @@ function RecipeCard({ recipe, onSave, onShare, onOpen, cardWidth, thumbHeight, p
       </Box>
 
       {/* ── Text + actions — fixed height so icons never shift ── */}
-      <Box sx={{ px: 1, py: 0.75, height: 72, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+      <Box sx={{ px: 1, pt: '10px', pb: 0.75, height: 82, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
         <Typography
           sx={{
             fontWeight: 700,
             fontSize: 11,
             lineHeight: 1.35,
             color: 'text.primary',
+            textTransform: 'uppercase',
             display: '-webkit-box',
             WebkitLineClamp: 2,
             WebkitBoxOrient: 'vertical',
@@ -168,7 +169,7 @@ function RecipeCard({ recipe, onSave, onShare, onOpen, cardWidth, thumbHeight, p
           {recipe.title}
         </Typography>
 
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', mt: '10px' }}>
           {recipe.durationMinutes > 0 && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
               <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
