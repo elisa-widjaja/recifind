@@ -96,6 +96,7 @@ import WelcomeModal from './components/WelcomeModal';
 import OnboardingFlow from './components/OnboardingFlow';
 import FriendSections from './components/FriendSections';
 import StatsTiles from './components/StatsTiles';
+import RecipeListCard from './components/RecipeListCard';
 import RecipesPage from './RecipesPage';
 import { formatDuration } from './utils/videoEmbed';
 import recipesData from '../recipes.json';
@@ -5232,50 +5233,18 @@ function App() {
                 </Box>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                   {filteredFriendRecipes.slice(0, visibleRecipeCount).map((recipe) => (
-                    <Card
+                    <RecipeListCard
                       key={recipe.id}
-                      elevation={0}
-                      sx={{
-                        border: 1, borderColor: 'divider',
-                        borderRadius: 1,
-                        overflow: 'hidden',
-                        ...(darkMode && { backgroundColor: 'transparent' })
+                      recipe={recipe}
+                      onOpen={() => {
+                        setIsSharedRecipeView(true);
+                        setActiveRecipe(recipe);
+                        setActiveRecipeDraft(null);
                       }}
-                    >
-                      <CardActionArea
-                        onClick={() => {
-                          setIsSharedRecipeView(true);
-                          setActiveRecipe(recipe);
-                          setActiveRecipeDraft(null);
-                        }}
-                        sx={{ display: 'flex', alignItems: 'center' }}
-                      >
-                        {recipe.imageUrl ? (
-                          <Box
-                            component="img"
-                            src={recipe.imageUrl}
-                            alt={recipe.title}
-                            sx={{ width: 72, height: 72, objectFit: 'cover', flexShrink: 0 }}
-                          />
-                        ) : (
-                          <Box sx={{ width: 72, height: 72, flexShrink: 0, bgcolor: 'grey.100' }} />
-                        )}
-                        <CardContent sx={{ py: 1, px: 1.5, '&:last-child': { pb: 1 }, flex: 1, minWidth: 0 }}>
-                          <Typography
-                            variant="subtitle2"
-                            sx={{
-                              display: '-webkit-box',
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden',
-                              lineHeight: 1.4,
-                            }}
-                          >
-                            {recipe.title}
-                          </Typography>
-                        </CardContent>
-                      </CardActionArea>
-                    </Card>
+                      onSave={() => handleSavePublicRecipe(recipe)}
+                      onShare={(r, e) => handleShare(r, e)}
+                      cardSx={darkMode ? { backgroundColor: 'transparent' } : {}}
+                    />
                   ))}
                 </Box>
                 {visibleRecipeCount < filteredFriendRecipes.length && (
