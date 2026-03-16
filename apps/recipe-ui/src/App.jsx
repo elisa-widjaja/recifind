@@ -911,6 +911,14 @@ function BoppingFruitsIllustration() {
   return <img src="/friends-empty.png" width="260" alt="friends" style={{ display: 'block', marginTop: 20 }} />;
 }
 
+const AVATAR_COLORS = ['#7c3aed','#10b981','#f59e0b','#ef4444','#06b6d4'];
+function getAvatarColor(id) {
+  if (!id) return AVATAR_COLORS[0];
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
 function App() {
   // Use window width directly for reliable mobile detection
   const [isMobile, setIsMobile] = useState(() => {
@@ -5418,7 +5426,7 @@ function App() {
                   sx={{ pl: 0 }}
                 >
                   <ListItemAvatar>
-                    <Avatar sx={{ bgcolor: 'primary.main' }}>
+                    <Avatar sx={{ bgcolor: getAvatarColor(friend.friendId) }}>
                       {(friend.friendName || friend.friendEmail || '?')[0].toUpperCase()}
                     </Avatar>
                   </ListItemAvatar>
