@@ -4185,6 +4185,7 @@ function App() {
                     handleShare(recipe, anchorPosition);
                   }}
                   onInviteFriend={() => setIsFriendsDialogOpen(true)}
+                  onOpenFriends={() => setIsFriendsDialogOpen(true)}
                   darkMode={darkMode}
                 />
                 </Box>
