@@ -919,6 +919,17 @@ function getAvatarColor(id) {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
+const DRAWER_SUGGESTION_GRADIENTS = [
+  'linear-gradient(135deg, #f5a623, #e85d3a)',
+  'linear-gradient(135deg, #43b89c, #1976d2)',
+  'linear-gradient(135deg, #9b59b6, #e85d8a)',
+  'linear-gradient(135deg, #27ae60, #f5a623)',
+  'linear-gradient(135deg, #e74c3c, #9b59b6)',
+];
+function drawerSuggestionGradient(userId) {
+  return DRAWER_SUGGESTION_GRADIENTS[userId.charCodeAt(0) % DRAWER_SUGGESTION_GRADIENTS.length];
+}
+
 function App() {
   // Use window width directly for reliable mobile detection
   const [isMobile, setIsMobile] = useState(() => {
@@ -1197,6 +1208,8 @@ function App() {
   const [friendsDrawerExpanded, setFriendsDrawerExpanded] = useState(false);
   const drawerTouchStartY = useRef(null);
   const [friendConfirm, setFriendConfirm] = useState({ open: false, title: '', message: '', onConfirm: null });
+  const [drawerSuggestions, setDrawerSuggestions] = useState([]);
+  const [drawerRequestedIds, setDrawerRequestedIds] = useState(new Set());
   const drawerScrollRef = useRef(null);
 
   // Profile state
@@ -1535,6 +1548,19 @@ function App() {
     } catch (error) {
       setSnackbarState({ open: true, message: 'Failed to remove friend', severity: 'error' });
     }
+  };
+
+  const handleDrawerAddFriend = async (suggestion) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/friends/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ userId: suggestion.userId }),
+      });
+      if (res.ok || res.status < 500) {
+        setDrawerRequestedIds(prev => new Set([...prev, suggestion.userId]));
+      }
+    } catch (_) {}
   };
 
   const handleWelcomeDismiss = () => {
@@ -3729,6 +3755,7 @@ function App() {
                         setIsFriendsDialogOpen(true);
                         fetchFriends();
                         fetchFriendRequests();
+                        callRecipesApi('/friends/suggestions', {}, accessToken).then(res => setDrawerSuggestions(res?.suggestions || [])).catch(() => {});
                       }}
                       color="inherit"
                     >
@@ -3990,6 +4017,7 @@ function App() {
                   setIsFriendsDialogOpen(true);
                   fetchFriends();
                   fetchFriendRequests();
+                  callRecipesApi('/friends/suggestions', {}, accessToken).then(res => setDrawerSuggestions(res?.suggestions || [])).catch(() => {});
                 }}
                 sx={(theme) => ({
                   display: 'flex', alignItems: 'center', width: '100%',
@@ -4020,6 +4048,7 @@ function App() {
                   setIsFriendsDialogOpen(true);
                   setIsAddFriendOpen(true);
                   fetchFriends();
+                  callRecipesApi('/friends/suggestions', {}, accessToken).then(res => setDrawerSuggestions(res?.suggestions || [])).catch(() => {});
                 }}
                 sx={(theme) => ({
                   display: 'flex', alignItems: 'center', width: '100%',
@@ -4139,7 +4168,7 @@ function App() {
                   accessToken={accessToken}
                   onAddRecipe={openAddDialog}
                   onViewRecipes={() => setCurrentView('recipes')}
-                  onAddFriends={() => { setIsFriendsDialogOpen(true); setIsAddFriendOpen(true); fetchFriends(); }}
+                  onAddFriends={() => { setIsFriendsDialogOpen(true); setIsAddFriendOpen(true); fetchFriends(); callRecipesApi('/friends/suggestions', {}, accessToken).then(res => setDrawerSuggestions(res?.suggestions || [])).catch(() => {}); }}
                   onViewFriends={() => setIsFriendsDialogOpen(true)}
                 />
                 <Box sx={{ mt: '70px' }}>
@@ -5272,6 +5301,32 @@ function App() {
             )
           ) : isAddFriendOpen ? (
             <Box sx={{ pt: 2 }}>
+              {drawerSuggestions.length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, fontSize: 13, mb: 1, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    Friends you may know
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1.5, overflowX: 'auto', pb: 0.5, WebkitMaskImage: 'linear-gradient(to right, black 85%, transparent 100%)', maskImage: 'linear-gradient(to right, black 85%, transparent 100%)', '&::-webkit-scrollbar': { display: 'none' } }}>
+                    {drawerSuggestions.map(suggestion => {
+                      const isRequested = drawerRequestedIds.has(suggestion.userId);
+                      return (
+                        <Box key={suggestion.userId} sx={{ minWidth: 120, maxWidth: 120, height: 180, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: 3, p: '14px 8px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', flexShrink: 0 }}>
+                          <Box sx={{ width: 56, height: 56, borderRadius: '50%', background: drawerSuggestionGradient(suggestion.userId), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                            {(suggestion.name || '?')[0].toUpperCase()}
+                          </Box>
+                          <Typography sx={{ fontWeight: 600, fontSize: 12, textAlign: 'center', mt: 1, lineHeight: 1.2 }}>{suggestion.name}</Typography>
+                          <Box sx={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+                            <Typography sx={{ fontSize: 11, color: 'text.secondary', textAlign: 'center', lineHeight: 1.3 }}>{suggestion.reason}</Typography>
+                          </Box>
+                          <Button variant={isRequested ? 'outlined' : 'contained'} disabled={isRequested} size="small" fullWidth onClick={() => !isRequested && handleDrawerAddFriend(suggestion)} sx={{ flexShrink: 0, fontSize: 12, fontWeight: 600, borderRadius: 2, textTransform: 'none' }}>
+                            {isRequested ? 'Requested' : 'Add friend'}
+                          </Button>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                </Box>
+              )}
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3, textAlign: 'center' }}>
                 Share a link with friends to connect
               </Typography>
@@ -5418,7 +5473,34 @@ function App() {
               </Box>
             </Box>
           ) : (
-            <List disablePadding>
+            <>
+              {drawerSuggestions.length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, fontSize: 13, mb: 1, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    Friends you may know
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1.5, overflowX: 'auto', pb: 0.5, WebkitMaskImage: 'linear-gradient(to right, black 85%, transparent 100%)', maskImage: 'linear-gradient(to right, black 85%, transparent 100%)', '&::-webkit-scrollbar': { display: 'none' } }}>
+                    {drawerSuggestions.map(suggestion => {
+                      const isRequested = drawerRequestedIds.has(suggestion.userId);
+                      return (
+                        <Box key={suggestion.userId} sx={{ minWidth: 120, maxWidth: 120, height: 180, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: 3, p: '14px 8px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', flexShrink: 0 }}>
+                          <Box sx={{ width: 56, height: 56, borderRadius: '50%', background: drawerSuggestionGradient(suggestion.userId), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                            {(suggestion.name || '?')[0].toUpperCase()}
+                          </Box>
+                          <Typography sx={{ fontWeight: 600, fontSize: 12, textAlign: 'center', mt: 1, lineHeight: 1.2 }}>{suggestion.name}</Typography>
+                          <Box sx={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+                            <Typography sx={{ fontSize: 11, color: 'text.secondary', textAlign: 'center', lineHeight: 1.3 }}>{suggestion.reason}</Typography>
+                          </Box>
+                          <Button variant={isRequested ? 'outlined' : 'contained'} disabled={isRequested} size="small" fullWidth onClick={() => !isRequested && handleDrawerAddFriend(suggestion)} sx={{ flexShrink: 0, fontSize: 12, fontWeight: 600, borderRadius: 2, textTransform: 'none' }}>
+                            {isRequested ? 'Requested' : 'Add friend'}
+                          </Button>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                </Box>
+              )}
+              <List disablePadding>
               {friends.map((friend) => (
                 <ListItemButton
                   key={friend.friendId}
@@ -5451,7 +5533,8 @@ function App() {
                   </IconButton>
                 </ListItemButton>
               ))}
-            </List>
+              </List>
+            </>
           )}
 
         </Box>
