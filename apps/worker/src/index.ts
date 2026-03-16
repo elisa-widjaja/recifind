@@ -510,6 +510,14 @@ export default {
           return json({ items }, 200, withCors());
         })();
       }
+      // GET /friends/suggestions — People you may know
+      if (url.pathname === '/friends/suggestions' && request.method === 'GET') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return await (async () => {
+          const suggestions = await handleFriendSuggestions(env.DB, user.userId);
+          return json(suggestions, 200, withCors());
+        })();
+      }
       const cancelSentMatch = url.pathname.match(/^\/friends\/requests\/sent\/([^/]+)\/cancel$/);
       if (cancelSentMatch && request.method === 'DELETE') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
