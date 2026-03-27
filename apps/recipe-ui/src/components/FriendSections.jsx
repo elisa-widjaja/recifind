@@ -31,7 +31,7 @@ function timeAgo(iso) {
  *   onOpenRecipe: (recipe) => void
  *   onSaveRecipe: (recipe) => void
  */
-export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, onOpenRecipe, onSaveRecipe, onShareRecipe, onInviteFriend }) {
+export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, dietaryPrefs, onOpenRecipe, onSaveRecipe, onShareRecipe, onInviteFriend }) {
   const [activity, setActivity] = useState([]);
   const [recentlySaved, setRecentlySaved] = useState([]);
   const [recentlyShared, setRecentlyShared] = useState([]);
@@ -65,9 +65,10 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
       params.set('cuisine', cuisinePrefs.join(','));
     }
     if (cookingFor) params.set('cooking_for', cookingFor);
+    if (dietaryPrefs?.length) params.set('diet', dietaryPrefs.join(', '));
     const query = params.toString() ? `?${params.toString()}` : '';
     fetchJson(`/public/ai-picks${query}`).then(d => setAiPicks(d?.picks || []));
-  }, [cookingFor, cuisinePrefs]);
+  }, [cookingFor, cuisinePrefs, dietaryPrefs]);
   // Note: cuisinePrefs is null (not []) when profile hasn't loaded yet.
   // This prevents the effect re-firing on every render before userProfile is available.
 
