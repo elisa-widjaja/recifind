@@ -1948,10 +1948,10 @@ async function handleSendFriendRequest(request: Request, env: Env, user: Authent
   ctx.waitUntil(sendEmailNotification(
     env,
     email,
-    `${senderProfile.displayName} wants to connect on ReciFind`,
+    `${senderProfile.displayName}'s request to add you on ReciFind`,
     `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
-      <h2 style="margin: 0 0 16px; font-size: 20px; color: #1a1a1a;">New friend request</h2>
-      <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;"><strong>${senderProfile.displayName}</strong> wants to connect with you on <a href="https://recifind.elisawidjaja.com" style="color: #6200EA; text-decoration: none;">ReciFind</a> and share recipes.</p>
+      <h2 style="margin: 0 0 16px; font-size: 20px; color: #1a1a1a;">${senderProfile.displayName}'s request to add you</h2>
+      <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;"><strong>${senderProfile.displayName}</strong> wants to add you as a friend on <a href="https://recifind.elisawidjaja.com" style="color: #6200EA; text-decoration: none;">ReciFind</a> and share recipes together.</p>
       <a href="https://recifind.elisawidjaja.com?accept_friend=${encodeURIComponent(user.userId)}" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Accept</a>
       <p style="margin: 24px 0 0; font-size: 13px; color: #999;">You received this because someone sent you a friend request on ReciFind.</p>
     </div>`

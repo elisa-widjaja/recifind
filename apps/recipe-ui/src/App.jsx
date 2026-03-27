@@ -919,16 +919,6 @@ function getAvatarColor(id) {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
-const DRAWER_SUGGESTION_GRADIENTS = [
-  'linear-gradient(135deg, #f5a623, #e85d3a)',
-  'linear-gradient(135deg, #43b89c, #1976d2)',
-  'linear-gradient(135deg, #9b59b6, #e85d8a)',
-  'linear-gradient(135deg, #27ae60, #f5a623)',
-  'linear-gradient(135deg, #e74c3c, #9b59b6)',
-];
-function drawerSuggestionGradient(userId) {
-  return DRAWER_SUGGESTION_GRADIENTS[userId.charCodeAt(0) % DRAWER_SUGGESTION_GRADIENTS.length];
-}
 
 function App() {
   // Use window width directly for reliable mobile detection
@@ -948,8 +938,23 @@ function App() {
   }, []);
 
   const [showFloatingFab, setShowFloatingFab] = useState(false);
+  const [showHomeFab, setShowHomeFab] = useState(false);
   const [cookWithFriendsVisible, setCookWithFriendsVisible] = useState(false);
   const addRecipeBtnRef = useRef(null);
+  const statsTilesObserverRef = useRef(null);
+  const statsTilesRef = useCallback((node) => {
+    if (statsTilesObserverRef.current) {
+      statsTilesObserverRef.current.disconnect();
+      statsTilesObserverRef.current = null;
+    }
+    if (!node) { setShowHomeFab(false); return; }
+    const observer = new IntersectionObserver(
+      ([entry]) => setShowHomeFab(!entry.isIntersecting),
+      { threshold: 0 }
+    );
+    observer.observe(node);
+    statsTilesObserverRef.current = observer;
+  }, []);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [mobileFilterDrawerOpen, setMobileFilterDrawerOpen] = useState(false);
   const mobileFilterChipsRef = useRef(null);
@@ -999,6 +1004,7 @@ function App() {
   const [activeRecipe, setActiveRecipe] = useState(null);
   const [activeRecipeDraft, setActiveRecipeDraft] = useState(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isFirstRecipe, setIsFirstRecipe] = useState(false);
   const [newRecipeForm, setNewRecipeForm] = useState(() => ({ ...NEW_RECIPE_TEMPLATE }));
   const [newRecipeErrors, setNewRecipeErrors] = useState({});
   const [newRecipePrefillInfo, setNewRecipePrefillInfo] = useState({
@@ -1208,8 +1214,6 @@ function App() {
   const [friendsDrawerExpanded, setFriendsDrawerExpanded] = useState(false);
   const drawerTouchStartY = useRef(null);
   const [friendConfirm, setFriendConfirm] = useState({ open: false, title: '', message: '', onConfirm: null });
-  const [drawerSuggestions, setDrawerSuggestions] = useState([]);
-  const [drawerRequestedIds, setDrawerRequestedIds] = useState(new Set());
   const drawerScrollRef = useRef(null);
 
   // Profile state
@@ -1550,18 +1554,6 @@ function App() {
     }
   };
 
-  const handleDrawerAddFriend = async (suggestion) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/friends/request`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ userId: suggestion.userId }),
-      });
-      if (res.ok || res.status < 500) {
-        setDrawerRequestedIds(prev => new Set([...prev, suggestion.userId]));
-      }
-    } catch (_) {}
-  };
 
   const handleWelcomeDismiss = () => {
     setWelcomeOpen(false);
@@ -1579,6 +1571,8 @@ function App() {
   const handleOnboardingComplete = async (prefs) => {
     setOnboardingOpen(false);
     localStorage.setItem('onboarding_seen', '1');
+    setIsFirstRecipe(true);
+    openAddDialog();
     if (accessToken && (prefs.dietaryPrefs?.length || prefs.cookingFor || prefs.cuisinePrefs?.length)) {
       await callRecipesApi('/profile', {
         method: 'PATCH',
@@ -1592,6 +1586,8 @@ function App() {
   const handleOnboardingSkip = () => {
     setOnboardingOpen(false);
     localStorage.setItem('onboarding_seen', '1');
+    setIsFirstRecipe(true);
+    openAddDialog();
   };
 
   const handleOnboardingDismiss = () => {
@@ -3114,6 +3110,7 @@ function App() {
 
   const closeAddDialog = () => {
     setIsAddDialogOpen(false);
+    setIsFirstRecipe(false);
   };
 
   const handleNewRecipeChange = (field) => (event) => {
@@ -3698,7 +3695,7 @@ function App() {
             sx={{ display: { xs: 'flex', sm: 'none' }, mr: -1 }}
             aria-label="Open menu"
           >
-            <Badge badgeContent={session ? friendRequests.length : 0} color="error" overlap="circular">
+            <Badge badgeContent={0} color="error" overlap="circular">
               <MenuIcon />
             </Badge>
           </IconButton>
@@ -3755,11 +3752,10 @@ function App() {
                         setIsFriendsDialogOpen(true);
                         fetchFriends();
                         fetchFriendRequests();
-                        callRecipesApi('/friends/suggestions', {}, accessToken).then(res => setDrawerSuggestions(res?.suggestions || [])).catch(() => {});
                       }}
                       color="inherit"
                     >
-                      <Badge badgeContent={friendRequests.length} color="error" overlap="circular">
+                      <Badge badgeContent={0} color="error" overlap="circular">
                         <PeopleIcon />
                       </Badge>
                     </IconButton>
@@ -4017,7 +4013,6 @@ function App() {
                   setIsFriendsDialogOpen(true);
                   fetchFriends();
                   fetchFriendRequests();
-                  callRecipesApi('/friends/suggestions', {}, accessToken).then(res => setDrawerSuggestions(res?.suggestions || [])).catch(() => {});
                 }}
                 sx={(theme) => ({
                   display: 'flex', alignItems: 'center', width: '100%',
@@ -4026,7 +4021,7 @@ function App() {
                   '&:hover': { bgcolor: theme.palette.action.hover },
                 })}
               >
-                <Badge badgeContent={friendRequests.length} color="error" overlap="circular">
+                <Badge badgeContent={0} color="error" overlap="circular">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{color: darkMode ? 'rgba(255,255,255,0.7)' : '#616161',width:22,height:22,flexShrink:0}}>
                     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
                     <circle cx="9" cy="7" r="4"/>
@@ -4048,7 +4043,6 @@ function App() {
                   setIsFriendsDialogOpen(true);
                   setIsAddFriendOpen(true);
                   fetchFriends();
-                  callRecipesApi('/friends/suggestions', {}, accessToken).then(res => setDrawerSuggestions(res?.suggestions || [])).catch(() => {});
                 }}
                 sx={(theme) => ({
                   display: 'flex', alignItems: 'center', width: '100%',
@@ -4168,9 +4162,10 @@ function App() {
                   accessToken={accessToken}
                   onAddRecipe={openAddDialog}
                   onViewRecipes={() => setCurrentView('recipes')}
-                  onAddFriends={() => { setIsFriendsDialogOpen(true); setIsAddFriendOpen(true); fetchFriends(); callRecipesApi('/friends/suggestions', {}, accessToken).then(res => setDrawerSuggestions(res?.suggestions || [])).catch(() => {}); }}
+                  onAddFriends={() => { setIsFriendsDialogOpen(true); setIsAddFriendOpen(true); fetchFriends(); }}
                   onViewFriends={() => setIsFriendsDialogOpen(true)}
                 />
+                <Box ref={statsTilesRef} sx={{ height: 0 }} />
                 <Box sx={{ mt: '70px' }}>
                 <FriendSections
                   accessToken={accessToken}
@@ -4185,7 +4180,6 @@ function App() {
                     handleShare(recipe, anchorPosition);
                   }}
                   onInviteFriend={() => setIsFriendsDialogOpen(true)}
-                  onOpenFriends={() => setIsFriendsDialogOpen(true)}
                   darkMode={darkMode}
                 />
                 </Box>
@@ -4962,7 +4956,7 @@ function App() {
           </Box>
           {/* Title */}
           <Box sx={{ px: 3, pt: 1, pb: 0.5 }}>
-            <Typography variant="h6" sx={{ fontWeight: 600 }}>Add recipe</Typography>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>{isFirstRecipe ? 'Add your first recipe' : 'Add recipe'}</Typography>
           </Box>
           {/* Fields */}
           <Box sx={{ px: 3, pt: 1, pb: 1, display: 'flex', flexDirection: 'column', gap: 2, position: 'relative' }}>
@@ -4976,7 +4970,7 @@ function App() {
               error={Boolean(newRecipeErrors.sourceUrl)}
               helperText={
                 newRecipeErrors.sourceUrl ||
-                'Link to the original recipe or video.'
+                (isFirstRecipe ? 'Paste an Instagram, TikTok or YouTube link' : 'Link to the original recipe or video.')
               }
             />
             <TextField
@@ -5042,7 +5036,7 @@ function App() {
           component="form"
           onSubmit={handleAddRecipeSubmit}
         >
-          <DialogTitle id="add-recipe-dialog-title">Add recipe</DialogTitle>
+          <DialogTitle id="add-recipe-dialog-title">{isFirstRecipe ? 'Add your first recipe' : 'Add recipe'}</DialogTitle>
           <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, position: 'relative' }}>
             <TextField
               label="Source URL"
@@ -5054,7 +5048,7 @@ function App() {
               error={Boolean(newRecipeErrors.sourceUrl)}
               helperText={
                 newRecipeErrors.sourceUrl ||
-                'Link to the original recipe or video.'
+                (isFirstRecipe ? 'Paste an Instagram, TikTok or YouTube link' : 'Link to the original recipe or video.')
               }
             />
             <TextField
@@ -5302,32 +5296,6 @@ function App() {
             )
           ) : isAddFriendOpen ? (
             <Box sx={{ pt: 2 }}>
-              {drawerSuggestions.length > 0 && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 600, fontSize: 13, mb: 1, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                    Friends you may know
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 1.5, overflowX: 'auto', pb: 0.5, WebkitMaskImage: 'linear-gradient(to right, black 85%, transparent 100%)', maskImage: 'linear-gradient(to right, black 85%, transparent 100%)', '&::-webkit-scrollbar': { display: 'none' } }}>
-                    {drawerSuggestions.map(suggestion => {
-                      const isRequested = drawerRequestedIds.has(suggestion.userId);
-                      return (
-                        <Box key={suggestion.userId} sx={{ minWidth: 120, maxWidth: 120, height: 180, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: 3, p: '14px 8px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', flexShrink: 0 }}>
-                          <Box sx={{ width: 56, height: 56, borderRadius: '50%', background: drawerSuggestionGradient(suggestion.userId), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
-                            {(suggestion.name || '?')[0].toUpperCase()}
-                          </Box>
-                          <Typography sx={{ fontWeight: 600, fontSize: 12, textAlign: 'center', mt: 1, lineHeight: 1.2 }}>{suggestion.name}</Typography>
-                          <Box sx={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-                            <Typography sx={{ fontSize: 11, color: 'text.secondary', textAlign: 'center', lineHeight: 1.3 }}>{suggestion.reason}</Typography>
-                          </Box>
-                          <Button variant={isRequested ? 'outlined' : 'contained'} disabled={isRequested} size="small" fullWidth onClick={() => !isRequested && handleDrawerAddFriend(suggestion)} sx={{ flexShrink: 0, fontSize: 12, fontWeight: 600, borderRadius: 2, textTransform: 'none' }}>
-                            {isRequested ? 'Requested' : 'Add friend'}
-                          </Button>
-                        </Box>
-                      );
-                    })}
-                  </Box>
-                </Box>
-              )}
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3, textAlign: 'center' }}>
                 Share a link with friends to connect
               </Typography>
@@ -5475,32 +5443,6 @@ function App() {
             </Box>
           ) : (
             <>
-              {drawerSuggestions.length > 0 && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 600, fontSize: 13, mb: 1, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                    Friends you may know
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 1.5, overflowX: 'auto', pb: 0.5, WebkitMaskImage: 'linear-gradient(to right, black 85%, transparent 100%)', maskImage: 'linear-gradient(to right, black 85%, transparent 100%)', '&::-webkit-scrollbar': { display: 'none' } }}>
-                    {drawerSuggestions.map(suggestion => {
-                      const isRequested = drawerRequestedIds.has(suggestion.userId);
-                      return (
-                        <Box key={suggestion.userId} sx={{ minWidth: 120, maxWidth: 120, height: 180, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: 3, p: '14px 8px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', flexShrink: 0 }}>
-                          <Box sx={{ width: 56, height: 56, borderRadius: '50%', background: drawerSuggestionGradient(suggestion.userId), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
-                            {(suggestion.name || '?')[0].toUpperCase()}
-                          </Box>
-                          <Typography sx={{ fontWeight: 600, fontSize: 12, textAlign: 'center', mt: 1, lineHeight: 1.2 }}>{suggestion.name}</Typography>
-                          <Box sx={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-                            <Typography sx={{ fontSize: 11, color: 'text.secondary', textAlign: 'center', lineHeight: 1.3 }}>{suggestion.reason}</Typography>
-                          </Box>
-                          <Button variant={isRequested ? 'outlined' : 'contained'} disabled={isRequested} size="small" fullWidth onClick={() => !isRequested && handleDrawerAddFriend(suggestion)} sx={{ flexShrink: 0, fontSize: 12, fontWeight: 600, borderRadius: 2, textTransform: 'none' }}>
-                            {isRequested ? 'Requested' : 'Add friend'}
-                          </Button>
-                        </Box>
-                      );
-                    })}
-                  </Box>
-                </Box>
-              )}
               <List disablePadding>
               {friends.map((friend) => (
                 <ListItemButton
@@ -6098,13 +6040,13 @@ function App() {
             left: '50%',
             transform: (() => {
               const visible = session
-                ? showFloatingFab && currentView === 'recipes' && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
+                ? (showFloatingFab && currentView === 'recipes' || showHomeFab && currentView === 'home') && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
                 : showFloatingFab && !cookWithFriendsVisible;
               return visible ? 'translateX(-50%) translateY(0) scale(1)' : 'translateX(-50%) translateY(20px) scale(0.92)';
             })(),
             opacity: (() => {
               const visible = session
-                ? showFloatingFab && currentView === 'recipes' && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
+                ? (showFloatingFab && currentView === 'recipes' || showHomeFab && currentView === 'home') && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
                 : showFloatingFab && !cookWithFriendsVisible;
               return visible ? 1 : 0;
             })(),
@@ -6112,7 +6054,7 @@ function App() {
             willChange: 'transform, opacity',
             pointerEvents: (() => {
               const visible = session
-                ? showFloatingFab && currentView === 'recipes' && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
+                ? (showFloatingFab && currentView === 'recipes' || showHomeFab && currentView === 'home') && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
                 : showFloatingFab && !cookWithFriendsVisible;
               return visible ? 'auto' : 'none';
             })(),
