@@ -44,6 +44,7 @@ interface UserProfile {
   createdAt: string;
   cookingFor: string | null;
   cuisinePrefs: string[];
+  dietaryPrefs: string[];
 }
 
 
@@ -2750,6 +2751,7 @@ async function getOrCreateProfile(env: Env, userId: string, email?: string): Pro
       createdAt: row.created_at as string,
       cookingFor: (row.cooking_for as string | null | undefined) ?? null,
       cuisinePrefs: (() => { try { return row.cuisine_prefs ? JSON.parse(row.cuisine_prefs as string) : []; } catch { return []; } })(),
+      dietaryPrefs: (() => { try { return row.dietary_prefs ? JSON.parse(row.dietary_prefs as string) : []; } catch { return []; } })(),
     };
   }
 
@@ -2760,6 +2762,7 @@ async function getOrCreateProfile(env: Env, userId: string, email?: string): Pro
     createdAt: new Date().toISOString(),
     cookingFor: null,
     cuisinePrefs: [],
+    dietaryPrefs: [],
   };
   await env.DB.prepare(
     'INSERT INTO profiles (user_id, email, display_name, created_at) VALUES (?, ?, ?, ?)'
