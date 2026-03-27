@@ -2,6 +2,9 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Box, Container, Typography, Button, Stack, Fab
 } from '@mui/material';
+import BookmarkAddedRoundedIcon from '@mui/icons-material/BookmarkAddedRounded';
+import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
+import WhatshotRoundedIcon from '@mui/icons-material/WhatshotRounded';
 import RecipeShelf from './RecipeShelf';
 import DiscoverRecipes from './DiscoverRecipes';
 import RecipeListCard from './RecipeListCard';
@@ -28,146 +31,6 @@ function isEmbeddable(url) {
   return url.includes('tiktok.com') || url.includes('youtube.com') || url.includes('youtu.be');
 }
 
-export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare }) {
-  const [trending, setTrending] = useState([]);
-  const [discover, setDiscover] = useState([]);
-  const [editorsPick, setEditorsPick] = useState([]);
-  const [aiPicks, setAiPicks] = useState([]);
-  const [editorsExpanded, setEditorsExpanded] = useState(false);
-  const [fabVisible, setFabVisible] = useState(true);
-  const cookWithFriendsRef = useRef(null);
-
-  useEffect(() => {
-    fetchJson('/public/trending-recipes').then(d => setTrending(d?.recipes || []));
-    fetchJson('/public/discover').then(d => setDiscover(d?.recipes || []));
-    fetchJson('/public/editors-pick').then(d => setEditorsPick(d?.recipes || []));
-    fetchJson('/public/ai-picks').then(d => setAiPicks(d?.picks || []));
-  }, []);
-
-  useEffect(() => {
-    const el = cookWithFriendsRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => setFabVisible(!entry.isIntersecting),
-      { threshold: 0.1 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  const visibleEditors = editorsExpanded ? editorsPick : editorsPick.slice(0, 3);
-
-  // First 2 slots: YouTube Shorts (autoplay); remaining slots: other social videos
-  const trendingIds = new Set(trending.map(r => r.id));
-  // Deduplicate by source_url (same video saved by multiple users → keep first)
-  const seenUrls = new Set();
-  const discoverUniq = discover.filter(r => {
-    if (trendingIds.has(r.id)) return false;
-    if (!r.sourceUrl || seenUrls.has(r.sourceUrl)) return false;
-    seenUrls.add(r.sourceUrl);
-    return true;
-  });
-  const youtubeShorts = discoverUniq.filter(r => r.sourceUrl?.includes('/shorts/')).slice(0, 2);
-  const youtubeShortsIds = new Set(youtubeShorts.map(r => r.id));
-  const otherVideos = discoverUniq.filter(r => !youtubeShortsIds.has(r.id) && isEmbeddable(r.sourceUrl));
-  const nonEmbeddable = discoverUniq.filter(r => !youtubeShortsIds.has(r.id) && !isEmbeddable(r.sourceUrl));
-  const videoRecipes = [...youtubeShorts, ...otherVideos, ...nonEmbeddable].slice(0, 5);
-
-  const trendingFiltered = trending.slice(0, 5);
-
-  return (
-    <Container maxWidth="sm" disableGutters>
-      <Box sx={{ px: { xs: 2, sm: 3 }, pb: 6 }}>
-
-<Stack spacing={3} sx={{ pt: '20px' }}>
-
-          {/* ── Section 1: Trending ── */}
-          {trendingFiltered.length > 0 && (
-            <Box>
-              <SectionLabel label="Trending Now" />
-              <RecipeShelf
-                recipes={trendingFiltered}
-                onSave={onJoin}
-                onShare={(recipe, e) => onShare?.(recipe, e)}
-                onOpen={onOpenRecipe}
-                cardWidth={180}
-                cardHeight={120}
-                gap="8px"
-              />
-            </Box>
-          )}
-
-          {/* ── Discover New Recipes ── */}
-          {videoRecipes.length > 0 && (
-            <Box>
-              <SectionLabel label="Discover New Recipes" />
-              <DiscoverRecipes recipes={videoRecipes} onOpen={onOpenRecipe} />
-            </Box>
-          )}
-
-          {/* ── Section 2: Editor's Pick ── */}
-          {editorsPick.length > 0 && (
-            <Box>
-              <SectionLabel label="Editor's Picks" />
-              <Stack spacing={1}>
-                {visibleEditors.map(recipe => (
-                  <RecipeListCard key={recipe.id} recipe={recipe} onSave={onJoin} onShare={onShare} onOpen={onOpenRecipe} />
-                ))}
-              </Stack>
-              {editorsPick.length > 3 && (
-                <Button size="small" onClick={() => setEditorsExpanded(e => !e)}
-                  sx={{ mt: 0.5, fontSize: 11, textTransform: 'none', color: 'text.secondary' }}>
-                  {editorsExpanded ? 'Show less' : `+ ${editorsPick.length - 3} more picks`}
-                </Button>
-              )}
-            </Box>
-          )}
-
-          {/* ── Section 3: AI Picks ── */}
-          {aiPicks.length > 0 && (
-            <Box>
-              <SectionLabel label="Trending in Health & Nutrition" />
-              <TrendingHealthCarousel picks={aiPicks} onOpen={onOpenRecipe} onSave={onJoin} onShare={onShare} />
-            </Box>
-          )}
-
-          {/* ── Section 4: Cook with Friends ── */}
-          <Box ref={cookWithFriendsRef}>
-            <CookWithFriends onJoin={onJoin} darkMode={darkMode} />
-          </Box>
-
-        </Stack>
-      </Box>
-
-      {/* ── Floating Join CTA — hidden when Cook with Friends is visible ── */}
-      <Fab
-        variant="extended"
-        onClick={onJoin}
-        sx={{
-          position: 'fixed',
-          bottom: 24,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          zIndex: 1200,
-          bgcolor: 'primary.main',
-          color: '#fff',
-          fontWeight: 700,
-          fontSize: 14,
-          textTransform: 'none',
-          px: 4,
-          boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
-          transition: 'opacity 0.25s, transform 0.25s',
-          opacity: fabVisible ? 1 : 0,
-          pointerEvents: fabVisible ? 'auto' : 'none',
-          '&:hover': { bgcolor: 'primary.dark' },
-        }}
-      >
-        Join Free
-      </Fab>
-    </Container>
-  );
-}
-
 function SectionLabel({ emoji, label, inline = false }) {
   const el = (
     <Typography fontWeight={700} fontSize={13} sx={{ color: 'text.primary' }}>
@@ -176,6 +39,124 @@ function SectionLabel({ emoji, label, inline = false }) {
   );
   if (inline) return el;
   return <Box sx={{ mb: 1 }}>{el}</Box>;
+}
+
+const WHY_JOIN_CARDS = [
+  {
+    icon: <BookmarkAddedRoundedIcon sx={{ fontSize: 28 }} />,
+    color: '#7c3aed',
+    bg: '#f3f0ff',
+    darkBg: '#1a0f2e',
+    title: 'Save from anywhere',
+    desc: 'Paste any Instagram, TikTok, YouTube, or food blog link — we pull the recipe instantly.',
+  },
+  {
+    icon: <PeopleRoundedIcon sx={{ fontSize: 28 }} />,
+    color: '#10b981',
+    bg: '#ecfdf5',
+    darkBg: '#0a1f1a',
+    title: 'Cook with your crew',
+    desc: 'Share recipes, swap cooking tips, and see what your friends are making tonight.',
+  },
+  {
+    icon: <WhatshotRoundedIcon sx={{ fontSize: 28 }} />,
+    color: '#f59e0b',
+    bg: '#fffbeb',
+    darkBg: '#1f1500',
+    title: 'Discover what\'s trending',
+    desc: 'Explore trending recipes and the hottest health & nutrition topics — curated fresh daily.',
+  },
+];
+
+function WhyJoinCarousel({ onJoin, darkMode }) {
+  const [active, setActive] = useState(0);
+  const scrollRef = useRef(null);
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const cardW = el.scrollWidth / WHY_JOIN_CARDS.length;
+    setActive(Math.round(el.scrollLeft / cardW));
+  };
+
+  return (
+    <Box>
+      <Typography fontWeight={700} fontSize={13} sx={{ color: 'text.primary', mb: 1.5 }}>
+        Why join Recifind?
+      </Typography>
+
+      {/* Scrollable card strip */}
+      <Box
+        ref={scrollRef}
+        onScroll={handleScroll}
+        sx={{
+          display: 'flex',
+          gap: '10px',
+          overflowX: 'auto',
+          scrollSnapType: 'x mandatory',
+          scrollBehavior: 'smooth',
+          pb: 1,
+          '&::-webkit-scrollbar': { display: 'none' },
+          scrollbarWidth: 'none',
+          mx: -2,
+          px: 2,
+        }}
+      >
+        {WHY_JOIN_CARDS.map((card, i) => (
+          <Box
+            key={i}
+            onClick={onJoin}
+            sx={{
+              flexShrink: 0,
+              width: 'calc(80vw)',
+              maxWidth: 260,
+              scrollSnapAlign: 'start',
+              borderRadius: 3,
+              p: 2,
+              cursor: 'pointer',
+              background: darkMode ? card.darkBg : card.bg,
+              border: '1px solid',
+              borderColor: 'divider',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 1,
+            }}
+          >
+            <Box sx={{ color: card.color }}>{card.icon}</Box>
+            <Typography fontWeight={700} fontSize={14} lineHeight={1.3}>
+              {card.title}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" fontSize={12} lineHeight={1.5}>
+              {card.desc}
+            </Typography>
+          </Box>
+        ))}
+      </Box>
+
+      {/* Dot indicators */}
+      <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.75, mt: 1.5 }}>
+        {WHY_JOIN_CARDS.map((_, i) => (
+          <Box
+            key={i}
+            onClick={() => {
+              const el = scrollRef.current;
+              if (!el) return;
+              const cardW = el.scrollWidth / WHY_JOIN_CARDS.length;
+              el.scrollTo({ left: cardW * i, behavior: 'smooth' });
+            }}
+            sx={{
+              width: active === i ? 16 : 6,
+              height: 6,
+              borderRadius: 3,
+              bgcolor: active === i ? 'primary.main' : 'divider',
+              transition: 'width 0.25s, background-color 0.25s',
+              cursor: 'pointer',
+            }}
+          />
+        ))}
+      </Box>
+    </Box>
+  );
 }
 
 // Flat list of ticker items — one white card shows at a time, cycling through all
@@ -299,3 +280,147 @@ function CookWithFriends({ onJoin, darkMode }) {
     </Box>
   );
 }
+
+export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare }) {
+  const [trending, setTrending] = useState([]);
+  const [discover, setDiscover] = useState([]);
+  const [editorsPick, setEditorsPick] = useState([]);
+  const [aiPicks, setAiPicks] = useState([]);
+  const [editorsExpanded, setEditorsExpanded] = useState(false);
+  const [fabVisible, setFabVisible] = useState(true);
+  const cookWithFriendsRef = useRef(null);
+
+  useEffect(() => {
+    fetchJson('/public/trending-recipes').then(d => setTrending(d?.recipes || []));
+    fetchJson('/public/discover').then(d => setDiscover(d?.recipes || []));
+    fetchJson('/public/editors-pick').then(d => setEditorsPick(d?.recipes || []));
+    fetchJson('/public/ai-picks').then(d => setAiPicks(d?.picks || []));
+  }, []);
+
+  useEffect(() => {
+    const el = cookWithFriendsRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setFabVisible(!entry.isIntersecting),
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const visibleEditors = editorsExpanded ? editorsPick : editorsPick.slice(0, 3);
+
+  // First 2 slots: YouTube Shorts (autoplay); remaining slots: other social videos
+  const trendingIds = new Set(trending.map(r => r.id));
+  // Deduplicate by source_url (same video saved by multiple users → keep first)
+  const seenUrls = new Set();
+  const discoverUniq = discover.filter(r => {
+    if (trendingIds.has(r.id)) return false;
+    if (!r.sourceUrl || seenUrls.has(r.sourceUrl)) return false;
+    seenUrls.add(r.sourceUrl);
+    return true;
+  });
+  const youtubeShorts = discoverUniq.filter(r => r.sourceUrl?.includes('/shorts/')).slice(0, 2);
+  const youtubeShortsIds = new Set(youtubeShorts.map(r => r.id));
+  const otherVideos = discoverUniq.filter(r => !youtubeShortsIds.has(r.id) && isEmbeddable(r.sourceUrl));
+  const nonEmbeddable = discoverUniq.filter(r => !youtubeShortsIds.has(r.id) && !isEmbeddable(r.sourceUrl));
+  const videoRecipes = [...youtubeShorts, ...otherVideos, ...nonEmbeddable].slice(0, 5);
+
+  const trendingFiltered = trending.slice(0, 5);
+
+  return (
+    <Container maxWidth="sm" disableGutters>
+      <Box sx={{ px: { xs: 2, sm: 3 }, pb: 6 }}>
+
+<Stack spacing={3} sx={{ pt: '20px' }}>
+
+          {/* ── Section 1: Trending ── */}
+          {trendingFiltered.length > 0 && (
+            <Box>
+              <SectionLabel label="Trending Now" />
+              <RecipeShelf
+                recipes={trendingFiltered}
+                onSave={onJoin}
+                onShare={(recipe, e) => onShare?.(recipe, e)}
+                onOpen={onOpenRecipe}
+                cardWidth={180}
+                cardHeight={120}
+                gap="8px"
+              />
+            </Box>
+          )}
+
+          {/* ── Discover New Recipes ── */}
+          {videoRecipes.length > 0 && (
+            <Box>
+              <SectionLabel label="Discover New Recipes" />
+              <DiscoverRecipes recipes={videoRecipes} onOpen={onOpenRecipe} />
+            </Box>
+          )}
+
+          {/* ── Section 2: Editor's Pick ── */}
+          {editorsPick.length > 0 && (
+            <Box>
+              <SectionLabel label="Editor's Picks" />
+              <Stack spacing={1}>
+                {visibleEditors.map(recipe => (
+                  <RecipeListCard key={recipe.id} recipe={recipe} onSave={onJoin} onShare={onShare} onOpen={onOpenRecipe} />
+                ))}
+              </Stack>
+              {editorsPick.length > 3 && (
+                <Button size="small" onClick={() => setEditorsExpanded(e => !e)}
+                  sx={{ mt: 0.5, fontSize: 11, textTransform: 'none', color: 'text.secondary' }}>
+                  {editorsExpanded ? 'Show less' : `+ ${editorsPick.length - 3} more picks`}
+                </Button>
+              )}
+            </Box>
+          )}
+
+          {/* ── Section 3: AI Picks ── */}
+          {aiPicks.length > 0 && (
+            <Box>
+              <SectionLabel label="Trending in Health & Nutrition" />
+              <TrendingHealthCarousel picks={aiPicks} onOpen={onOpenRecipe} onSave={onJoin} onShare={onShare} />
+            </Box>
+          )}
+
+          {/* ── Why Join Recifind ── */}
+          <WhyJoinCarousel onJoin={onJoin} />
+
+          {/* ── Section 4: Cook with Friends ── */}
+          <Box ref={cookWithFriendsRef}>
+            <CookWithFriends onJoin={onJoin} darkMode={darkMode} />
+          </Box>
+
+        </Stack>
+      </Box>
+
+      {/* ── Floating Join CTA — hidden when Cook with Friends is visible ── */}
+      <Fab
+        variant="extended"
+        onClick={onJoin}
+        sx={{
+          position: 'fixed',
+          bottom: 24,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 1200,
+          bgcolor: 'primary.main',
+          color: '#fff',
+          fontWeight: 700,
+          fontSize: 14,
+          textTransform: 'none',
+          px: 4,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+          transition: 'opacity 0.25s, transform 0.25s',
+          opacity: fabVisible ? 1 : 0,
+          pointerEvents: fabVisible ? 'auto' : 'none',
+          '&:hover': { bgcolor: 'primary.dark' },
+        }}
+      >
+        Join Free
+      </Fab>
+    </Container>
+  );
+}
+
