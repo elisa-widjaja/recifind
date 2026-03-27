@@ -2,9 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Box, Container, Typography, Button, Stack, Fab
 } from '@mui/material';
-import BookmarkAddedRoundedIcon from '@mui/icons-material/BookmarkAddedRounded';
-import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
-import WhatshotRoundedIcon from '@mui/icons-material/WhatshotRounded';
 import RecipeShelf from './RecipeShelf';
 import DiscoverRecipes from './DiscoverRecipes';
 import RecipeListCard from './RecipeListCard';
@@ -41,123 +38,6 @@ function SectionLabel({ emoji, label, inline = false }) {
   return <Box sx={{ mb: 1 }}>{el}</Box>;
 }
 
-const WHY_JOIN_CARDS = [
-  {
-    icon: <BookmarkAddedRoundedIcon sx={{ fontSize: 28 }} />,
-    color: '#7c3aed',
-    bg: '#f3f0ff',
-    darkBg: '#1a0f2e',
-    title: 'Save from anywhere',
-    desc: 'Paste any Instagram, TikTok, YouTube, or food blog link — we pull the recipe instantly.',
-  },
-  {
-    icon: <PeopleRoundedIcon sx={{ fontSize: 28 }} />,
-    color: '#10b981',
-    bg: '#ecfdf5',
-    darkBg: '#0a1f1a',
-    title: 'Cook with your crew',
-    desc: 'Share recipes, swap cooking tips, and see what your friends are making tonight.',
-  },
-  {
-    icon: <WhatshotRoundedIcon sx={{ fontSize: 28 }} />,
-    color: '#f59e0b',
-    bg: '#fffbeb',
-    darkBg: '#1f1500',
-    title: 'Discover what\'s trending',
-    desc: 'Explore trending recipes and the hottest health & nutrition topics — curated fresh daily.',
-  },
-];
-
-function WhyJoinCarousel({ onJoin, darkMode }) {
-  const [active, setActive] = useState(0);
-  const scrollRef = useRef(null);
-
-  const handleScroll = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const cardW = el.scrollWidth / WHY_JOIN_CARDS.length;
-    setActive(Math.round(el.scrollLeft / cardW));
-  };
-
-  return (
-    <Box>
-      <Typography fontWeight={700} fontSize={13} sx={{ color: 'text.primary', mb: 1.5 }}>
-        Why join Recifind?
-      </Typography>
-
-      {/* Scrollable card strip */}
-      <Box
-        ref={scrollRef}
-        onScroll={handleScroll}
-        sx={{
-          display: 'flex',
-          gap: '10px',
-          overflowX: 'auto',
-          scrollSnapType: 'x mandatory',
-          scrollBehavior: 'smooth',
-          pb: 1,
-          '&::-webkit-scrollbar': { display: 'none' },
-          scrollbarWidth: 'none',
-          mx: -2,
-          px: 2,
-        }}
-      >
-        {WHY_JOIN_CARDS.map((card, i) => (
-          <Box
-            key={i}
-            onClick={onJoin}
-            sx={{
-              flexShrink: 0,
-              width: 'calc(80vw)',
-              maxWidth: 260,
-              scrollSnapAlign: 'start',
-              borderRadius: 3,
-              p: 2,
-              cursor: 'pointer',
-              background: darkMode ? card.darkBg : card.bg,
-              border: '1px solid',
-              borderColor: 'divider',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 1,
-            }}
-          >
-            <Box sx={{ color: card.color }}>{card.icon}</Box>
-            <Typography fontWeight={700} fontSize={14} lineHeight={1.3}>
-              {card.title}
-            </Typography>
-            <Typography variant="caption" color="text.secondary" fontSize={12} lineHeight={1.5}>
-              {card.desc}
-            </Typography>
-          </Box>
-        ))}
-      </Box>
-
-      {/* Dot indicators */}
-      <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.75, mt: 1.5 }}>
-        {WHY_JOIN_CARDS.map((_, i) => (
-          <Box
-            key={i}
-            onClick={() => {
-              const el = scrollRef.current;
-              if (!el) return;
-              const cardW = el.scrollWidth / WHY_JOIN_CARDS.length;
-              el.scrollTo({ left: cardW * i, behavior: 'smooth' });
-            }}
-            sx={{
-              width: active === i ? 16 : 6,
-              height: 6,
-              borderRadius: 3,
-              bgcolor: active === i ? 'primary.main' : 'divider',
-              transition: 'width 0.25s, background-color 0.25s',
-              cursor: 'pointer',
-            }}
-          />
-        ))}
-      </Box>
-    </Box>
-  );
-}
 
 // Flat list of ticker items — one white card shows at a time, cycling through all
 const TICKER_ITEMS = [
@@ -384,8 +264,6 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare 
             </Box>
           )}
 
-          {/* ── Why Join Recifind ── */}
-          <WhyJoinCarousel onJoin={onJoin} />
 
           {/* ── Section 4: Cook with Friends ── */}
           <Box ref={cookWithFriendsRef}>
