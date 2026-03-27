@@ -4166,11 +4166,12 @@ function App() {
                   onViewFriends={() => setIsFriendsDialogOpen(true)}
                 />
                 <Box ref={statsTilesRef} sx={{ height: 0 }} />
-                <Box sx={{ mt: '70px' }}>
+                <Box sx={{ mt: '50px' }}>
                 <FriendSections
                   accessToken={accessToken}
                   cookingFor={userProfile?.cookingFor ?? null}
                   cuisinePrefs={userProfile?.cuisinePrefs ?? null}
+                  dietaryPrefs={userProfile?.dietaryPrefs ?? null}
                   onOpenRecipe={handleOpenEditorPickRecipe}
                   onSaveRecipe={handleSavePublicRecipe}
                   onShareRecipe={(recipe, event) => {
