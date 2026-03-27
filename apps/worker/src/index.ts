@@ -851,6 +851,7 @@ async function handleGetProfile(env: Env, user: AuthenticatedUser) {
     recipeCount: meta?.count ?? 0,
     cookingFor: profile.cookingFor,
     cuisinePrefs: profile.cuisinePrefs,
+    dietaryPrefs: profile.dietaryPrefs,
   });
 }
 
