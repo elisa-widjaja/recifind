@@ -4166,7 +4166,7 @@ function App() {
                   onViewFriends={() => setIsFriendsDialogOpen(true)}
                 />
                 <Box ref={statsTilesRef} sx={{ height: 0 }} />
-                <Box sx={{ mt: '50px' }}>
+                <Box sx={{ mt: '70px' }}>
                 <FriendSections
                   accessToken={accessToken}
                   cookingFor={userProfile?.cookingFor ?? null}
