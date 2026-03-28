@@ -4182,6 +4182,7 @@ function App() {
                   }}
                   onInviteFriend={() => setIsFriendsDialogOpen(true)}
                   darkMode={darkMode}
+                  onCookWithFriendsVisible={setCookWithFriendsVisible}
                 />
                 </Box>
               </>
@@ -6041,13 +6042,13 @@ function App() {
             left: '50%',
             transform: (() => {
               const visible = session
-                ? (showFloatingFab && currentView === 'recipes' || showHomeFab && currentView === 'home') && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
+                ? (showFloatingFab && currentView === 'recipes' || showHomeFab && currentView === 'home' && !cookWithFriendsVisible) && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
                 : showFloatingFab && !cookWithFriendsVisible;
               return visible ? 'translateX(-50%) translateY(0) scale(1)' : 'translateX(-50%) translateY(20px) scale(0.92)';
             })(),
             opacity: (() => {
               const visible = session
-                ? (showFloatingFab && currentView === 'recipes' || showHomeFab && currentView === 'home') && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
+                ? (showFloatingFab && currentView === 'recipes' || showHomeFab && currentView === 'home' && !cookWithFriendsVisible) && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
                 : showFloatingFab && !cookWithFriendsVisible;
               return visible ? 1 : 0;
             })(),
@@ -6055,7 +6056,7 @@ function App() {
             willChange: 'transform, opacity',
             pointerEvents: (() => {
               const visible = session
-                ? (showFloatingFab && currentView === 'recipes' || showHomeFab && currentView === 'home') && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
+                ? (showFloatingFab && currentView === 'recipes' || showHomeFab && currentView === 'home' && !cookWithFriendsVisible) && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
                 : showFloatingFab && !cookWithFriendsVisible;
               return visible ? 'auto' : 'none';
             })(),

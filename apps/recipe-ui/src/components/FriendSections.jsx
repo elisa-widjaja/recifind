@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Box, Typography, Stack } from '@mui/material';
+import { useState, useEffect, useRef } from 'react';
+import { Box, Typography, Stack, Button } from '@mui/material';
 import RecipeShelf from './RecipeShelf';
 import RecipeListCard from './RecipeListCard';
 import TrendingHealthCarousel from './TrendingHealthCarouselB';
@@ -31,7 +31,7 @@ function timeAgo(iso) {
  *   onOpenRecipe: (recipe) => void
  *   onSaveRecipe: (recipe) => void
  */
-export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, dietaryPrefs, onOpenRecipe, onSaveRecipe, onShareRecipe, onInviteFriend }) {
+export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, dietaryPrefs, onOpenRecipe, onSaveRecipe, onShareRecipe, onInviteFriend, darkMode, onCookWithFriendsVisible }) {
   const [activity, setActivity] = useState([]);
   const [recentlySaved, setRecentlySaved] = useState([]);
   const [recentlyShared, setRecentlyShared] = useState([]);
@@ -72,14 +72,25 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
   // Note: cuisinePrefs is null (not []) when profile hasn't loaded yet.
   // This prevents the effect re-firing on every render before userProfile is available.
 
+  const cookWithFriendsRef = useRef(null);
+
+  useEffect(() => {
+    const el = cookWithFriendsRef.current;
+    if (!el || !onCookWithFriendsVisible) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => onCookWithFriendsVisible(entry.isIntersecting),
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [onCookWithFriendsVisible, loaded]);
+
   if (!loaded) return null;
 
   const hasActivity = activity.length > 0;
   const hasSaved = recentlySaved.length > 0;
   const hasShared = recentlyShared.length > 0;
   const hasEditorsPick = editorsPick.length > 0;
-
-  if (!hasActivity && !hasSaved && !hasShared && !hasEditorsPick) return null;
 
   const visibleEditors = editorsExpanded ? editorsPick : editorsPick.slice(0, 3);
 
@@ -194,12 +205,102 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
         </Box>
       )}
 
+      <Box ref={cookWithFriendsRef}>
+        <CookWithFriends onInvite={onInviteFriend} darkMode={darkMode} />
+      </Box>
+
     </Stack>
   );
 }
 
 function SectionLabel({ children }) {
   return <Typography fontWeight={700} fontSize={13} sx={{ color: 'text.primary', mb: 1 }}>{children}</Typography>;
+}
+
+// ── Cook with Friends ──
+const CWF_TICKER_ITEMS = [
+  { initial: 'E', name: 'Elisa', color: '#7c3aed', lightColor: '#a78bfa', text: 'saved Miso Ramen ❤️', time: '2h' },
+  { initial: 'H', name: 'Henny', color: '#10b981', lightColor: '#34d399', text: 'shared Beef Stew with you', time: '5h' },
+  { initial: 'M', name: 'Max',   color: '#f59e0b', lightColor: '#fbbf24', text: 'is cooking Tacos tonight 🌮', time: 'now' },
+  { initial: 'H', name: 'Henny', color: '#10b981', lightColor: '#34d399', text: 'saved Salmon Bowl 🐟', time: '3h' },
+  { initial: 'M', name: 'Max',   color: '#f59e0b', lightColor: '#fbbf24', text: 'saved Chicken Tikka Masala 🍛', time: '6h' },
+];
+const CWF_HOLD_MS = 2800, CWF_OUT_MS = 450, CWF_IN_MS = 550, CWF_OVERLAP_MS = 150;
+const CWF_OUT_EASE = 'cubic-bezier(0.4,0,1,1)', CWF_IN_EASE = 'cubic-bezier(0,0,0.2,1)';
+
+function CwfTicker() {
+  const refs = useRef([]);
+  const currentIdx = useRef(0);
+  useEffect(() => {
+    const items = refs.current;
+    if (!items.length) return;
+    let enterTimer = null, resetTimer = null;
+    const cycle = () => {
+      const prev = currentIdx.current;
+      const next = (prev + 1) % items.length;
+      currentIdx.current = next;
+      const prevEl = items[prev];
+      prevEl.style.transition = `opacity ${CWF_OUT_MS}ms ${CWF_OUT_EASE}, transform ${CWF_OUT_MS}ms ${CWF_OUT_EASE}`;
+      prevEl.style.opacity = '0';
+      prevEl.style.transform = 'translateY(-14px)';
+      enterTimer = setTimeout(() => {
+        const nextEl = items[next];
+        nextEl.style.transition = `opacity ${CWF_IN_MS}ms ${CWF_IN_EASE}, transform ${CWF_IN_MS}ms ${CWF_IN_EASE}`;
+        nextEl.style.opacity = '1';
+        nextEl.style.transform = 'translateY(0)';
+      }, CWF_OUT_MS - CWF_OVERLAP_MS);
+      resetTimer = setTimeout(() => {
+        prevEl.style.transition = 'none';
+        prevEl.style.opacity = '0';
+        prevEl.style.transform = 'translateY(20px)';
+      }, CWF_OUT_MS + 80);
+    };
+    const interval = setInterval(cycle, CWF_HOLD_MS + CWF_OUT_MS);
+    return () => { clearInterval(interval); clearTimeout(enterTimer); clearTimeout(resetTimer); };
+  }, []);
+  return (
+    <Box sx={{ position: 'relative', height: 44, overflow: 'hidden', mb: 1.5 }}>
+      {CWF_TICKER_ITEMS.map((item, i) => (
+        <Box key={i} ref={el => { refs.current[i] = el; }}
+          style={{ opacity: i === 0 ? 1 : 0, transform: i === 0 ? 'translateY(0)' : 'translateY(20px)' }}
+          sx={{ position: 'absolute', inset: 0, bgcolor: 'background.paper', borderRadius: 2, display: 'flex', alignItems: 'center', gap: 1, px: 1.5, willChange: 'opacity, transform' }}
+        >
+          <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: item.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Typography sx={{ color: '#fff', fontSize: 11, fontWeight: 700 }}>{item.initial}</Typography>
+          </Box>
+          <Typography variant="caption" sx={{ flex: 1, fontSize: 11, color: 'text.secondary', lineHeight: 1.2 }}>
+            <Box component="span" sx={{ color: t => t.palette.mode === 'dark' ? item.lightColor : item.color, fontWeight: 600 }}>{item.name}</Box>{' '}{item.text}
+          </Typography>
+          <Typography variant="caption" sx={{ fontSize: 10, color: 'text.disabled', flexShrink: 0 }}>{item.time}</Typography>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+function CookWithFriends({ onInvite, darkMode }) {
+  return (
+    <Box sx={{
+      borderRadius: 3, p: 2, border: 1, borderColor: 'divider',
+      background: darkMode ? 'linear-gradient(135deg,#1a0f2e,#0f1a2e)' : 'linear-gradient(135deg,#f3f0ff,#e8f4fd)',
+      display: 'flex', flexDirection: 'column',
+    }}>
+      <Typography fontWeight={700} fontSize={13} mb={0.5}>Cook with Friends</Typography>
+      <Typography variant="caption" color="text.secondary" display="block" mb={1.5}>
+        Share recipes and see what your friends are cooking.
+      </Typography>
+      <CwfTicker />
+      <Button variant="outlined" onClick={onInvite}
+        sx={{
+          borderRadius: 20, textTransform: 'none', fontWeight: 700, alignSelf: 'center', px: 3,
+          color: t => t.palette.mode === 'dark' ? t.palette.primary.light : t.palette.primary.main,
+          borderColor: t => t.palette.mode === 'dark' ? t.palette.primary.light : t.palette.primary.main,
+          '&:hover': { borderColor: t => t.palette.mode === 'dark' ? t.palette.primary.light : t.palette.primary.main },
+        }}>
+        Invite a friend
+      </Button>
+    </Box>
+  );
 }
 
 const AVATAR_COLORS = ['#7c3aed', '#10b981', '#f59e0b', '#ef4444', '#06b6d4'];

@@ -24,7 +24,7 @@ export default function StatsTiles({ recipeCount, accessToken, onAddRecipe, onVi
 
   const t1 = dark
     ? { bg: 'linear-gradient(135deg, #1e1b4b, #1a1a2e)', border: '#3730a3', label: '#818cf8', count: '#fff', sub: '#a5b4fc', btn: '#6366f1', btnText: '#fff', link: '#818cf8' }
-    : { bg: 'linear-gradient(135deg, #eef2ff, #f5f3ff)', border: '#c7d2fe', label: '#4f46e5', count: '#1e1b4b', sub: '#6366f1', btn: '#6366f1', btnText: '#fff', link: '#4f46e5' };
+    : { bg: 'linear-gradient(135deg, #eef2ff, #f5f3ff)', border: '#c7d2fe', label: '#4f46e5', count: '#1e1b4b', sub: '#6366f1', btn: '#6200EA', btnText: '#fff', link: '#4f46e5' };
 
   const t2 = dark
     ? { bg: 'linear-gradient(135deg, #064e3b, #0a1f18)', border: '#065f46', label: '#34d399', count: '#fff', sub: '#6ee7b7', btn: '#10b981', btnText: '#fff', link: '#34d399' }
