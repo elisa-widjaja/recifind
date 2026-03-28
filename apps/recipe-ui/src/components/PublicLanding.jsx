@@ -160,8 +160,8 @@ const cardBg = (darkMode) => darkMode
 // ── Card 1: Save from anywhere ──
 const SOCIAL_LOGOS = [
   { src: '/instagram.svg', delay: '0s' },
-  { src: '/tiktok.svg', delay: '0.3s' },
-  { src: '/youtube.svg', delay: '0.6s' },
+  { src: '/youtube.svg', delay: '0.3s' },
+  { src: '/tiktok.svg', delay: '0.6s' },
 ];
 
 const logoAnimKeyframes = `
@@ -351,7 +351,7 @@ function WhyJoinCarousel({ onJoin, darkMode }) {
   return (
     <Box>
       <Typography fontWeight={400} fontSize={22} textAlign="center" sx={{ color: 'text.primary', mb: 1.5 }}>
-        Why join ReciFind?
+        Save, cook, share
       </Typography>
 
       {/* Same mx:-2 / pl:2 pattern as TrendingHealthCarouselB */}
