@@ -140,7 +140,7 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
 
       {hasSaved && (
         <Box>
-          <SectionLabel>Recently saved by friends</SectionLabel>
+          <SectionLabel>Recently Saved by Friends</SectionLabel>
           <RecipeShelf
             recipes={recentlySaved}
             onSave={onSaveRecipe}
@@ -155,7 +155,7 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
 
       {hasShared && (
         <Box>
-          <SectionLabel>Recently shared by friends</SectionLabel>
+          <SectionLabel>Recently Shared by Friends</SectionLabel>
           <RecipeShelf
             recipes={recentlyShared}
             onSave={onSaveRecipe}
@@ -297,7 +297,7 @@ function CookWithFriends({ onInvite, darkMode }) {
           borderColor: t => t.palette.mode === 'dark' ? t.palette.primary.light : t.palette.primary.main,
           '&:hover': { borderColor: t => t.palette.mode === 'dark' ? t.palette.primary.light : t.palette.primary.main },
         }}>
-        Invite a friend
+        Invite Friends
       </Button>
     </Box>
   );

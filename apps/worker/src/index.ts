@@ -1511,11 +1511,14 @@ async function handleCreateRecipe(request: Request, env: Env, user: Authenticate
     env.DB.prepare(`SELECT display_name FROM profiles WHERE user_id = ?`).bind(user.userId).first() as Promise<{ display_name?: string } | null>,
   ]);
   const saverName = profileRow?.display_name || 'Someone';
+  const isPublic = Boolean(recipe.sharedWithFriends);
   for (const f of (friendRows.results as Array<{ friend_id: string }>)) {
     await addNotification(env, f.friend_id, {
       type: 'friend_saved_recipe',
-      message: `${saverName} saved ${recipe.title}`,
-      data: { saverId: user.userId, recipeId: recipe.id, friendName: saverName },
+      message: isPublic ? `${saverName} saved ${recipe.title}` : `${saverName} saved a recipe`,
+      data: isPublic
+        ? { saverId: user.userId, recipeId: recipe.id, friendName: saverName }
+        : { saverId: user.userId, friendName: saverName },
       createdAt: new Date().toISOString(),
     });
   }

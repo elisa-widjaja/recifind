@@ -206,7 +206,7 @@ function CardSaveFromAnywhere({ onJoin, darkMode }) {
         onClick={onJoin}
         sx={{ borderRadius: 20, textTransform: 'none', fontWeight: 700, fontSize: 13, alignSelf: 'center', px: 3 }}
       >
-        + Add recipe
+        + Add Recipe
       </Button>
     </Box>
   );
@@ -230,7 +230,7 @@ function CardCookWithFriends({ onJoin, darkMode }) {
         onClick={onJoin}
         sx={{ borderRadius: 20, textTransform: 'none', fontWeight: 700, fontSize: 13, alignSelf: 'center', px: 3 }}
       >
-        Invite a friend
+        Invite Friends
       </Button>
     </Box>
   );
@@ -329,7 +329,7 @@ function CardDiscoverTrending({ onJoin, darkMode }) {
         onClick={onJoin}
         sx={{ borderRadius: 20, textTransform: 'none', fontWeight: 700, fontSize: 13, alignSelf: 'center', px: 3 }}
       >
-        Join free
+        Join Free
       </Button>
     </Box>
   );
@@ -536,7 +536,7 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare 
           '&:hover': { bgcolor: 'primary.dark' },
         }}
       >
-        Join free
+        Join Free
       </Fab>
     </Container>
   );

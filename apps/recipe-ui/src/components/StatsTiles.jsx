@@ -110,7 +110,7 @@ export default function StatsTiles({ recipeCount, accessToken, onAddRecipe, onVi
           WebkitBoxOrient: 'vertical',
           overflow: 'hidden',
         }}>
-          {friendsEmpty ? 'You have no connection yet' : 'friends'}
+          {friendsEmpty ? 'You have no connection yet' : 'Friends'}
         </Typography>
         {/* Actions pinned to bottom */}
         <Stack spacing={0} sx={{ mt: 'auto' }}>
