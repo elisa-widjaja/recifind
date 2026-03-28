@@ -2866,6 +2866,114 @@ async function getRecommendedRecipes(
   }));
 }
 
+function buildNudgeEmailHtml(
+  displayName: string,
+  recipes: Array<{ title: string; durationMinutes: number | null; mealTypes: string[]; imageUrl: string }>,
+  gifUrl: string | null
+): string {
+  const recipeCardsHtml = recipes.map(r => {
+    const tag = r.mealTypes[0] || 'Recipe';
+    const duration = r.durationMinutes ? `${r.durationMinutes} min` : '';
+    const label = [duration, tag].filter(Boolean).join(' · ');
+    const imgHtml = r.imageUrl
+      ? `<img src="${r.imageUrl}" alt="${r.title}" style="width:100%;height:80px;object-fit:cover;" />`
+      : `<div style="background:#f0e6d6;height:80px;display:flex;align-items:center;justify-content:center;font-size:32px;">🍽️</div>`;
+    return `<div style="flex:1;border:1px solid #eee;border-radius:10px;overflow:hidden;">
+      ${imgHtml}
+      <div style="padding:10px;">
+        <div style="font-size:13px;font-weight:600;color:#1a1a1a;">${r.title}</div>
+        <div style="font-size:11px;color:#888;margin-top:4px;">${label}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const gifSection = gifUrl
+    ? `<div style="padding:0 24px 8px;">
+        <div style="border-radius:12px;overflow:hidden;border:1px solid #eee;">
+          <img src="${gifUrl}" alt="How to save a recipe" style="width:100%;display:block;" />
+        </div>
+      </div>`
+    : '';
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+<div style="max-width:600px;margin:0 auto;background:#fff;">
+
+  <div style="background:linear-gradient(135deg,#FF6B35,#FF8C42);padding:32px 24px;text-align:center;">
+    <div style="font-size:28px;font-weight:700;color:#fff;">🍳 ReciFind</div>
+    <div style="color:rgba(255,255,255,0.9);margin-top:8px;font-size:15px;">Your personal recipe collection</div>
+  </div>
+
+  <div style="padding:32px 24px 16px;">
+    <div style="font-size:22px;font-weight:700;color:#1a1a1a;">Hey ${displayName}! 👋</div>
+    <p style="color:#555;font-size:15px;line-height:1.6;margin-top:12px;">
+      Welcome to ReciFind! You haven't saved your first recipe yet. It only takes a few seconds — here's how:
+    </p>
+  </div>
+
+  ${gifSection}
+
+  <div style="padding:16px 24px 8px;">
+    <div style="display:flex;gap:16px;justify-content:center;">
+      <div style="text-align:center;">
+        <div style="background:#FF6B35;color:#fff;border-radius:50%;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">1</div>
+        <div style="color:#555;font-size:12px;margin-top:6px;">Find a recipe<br>online</div>
+      </div>
+      <div style="color:#ddd;display:flex;align-items:center;font-size:18px;">→</div>
+      <div style="text-align:center;">
+        <div style="background:#FF6B35;color:#fff;border-radius:50%;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">2</div>
+        <div style="color:#555;font-size:12px;margin-top:6px;">Paste the<br>URL</div>
+      </div>
+      <div style="color:#ddd;display:flex;align-items:center;font-size:18px;">→</div>
+      <div style="text-align:center;">
+        <div style="background:#FF6B35;color:#fff;border-radius:50%;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">3</div>
+        <div style="color:#555;font-size:12px;margin-top:6px;">We auto-fill<br>everything!</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="text-align:center;padding:20px 24px 32px;">
+    <a href="https://recifind.elisawidjaja.com/?action=add-recipe" style="display:inline-block;background:#FF6B35;color:#fff;text-decoration:none;padding:14px 36px;border-radius:8px;font-size:16px;font-weight:700;">Save Your First Recipe →</a>
+  </div>
+
+  <div style="border-top:1px solid #eee;margin:0 24px;"></div>
+
+  <div style="padding:32px 24px 16px;">
+    <div style="font-size:18px;font-weight:700;color:#1a1a1a;">Recommended for you</div>
+    <p style="color:#888;font-size:13px;margin-top:4px;">${recipes.length > 0 && recipes[0].mealTypes.length > 0 ? 'Based on your preferences' : 'Popular in the community'}</p>
+  </div>
+
+  <div style="padding:0 24px 24px;display:flex;gap:12px;">
+    ${recipeCardsHtml}
+  </div>
+
+  <div style="border-top:1px solid #eee;margin:0 24px;"></div>
+
+  <div style="padding:32px 24px;">
+    <div style="background:linear-gradient(135deg,#667eea,#764ba2);border-radius:12px;padding:24px;text-align:center;color:#fff;">
+      <div style="font-size:24px;margin-bottom:8px;">🎁</div>
+      <div style="font-size:18px;font-weight:700;">Invite friends, earn rewards!</div>
+      <p style="font-size:14px;opacity:0.9;margin:12px 0 16px;line-height:1.5;">
+        Invite 5 friends and when each friend adds 5 recipes, you'll earn a <strong>gift card</strong> and a <strong>mystery goody bag</strong>!
+      </p>
+      <a href="https://recifind.elisawidjaja.com" style="display:inline-block;background:#fff;color:#764ba2;text-decoration:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:700;">Invite Friends →</a>
+    </div>
+  </div>
+
+  <div style="background:#f9f9f9;padding:24px;text-align:center;border-top:1px solid #eee;">
+    <div style="color:#999;font-size:12px;line-height:1.6;">
+      You're receiving this because you signed up for ReciFind.<br>
+      <a href="https://recifind-worker.elisawidjaja.workers.dev/unsubscribe?userId=__USER_ID__&token=__TOKEN__" style="color:#999;">Unsubscribe</a>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>`;
+}
+
 // ── End friends helpers ──────────────────────────────────────────────
 
 function buildImagePath(recipeId: string) {
