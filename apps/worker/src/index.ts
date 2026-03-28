@@ -2815,6 +2815,57 @@ async function sendEmailNotification(env: Env, to: string, subject: string, html
   }
 }
 
+async function getRecommendedRecipes(
+  db: D1Database,
+  userId: string,
+  limit = 3
+): Promise<Array<{ title: string; durationMinutes: number | null; mealTypes: string[]; imageUrl: string }>> {
+  // Try preference-matched recipes first
+  const profile = await db.prepare(
+    'SELECT dietary_prefs, cuisine_prefs, meal_type_prefs FROM profiles WHERE user_id = ?'
+  ).bind(userId).first();
+
+  if (profile) {
+    const allPrefs: string[] = [];
+    for (const col of ['dietary_prefs', 'cuisine_prefs', 'meal_type_prefs'] as const) {
+      try {
+        const parsed = profile[col] ? JSON.parse(profile[col] as string) : [];
+        if (Array.isArray(parsed)) allPrefs.push(...parsed);
+      } catch { /* skip */ }
+    }
+    const validPrefs = allPrefs.filter(p => p && p !== 'None / all good');
+
+    if (validPrefs.length > 0) {
+      const likeClauses = validPrefs.map(() => '(r.meal_types LIKE ? OR r.ingredients LIKE ?)').join(' OR ');
+      const likeBinds = validPrefs.flatMap(pref => [`%${pref}%`, `%${pref}%`]);
+      const rows = await db.prepare(
+        `SELECT title, duration_minutes, meal_types, image_url FROM recipes r
+         WHERE r.user_id != ? AND r.shared_with_friends = 1 AND (${likeClauses})
+         ORDER BY RANDOM() LIMIT ?`
+      ).bind(userId, ...likeBinds, limit).all();
+
+      if (rows.results.length > 0) {
+        return rows.results.map((r: Record<string, unknown>) => ({
+          title: String(r.title),
+          durationMinutes: r.duration_minutes as number | null,
+          mealTypes: (() => { try { return JSON.parse(r.meal_types as string); } catch { return []; } })(),
+          imageUrl: String(r.image_url || ''),
+        }));
+      }
+    }
+  }
+
+  // Fallback: curated community recipes
+  const fallback = await getTrendingRecipes(db);
+  const shuffled = fallback.sort(() => Math.random() - 0.5).slice(0, limit);
+  return shuffled.map(r => ({
+    title: r.title,
+    durationMinutes: r.durationMinutes,
+    mealTypes: r.mealTypes,
+    imageUrl: r.imageUrl,
+  }));
+}
+
 // ── End friends helpers ──────────────────────────────────────────────
 
 function buildImagePath(recipeId: string) {
