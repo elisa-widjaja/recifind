@@ -2771,6 +2771,11 @@ async function getOrCreateProfile(env: Env, userId: string, email?: string): Pro
   await env.DB.prepare(
     'INSERT INTO profiles (user_id, email, display_name, created_at) VALUES (?, ?, ?, ?)'
   ).bind(profile.userId, profile.email, profile.displayName, profile.createdAt).run();
+  // Schedule nudge email for 24h from now
+  const sendAfter = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  await env.DB.prepare(
+    'INSERT OR IGNORE INTO nudge_emails (user_id, email, display_name, send_after, created_at) VALUES (?, ?, ?, ?, ?)'
+  ).bind(profile.userId, profile.email, profile.displayName, sendAfter, profile.createdAt).run();
   return profile;
 }
 
