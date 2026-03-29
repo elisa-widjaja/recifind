@@ -294,7 +294,8 @@ export default {
           if (!userId || !token) {
             return new Response('Invalid unsubscribe link.', { status: 400, headers: { 'Content-Type': 'text/html' } });
           }
-          const secret = env.DEV_API_KEY || 'recifind-unsubscribe';
+          const secret = env.DEV_API_KEY;
+          if (!secret) throw new HttpError(500, 'Server misconfiguration: missing signing key');
           const expected = await computeHmac(secret, userId);
           if (token !== expected) {
             return new Response('Invalid unsubscribe link.', { status: 403, headers: { 'Content-Type': 'text/html' } });
@@ -335,7 +336,8 @@ export default {
           const recipes = await getRecommendedRecipes(env.DB, profileUserId);
           const gifUrl: string | null = null; // Will be set after GIF is uploaded to Supabase
 
-          const secret = env.DEV_API_KEY || 'recifind-unsubscribe';
+          const secret = env.DEV_API_KEY;
+          if (!secret) throw new HttpError(500, 'Server misconfiguration: missing signing key');
           const unsubToken = await computeHmac(secret, profileUserId);
           let html = buildNudgeEmailHtml(displayName, recipes, gifUrl);
           html = html.replace('__USER_ID__', encodeURIComponent(profileUserId));
@@ -680,7 +682,8 @@ export default {
       const recipes = await getRecommendedRecipes(env.DB, userId);
       const gifUrl: string | null = null; // Set after GIF upload
 
-      const secret = env.DEV_API_KEY || 'recifind-unsubscribe';
+      const secret = env.DEV_API_KEY;
+      if (!secret) return; // Can't sign unsubscribe tokens without DEV_API_KEY
       const unsubToken = await computeHmac(secret, userId);
       let html = buildNudgeEmailHtml(displayName, recipes, gifUrl);
       html = html.replace('__USER_ID__', encodeURIComponent(userId));
@@ -2943,10 +2946,6 @@ async function computeHmac(secret: string, data: string): Promise<string> {
   );
   const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
   return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-function buildUnsubscribeUrl(baseUrl: string, userId: string, token: string): string {
-  return `${baseUrl}/unsubscribe?userId=${encodeURIComponent(userId)}&token=${token}`;
 }
 
 async function getRecommendedRecipes(
