@@ -307,6 +307,51 @@ export default {
         })();
       }
 
+      // Admin: send test nudge email
+      if (url.pathname === '/admin/test-nudge-email' && request.method === 'POST') {
+        return await (async () => {
+          const authHeader = request.headers.get('Authorization');
+          const apiKey = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+          if (!env.DEV_API_KEY || apiKey !== env.DEV_API_KEY) {
+            return json({ error: 'Unauthorized' }, 401, withCors());
+          }
+
+          const toEmail = url.searchParams.get('to');
+          if (!toEmail) {
+            return json({ error: 'Missing ?to= query param' }, 400, withCors());
+          }
+
+          const userId = url.searchParams.get('userId') || 'test-user';
+          let displayName = 'Test User';
+          let profileUserId = userId;
+
+          // Try to load real profile if userId provided
+          if (userId !== 'test-user') {
+            const row = await env.DB.prepare('SELECT display_name FROM profiles WHERE user_id = ?').bind(userId).first();
+            if (row) displayName = row.display_name as string;
+            profileUserId = userId;
+          }
+
+          const recipes = await getRecommendedRecipes(env.DB, profileUserId);
+          const gifUrl: string | null = null; // Will be set after GIF is uploaded to Supabase
+
+          const secret = env.DEV_API_KEY || 'recifind-unsubscribe';
+          const unsubToken = await computeHmac(secret, profileUserId);
+          let html = buildNudgeEmailHtml(displayName, recipes, gifUrl);
+          html = html.replace('__USER_ID__', encodeURIComponent(profileUserId));
+          html = html.replace('__TOKEN__', unsubToken);
+
+          await sendEmailNotification(
+            env,
+            toEmail,
+            `Your recipes are waiting, ${displayName}!`,
+            html
+          );
+
+          return json({ ok: true, sentTo: toEmail, recipesIncluded: recipes.length }, 200, withCors());
+        })();
+      }
+
       // Public endpoint to get shared recipe by token (no auth required)
       const shareTokenMatch = url.pathname.match(/^\/public\/share\/([^/]+)$/);
       if (shareTokenMatch && request.method === 'GET') {
