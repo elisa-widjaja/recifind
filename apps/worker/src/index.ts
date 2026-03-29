@@ -286,6 +286,27 @@ export default {
         return json({ ok: true }, 200, withCors());
       }
 
+      // Unsubscribe from emails
+      if (url.pathname === '/unsubscribe' && request.method === 'GET') {
+        return await (async () => {
+          const userId = url.searchParams.get('userId');
+          const token = url.searchParams.get('token');
+          if (!userId || !token) {
+            return new Response('Invalid unsubscribe link.', { status: 400, headers: { 'Content-Type': 'text/html' } });
+          }
+          const secret = env.DEV_API_KEY || 'recifind-unsubscribe';
+          const expected = await computeHmac(secret, userId);
+          if (token !== expected) {
+            return new Response('Invalid unsubscribe link.', { status: 403, headers: { 'Content-Type': 'text/html' } });
+          }
+          await env.DB.prepare('UPDATE profiles SET email_opt_out = 1 WHERE user_id = ?').bind(userId).run();
+          return new Response(
+            '<html><body style="font-family:sans-serif;text-align:center;padding:60px;"><h2>You\'ve been unsubscribed</h2><p>You won\'t receive any more emails from ReciFind.</p></body></html>',
+            { status: 200, headers: { 'Content-Type': 'text/html' } }
+          );
+        })();
+      }
+
       // Public endpoint to get shared recipe by token (no auth required)
       const shareTokenMatch = url.pathname.match(/^\/public\/share\/([^/]+)$/);
       if (shareTokenMatch && request.method === 'GET') {
@@ -2813,6 +2834,19 @@ async function sendEmailNotification(env: Env, to: string, subject: string, html
   } catch (err) {
     console.error('Failed to send email notification:', err);
   }
+}
+
+async function computeHmac(secret: string, data: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
+  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function buildUnsubscribeUrl(baseUrl: string, userId: string, token: string): string {
+  return `${baseUrl}/unsubscribe?userId=${encodeURIComponent(userId)}&token=${token}`;
 }
 
 async function getRecommendedRecipes(
