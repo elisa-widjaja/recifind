@@ -28,3 +28,6 @@ SUPABASE_STORAGE_BUCKET = "recipe-previews"
 # - DEV_API_KEY
 # - SUPABASE_SERVICE_ROLE_KEY
 # - GEMINI_SERVICE_ACCOUNT_B64
+
+[triggers]
+crons = ["0 * * * *"]

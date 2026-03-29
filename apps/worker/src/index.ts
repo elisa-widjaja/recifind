@@ -642,7 +642,62 @@ export default {
         });
       }
     }
-  }
+  },
+
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    const now = new Date().toISOString();
+    const BATCH_SIZE = 20;
+
+    // Find due nudge emails
+    const rows = await env.DB.prepare(
+      `SELECT n.user_id, n.email, n.display_name
+       FROM nudge_emails n
+       JOIN profiles p ON p.user_id = n.user_id
+       WHERE n.send_after <= ? AND n.sent = 0 AND p.email_opt_out = 0
+       LIMIT ?`
+    ).bind(now, BATCH_SIZE).all();
+
+    for (const row of rows.results) {
+      const userId = row.user_id as string;
+      const email = row.email as string;
+      const displayName = row.display_name as string;
+
+      // Check if user has saved any recipes
+      const countResult = await env.DB.prepare(
+        'SELECT COUNT(*) as cnt FROM recipes WHERE user_id = ?'
+      ).bind(userId).first();
+      const recipeCount = (countResult?.cnt as number) || 0;
+
+      if (recipeCount > 0) {
+        // User already active — skip
+        await env.DB.prepare(
+          'UPDATE nudge_emails SET sent = 2, sent_at = ? WHERE user_id = ?'
+        ).bind(now, userId).run();
+        continue;
+      }
+
+      // Build and send the nudge email
+      const recipes = await getRecommendedRecipes(env.DB, userId);
+      const gifUrl: string | null = null; // Set after GIF upload
+
+      const secret = env.DEV_API_KEY || 'recifind-unsubscribe';
+      const unsubToken = await computeHmac(secret, userId);
+      let html = buildNudgeEmailHtml(displayName, recipes, gifUrl);
+      html = html.replace('__USER_ID__', encodeURIComponent(userId));
+      html = html.replace('__TOKEN__', unsubToken);
+
+      await sendEmailNotification(
+        env,
+        email,
+        `Your recipes are waiting, ${displayName}!`,
+        html
+      );
+
+      await env.DB.prepare(
+        'UPDATE nudge_emails SET sent = 1, sent_at = ? WHERE user_id = ?'
+      ).bind(now, userId).run();
+    }
+  },
 };
 
 function handleOptions() {
