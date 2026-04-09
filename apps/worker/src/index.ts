@@ -322,15 +322,22 @@ export default {
             return json({ error: 'Missing ?to= query param' }, 400, withCors());
           }
 
-          const userId = url.searchParams.get('userId') || 'test-user';
-          let displayName = 'Test User';
-          let profileUserId = userId;
+          let profileUserId = url.searchParams.get('userId') || '';
+          let displayName = 'there';
 
-          // Try to load real profile if userId provided
-          if (userId !== 'test-user') {
-            const row = await env.DB.prepare('SELECT display_name FROM profiles WHERE user_id = ?').bind(userId).first();
+          if (profileUserId) {
+            // Look up by userId
+            const row = await env.DB.prepare('SELECT display_name FROM profiles WHERE user_id = ?').bind(profileUserId).first();
             if (row) displayName = row.display_name as string;
-            profileUserId = userId;
+          } else {
+            // Look up by email
+            const row = await env.DB.prepare('SELECT user_id, display_name FROM profiles WHERE email = ? LIMIT 1').bind(toEmail).first();
+            if (row) {
+              profileUserId = row.user_id as string;
+              displayName = row.display_name as string;
+            } else {
+              profileUserId = 'test-user';
+            }
           }
 
           const recipes = await getRecommendedRecipes(env.DB, profileUserId);
@@ -343,14 +350,14 @@ export default {
           html = html.replace('__USER_ID__', encodeURIComponent(profileUserId));
           html = html.replace('__TOKEN__', unsubToken);
 
-          await sendEmailNotification(
+          const emailResult = await sendEmailNotification(
             env,
             toEmail,
             `Your recipes are waiting, ${displayName}!`,
             html
           );
 
-          return json({ ok: true, sentTo: toEmail, recipesIncluded: recipes.length }, 200, withCors());
+          return json({ ok: emailResult.ok, sentTo: toEmail, recipesIncluded: recipes.length, resendStatus: emailResult.status, resendResponse: emailResult.body }, 200, withCors());
         })();
       }
 
@@ -405,7 +412,15 @@ export default {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');
         }
-        return await handleCreateRecipe(request, env, user);
+        const result = await handleCreateRecipe(request, env, user);
+        // Notify admin of user activity
+        ctx.waitUntil(sendEmailNotification(
+          env,
+          'elisa.widjaja@gmail.com',
+          `Recipe saved by ${user.email}`,
+          `<div style="font-family:sans-serif;padding:24px;"><strong>${user.email}</strong> saved a recipe: <strong>${(await result.clone().json() as { recipe: { title: string } }).recipe.title}</strong></div>`
+        ));
+        return result;
       }
 
       if (url.pathname === '/recipes/enrich' && request.method === 'POST') {
@@ -437,7 +452,14 @@ export default {
           throw new HttpError(401, 'Missing Authorization header');
         }
         const recipeId = decodeURIComponent(shareMatch[1]);
-        return await handleCreateShareLink(env, user, recipeId);
+        const result = await handleCreateShareLink(env, user, recipeId);
+        ctx.waitUntil(sendEmailNotification(
+          env,
+          'elisa.widjaja@gmail.com',
+          `Recipe shared by ${user.email}`,
+          `<div style="font-family:sans-serif;padding:24px;"><strong>${user.email}</strong> shared a recipe (ID: ${recipeId})</div>`
+        ));
+        return result;
       }
 
       // Log cook event
@@ -2918,10 +2940,10 @@ async function addNotification(env: Env, userId: string, notification: Omit<Noti
   ).bind(userId, userId).run();
 }
 
-async function sendEmailNotification(env: Env, to: string, subject: string, html: string) {
-  if (!env.RESEND_API_KEY) return;
+async function sendEmailNotification(env: Env, to: string, subject: string, html: string): Promise<{ ok: boolean; status?: number; body?: string }> {
+  if (!env.RESEND_API_KEY) return { ok: false, body: 'RESEND_API_KEY not set' };
   try {
-    await fetch('https://api.resend.com/emails', {
+    const resp = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${env.RESEND_API_KEY}`,
@@ -2934,8 +2956,14 @@ async function sendEmailNotification(env: Env, to: string, subject: string, html
         html
       })
     });
+    const body = await resp.text();
+    if (!resp.ok) {
+      console.error(`Resend API error ${resp.status}: ${body}`);
+    }
+    return { ok: resp.ok, status: resp.status, body };
   } catch (err) {
     console.error('Failed to send email notification:', err);
+    return { ok: false, body: String(err) };
   }
 }
 
@@ -2948,15 +2976,40 @@ async function computeHmac(secret: string, data: string): Promise<string> {
   return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+interface RecommendedRecipe {
+  id: string;
+  userId: string;
+  title: string;
+  durationMinutes: number | null;
+  mealTypes: string[];
+  imageUrl: string;
+  shareUrl: string;
+}
+
+async function getOrCreateShareToken(db: D1Database, recipeUserId: string, recipeId: string): Promise<string> {
+  const existing = await db.prepare(
+    'SELECT token FROM share_links WHERE user_id = ? AND recipe_id = ?'
+  ).bind(recipeUserId, recipeId).first<{ token: string }>();
+  if (existing) return existing.token;
+
+  const token = generateShareToken();
+  await db.prepare(
+    'INSERT INTO share_links (token, user_id, recipe_id, created_at) VALUES (?, ?, ?, ?)'
+  ).bind(token, recipeUserId, recipeId, new Date().toISOString()).run();
+  return token;
+}
+
 async function getRecommendedRecipes(
   db: D1Database,
   userId: string,
   limit = 3
-): Promise<Array<{ title: string; durationMinutes: number | null; mealTypes: string[]; imageUrl: string }>> {
+): Promise<RecommendedRecipe[]> {
   // Try preference-matched recipes first
   const profile = await db.prepare(
     'SELECT dietary_prefs, cuisine_prefs, meal_type_prefs FROM profiles WHERE user_id = ?'
   ).bind(userId).first();
+
+  let rawRecipes: Array<{ id: string; userId: string; title: string; durationMinutes: number | null; mealTypes: string[]; imageUrl: string }> = [];
 
   if (profile) {
     const allPrefs: string[] = [];
@@ -2972,13 +3025,15 @@ async function getRecommendedRecipes(
       const likeClauses = validPrefs.map(() => '(r.meal_types LIKE ? OR r.ingredients LIKE ?)').join(' OR ');
       const likeBinds = validPrefs.flatMap(pref => [`%${pref}%`, `%${pref}%`]);
       const rows = await db.prepare(
-        `SELECT title, duration_minutes, meal_types, image_url FROM recipes r
+        `SELECT id, user_id, title, duration_minutes, meal_types, image_url FROM recipes r
          WHERE r.user_id != ? AND r.shared_with_friends = 1 AND (${likeClauses})
          ORDER BY RANDOM() LIMIT ?`
       ).bind(userId, ...likeBinds, limit).all();
 
       if (rows.results.length > 0) {
-        return rows.results.map((r: Record<string, unknown>) => ({
+        rawRecipes = rows.results.map((r: Record<string, unknown>) => ({
+          id: String(r.id),
+          userId: String(r.user_id),
           title: String(r.title),
           durationMinutes: r.duration_minutes as number | null,
           mealTypes: (() => { try { return JSON.parse(r.meal_types as string); } catch { return []; } })(),
@@ -2989,36 +3044,52 @@ async function getRecommendedRecipes(
   }
 
   // Fallback: curated community recipes
-  const fallback = await getTrendingRecipes(db);
-  const shuffled = fallback.sort(() => Math.random() - 0.5).slice(0, limit);
-  return shuffled.map(r => ({
-    title: r.title,
-    durationMinutes: r.durationMinutes,
-    mealTypes: r.mealTypes,
-    imageUrl: r.imageUrl,
-  }));
+  if (rawRecipes.length === 0) {
+    const fallback = await getTrendingRecipes(db);
+    rawRecipes = fallback.sort(() => Math.random() - 0.5).slice(0, limit).map(r => ({
+      id: r.id,
+      userId: r.userId,
+      title: r.title,
+      durationMinutes: r.durationMinutes,
+      mealTypes: r.mealTypes,
+      imageUrl: r.imageUrl,
+    }));
+  }
+
+  // Generate share links for each recipe
+  const results: RecommendedRecipe[] = [];
+  for (const r of rawRecipes) {
+    const token = await getOrCreateShareToken(db, r.userId, r.id);
+    results.push({
+      ...r,
+      shareUrl: `https://recifind.elisawidjaja.com/?share=${token}`,
+    });
+  }
+  return results;
 }
 
 function buildNudgeEmailHtml(
   displayName: string,
-  recipes: Array<{ title: string; durationMinutes: number | null; mealTypes: string[]; imageUrl: string }>,
+  recipes: RecommendedRecipe[],
   gifUrl: string | null
 ): string {
   const recipeCardsHtml = recipes.map(r => {
     const tag = r.mealTypes[0] || 'Recipe';
     const duration = r.durationMinutes ? `${r.durationMinutes} min` : '';
-    const label = [duration, tag].filter(Boolean).join(' · ');
+    const label = [duration, tag].filter(Boolean).join(' \u00b7 ');
     const imgHtml = r.imageUrl
-      ? `<img src="${r.imageUrl}" alt="${r.title}" style="width:100%;height:80px;object-fit:cover;" />`
-      : `<div style="background:#f0e6d6;height:80px;display:flex;align-items:center;justify-content:center;font-size:32px;">🍽️</div>`;
-    return `<div style="flex:1;border:1px solid #eee;border-radius:10px;overflow:hidden;">
-      ${imgHtml}
-      <div style="padding:10px;">
-        <div style="font-size:13px;font-weight:600;color:#1a1a1a;">${r.title}</div>
-        <div style="font-size:11px;color:#888;margin-top:4px;">${label}</div>
-      </div>
-    </div>`;
-  }).join('');
+      ? `<img src="${r.imageUrl}" alt="${r.title}" width="260" height="180" style="width:100%;height:180px;object-fit:cover;display:block;" />`
+      : `<div style="width:100%;height:180px;background:#f0e6d6;text-align:center;line-height:180px;font-size:48px;">🍳</div>`;
+    return `<td style="width:50%;vertical-align:top;padding:0 6px;">
+      <a href="${r.shareUrl}" style="text-decoration:none;color:inherit;display:block;border:1px solid #eee;border-radius:10px;overflow:hidden;">
+        ${imgHtml}
+        <div style="padding:10px 10px 14px;">
+          <div style="font-size:12px;font-weight:700;color:#1a1a1a;text-transform:uppercase;line-height:1.35;max-height:33px;overflow:hidden;">${r.title}</div>
+          <div style="font-size:11px;color:#888;margin-top:8px;">${label}</div>
+        </div>
+      </a>
+    </td>`;
+  }).slice(0, 2).join('\n    ');
 
   const gifSection = gifUrl
     ? `<div style="padding:0 24px 8px;">
@@ -3034,7 +3105,7 @@ function buildNudgeEmailHtml(
 <body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
 <div style="max-width:600px;margin:0 auto;background:#fff;">
 
-  <div style="background:linear-gradient(135deg,#FF6B35,#FF8C42);padding:32px 24px;text-align:center;">
+  <div style="background:#6200EA;padding:32px 24px;text-align:center;">
     <div style="font-size:28px;font-weight:700;color:#fff;">🍳 ReciFind</div>
     <div style="color:rgba(255,255,255,0.9);margin-top:8px;font-size:15px;">Your personal recipe collection</div>
   </div>
@@ -3049,38 +3120,44 @@ function buildNudgeEmailHtml(
   ${gifSection}
 
   <div style="padding:16px 24px 8px;">
-    <div style="display:flex;gap:16px;justify-content:center;">
-      <div style="text-align:center;">
-        <div style="background:#FF6B35;color:#fff;border-radius:50%;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">1</div>
-        <div style="color:#555;font-size:12px;margin-top:6px;">Find a recipe<br>online</div>
-      </div>
-      <div style="color:#ddd;display:flex;align-items:center;font-size:18px;">→</div>
-      <div style="text-align:center;">
-        <div style="background:#FF6B35;color:#fff;border-radius:50%;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">2</div>
-        <div style="color:#555;font-size:12px;margin-top:6px;">Paste the<br>URL</div>
-      </div>
-      <div style="color:#ddd;display:flex;align-items:center;font-size:18px;">→</div>
-      <div style="text-align:center;">
-        <div style="background:#FF6B35;color:#fff;border-radius:50%;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">3</div>
-        <div style="color:#555;font-size:12px;margin-top:6px;">We auto-fill<br>everything!</div>
-      </div>
-    </div>
+    <table cellpadding="0" cellspacing="0" border="0" style="width:100%;">
+      <tr>
+        <td style="width:28px;vertical-align:top;">
+          <div style="background:#6200EA;color:#fff;border-radius:50%;width:28px;height:28px;text-align:center;line-height:28px;font-weight:700;font-size:14px;">1</div>
+          <div style="width:28px;text-align:center;color:#ccc;font-size:14px;padding:6px 0;">&#8595;</div>
+          <div style="background:#6200EA;color:#fff;border-radius:50%;width:28px;height:28px;text-align:center;line-height:28px;font-weight:700;font-size:14px;">2</div>
+          <div style="width:28px;text-align:center;color:#ccc;font-size:14px;padding:6px 0;">&#8595;</div>
+          <div style="background:#6200EA;color:#fff;border-radius:50%;width:28px;height:28px;text-align:center;line-height:28px;font-weight:700;font-size:14px;">3</div>
+        </td>
+        <td style="vertical-align:top;padding-left:12px;">
+          <div style="height:28px;display:flex;align-items:center;"><div><div style="color:#1a1a1a;font-size:14px;font-weight:600;">Find a recipe online</div><div style="color:#888;font-size:12px;margin-top:1px;">TikTok, Instagram, any website</div></div></div>
+          <div style="height:26px;"></div>
+          <div style="height:28px;display:flex;align-items:center;"><div><div style="color:#1a1a1a;font-size:14px;font-weight:600;">Paste the URL</div><div style="color:#888;font-size:12px;margin-top:1px;">Copy the link and paste it into ReciFind</div></div></div>
+          <div style="height:26px;"></div>
+          <div style="height:28px;display:flex;align-items:center;"><div><div style="color:#1a1a1a;font-size:14px;font-weight:600;">We auto-fill everything!</div><div style="color:#888;font-size:12px;margin-top:1px;">Ingredients, steps, and photo — just hit Save</div></div></div>
+        </td>
+      </tr>
+    </table>
   </div>
 
   <div style="text-align:center;padding:20px 24px 32px;">
-    <a href="https://recifind.elisawidjaja.com/?action=add-recipe" style="display:inline-block;background:#FF6B35;color:#fff;text-decoration:none;padding:14px 36px;border-radius:8px;font-size:16px;font-weight:700;">Save Your First Recipe →</a>
+    <a href="https://recifind.elisawidjaja.com/?add=1" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:14px 36px;border-radius:999px;font-size:16px;font-weight:700;">Save Your First Recipe →</a>
   </div>
 
   <div style="border-top:1px solid #eee;margin:0 24px;"></div>
 
-  <div style="padding:32px 24px 16px;">
-    <div style="font-size:18px;font-weight:700;color:#1a1a1a;">Recommended for you</div>
-    <p style="color:#888;font-size:13px;margin-top:4px;">${recipes.length > 0 && recipes[0].mealTypes.length > 0 ? 'Based on your preferences' : 'Popular in the community'}</p>
-  </div>
-
-  <div style="padding:0 24px 24px;display:flex;gap:12px;">
-    ${recipeCardsHtml}
-  </div>
+  <!-- recommended v3 ${new Date().toISOString()} -->
+  <table cellpadding="0" cellspacing="0" border="0" width="100%">
+    <tr><td style="padding:32px 24px 12px;">
+      <div style="font-size:18px;font-weight:700;color:#1a1a1a;">Recommended for you</div>
+      <div style="color:#888;font-size:13px;margin-top:4px;">${recipes.length > 0 && recipes[0].mealTypes.length > 0 ? 'Based on your preferences' : 'Popular in the community'}</div>
+    </td></tr>
+    <tr><td style="padding:0 16px 24px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
+      ${recipeCardsHtml}
+      </tr></table>
+    </td></tr>
+  </table>
 
   <div style="border-top:1px solid #eee;margin:0 24px;"></div>
 
