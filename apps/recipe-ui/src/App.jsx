@@ -965,7 +965,14 @@ function App() {
     } catch { return new Set(); }
   });
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
-  const [currentView, setCurrentView] = useState('home'); // 'home' | 'recipes'
+  const [currentView, setCurrentView] = useState(() => {
+    const saved = sessionStorage.getItem('currentView');
+    return saved === 'recipes' ? 'recipes' : 'home';
+  }); // 'home' | 'recipes'
+
+  useEffect(() => {
+    sessionStorage.setItem('currentView', currentView);
+  }, [currentView]);
 
   useEffect(() => {
     if (currentView !== 'recipes') {
@@ -1282,9 +1289,11 @@ function App() {
     });
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
-      setCurrentView('home');
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
+        setCurrentView('home');
+      }
       if (window.gtag) {
         window.gtag('config', 'G-W2LEPNDMF0', { user_id: session?.user?.id ?? undefined });
       }
@@ -2105,6 +2114,15 @@ function App() {
     setNewRecipePrefillInfo({ matched: false, hasIngredients: false, hasSteps: false });
     setSourceParseState({ status: 'idle', message: '' });
     setIsAddDialogOpen(true);
+  }, [isAuthChecked]);
+
+  // Handle ?add=1 deep link from nudge email
+  useEffect(() => {
+    if (!isAuthChecked) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('add') !== '1') return;
+    window.history.replaceState({}, '', window.location.pathname);
+    openAddDialog();
   }, [isAuthChecked]);
 
   useEffect(() => {
@@ -2970,6 +2988,9 @@ function App() {
 
   const closeDialog = () => {
     sessionStorage.removeItem('pending_save_share');
+    if (session) {
+      setCurrentView('recipes');
+    }
     setActiveRecipe(null);
     setActiveRecipeDraft(null);
     setIsDeleteConfirmOpen(false);
