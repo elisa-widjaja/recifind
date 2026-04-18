@@ -4081,6 +4081,8 @@ function App() {
             width: 270,
             display: 'flex',
             flexDirection: 'column',
+            paddingTop: 'env(safe-area-inset-top)',
+            paddingBottom: 'env(safe-area-inset-bottom)',
             ...(darkMode ? { backgroundColor: '#212328', backgroundImage: 'none' } : {})
           }
         }}
@@ -4553,6 +4555,9 @@ function App() {
             borderRadius: 0,
             paddingTop: 'env(safe-area-inset-top)',
             paddingBottom: 'env(safe-area-inset-bottom)',
+            // Dark mode: kill MUI's elevation grey overlay so the safe-area
+            // padding blends into the dialog instead of showing as a grey band.
+            ...(darkMode ? { backgroundColor: '#121212', backgroundImage: 'none' } : {}),
           }
         } : {}}
       >
