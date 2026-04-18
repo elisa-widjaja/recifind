@@ -1501,7 +1501,7 @@ function App() {
       if (contacts.length > 0 && contacts[0].tel?.length > 0) {
         const phone = contacts[0].tel[0];
         const name = contacts[0].name?.[0] ? ` ${contacts[0].name[0]}` : '';
-        const msg = encodeURIComponent(`Hey${name}! Join me on ReciFind to share recipes: https://recifind.elisawidjaja.com`);
+        const msg = encodeURIComponent(`Hey${name}! Join me on ReciFriend to share recipes: https://recifriend.com`);
         window.open(`sms:${phone}?body=${msg}`);
       }
     } catch (err) {
