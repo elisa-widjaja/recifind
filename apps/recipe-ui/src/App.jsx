@@ -1316,6 +1316,10 @@ function App() {
   }, []);
 
   // === [S09] Capacitor auth — deep-link dispatcher (hoisted so Story 11 can reference it) ===
+  // Ref pattern: handleOpenRecipeDetails is defined later in the component. Referencing
+  // it directly here puts it in a temporal dead zone when the bundler hoists the
+  // dispatcher. We populate the ref in a useEffect once the handler exists.
+  const handleOpenRecipeDetailsRef = useRef(null);
   const dispatchDeepLink = useCallback((urlString) => {
     const dispatch = createDispatcher({
       onAuthCallback: async (code) => {
@@ -1335,13 +1339,13 @@ function App() {
         setCurrentView('friend-requests');
       },
       onRecipeDetail: (recipeId) => {
-        // Look up recipe by id and open details dialog
+        // Look up recipe by id and open details dialog via ref (handler defined later)
         const recipe = recipes.find((r) => r.id === recipeId);
-        if (recipe) handleOpenRecipeDetails(recipe);
+        if (recipe) handleOpenRecipeDetailsRef.current?.(recipe);
       },
     });
     return dispatch(urlString);
-  }, [recipes, handleOpenRecipeDetails]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [recipes]);
 
   // Register appUrlOpen listener for deep links while app is running
   useEffect(() => {
@@ -2448,6 +2452,11 @@ function App() {
       window.history.pushState({}, '', url.toString());
     }
   }, [session]);
+
+  // S09 dispatcher references this via ref to avoid temporal dead zone
+  useEffect(() => {
+    handleOpenRecipeDetailsRef.current = handleOpenRecipeDetails;
+  }, [handleOpenRecipeDetails]);
 
   // Handle URL parameters to open recipe modal on page load
   useEffect(() => {

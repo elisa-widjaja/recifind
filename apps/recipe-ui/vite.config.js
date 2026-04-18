@@ -6,5 +6,8 @@ export default defineConfig({
   server: {
     open: true,
     allowedHosts: true
-  }
+  },
+  build: {
+    sourcemap: true,
+  },
 });
