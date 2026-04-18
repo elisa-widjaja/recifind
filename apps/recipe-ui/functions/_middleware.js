@@ -47,7 +47,7 @@ export async function onRequest(context) {
 
   try {
     // Fetch recipe from public API endpoint
-    const apiUrl = env.RECIPES_API_URL || 'https://recipes-worker.elisa-widjaja.workers.dev';
+    const apiUrl = env.RECIPES_API_URL || 'https://api.recifriend.com';
 
     // Use share token endpoint if available, otherwise fall back to legacy format
     const recipeResponse = shareToken
@@ -67,7 +67,7 @@ export async function onRequest(context) {
     const title = escapeHtml(recipe.title);
     const description = recipe.ingredients?.length
       ? escapeHtml(`Ingredients: ${recipe.ingredients.slice(0, 5).join(', ')}${recipe.ingredients.length > 5 ? '...' : ''}`)
-      : 'View this recipe on ReciFind';
+      : 'View this recipe on ReciFriend';
     const imageUrl = recipe.imageUrl || '';
     const pageUrl = url.toString();
 
@@ -76,14 +76,14 @@ export async function onRequest(context) {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${title} - ReciFind</title>
+  <title>${title} - ReciFriend</title>
 
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="article" />
   <meta property="og:url" content="${escapeHtml(pageUrl)}" />
   <meta property="og:title" content="${title}" />
   <meta property="og:description" content="${description}" />
-  <meta property="og:site_name" content="ReciFind" />
+  <meta property="og:site_name" content="ReciFriend" />
   ${imageUrl ? `<meta property="og:image" content="${escapeHtml(imageUrl)}" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />` : ''}
@@ -102,7 +102,7 @@ export async function onRequest(context) {
   <h1>${title}</h1>
   <p>${description}</p>
   ${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${title}" />` : ''}
-  <p><a href="${escapeHtml(pageUrl)}">View recipe on ReciFind</a></p>
+  <p><a href="${escapeHtml(pageUrl)}">View recipe on ReciFriend</a></p>
 </body>
 </html>`;
 

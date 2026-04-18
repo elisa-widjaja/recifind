@@ -19,7 +19,7 @@ export default function WelcomeModal({ open, onDismiss, onSkip, inviterName, rec
         </Box>
         <Typography fontSize={40} mb={1}>👋</Typography>
         <Typography variant="h6" fontWeight={800} mb={0.5}>
-          {hasInviter ? `${inviterName} invited you to ReciFind` : 'Welcome to ReciFind!'}
+          {hasInviter ? `${inviterName} invited you to ReciFriend` : 'Welcome to ReciFriend!'}
         </Typography>
         <Typography variant="body2" color="text.secondary" mb={2.5}>
           {hasInviter
@@ -30,7 +30,7 @@ export default function WelcomeModal({ open, onDismiss, onSkip, inviterName, rec
         <Stack spacing={1}>
           <Button fullWidth variant="contained" disableElevation onClick={onDismiss}
             sx={{ borderRadius: 20, textTransform: 'none', fontWeight: 700 }}>
-            {hasInviter ? 'Explore ReciFind →' : 'Get started →'}
+            {hasInviter ? 'Explore ReciFriend →' : 'Get started →'}
           </Button>
           <Button fullWidth size="small" onClick={onSkip}
             sx={{ color: 'text.disabled', textTransform: 'none', fontSize: 12 }}>

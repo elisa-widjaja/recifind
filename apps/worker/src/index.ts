@@ -281,7 +281,7 @@ export default {
         await sendEmailNotification(
           env,
           'elisa.widjaja@gmail.com',
-          'New ReciFind feedback',
+          'New ReciFriend feedback',
           `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
             <h2 style="margin: 0 0 16px; font-size: 20px; color: #1a1a1a;">New feedback</h2>
             ${replyLine}
@@ -307,7 +307,7 @@ export default {
           }
           await env.DB.prepare('UPDATE profiles SET email_opt_out = 1 WHERE user_id = ?').bind(userId).run();
           return new Response(
-            '<html><body style="font-family:sans-serif;text-align:center;padding:60px;"><h2>You\'ve been unsubscribed</h2><p>You won\'t receive any more emails from ReciFind.</p></body></html>',
+            '<html><body style="font-family:sans-serif;text-align:center;padding:60px;"><h2>You\'ve been unsubscribed</h2><p>You won\'t receive any more emails from ReciFriend.</p></body></html>',
             { status: 200, headers: { 'Content-Type': 'text/html' } }
           );
         })();
@@ -2089,11 +2089,11 @@ async function handleSendFriendRequest(request: Request, env: Env, user: Authent
     ctx.waitUntil(sendEmailNotification(
       env,
       email,
-      `${senderProfile.displayName} invited you to ReciFind`,
+      `${senderProfile.displayName} invited you to ReciFriend`,
       `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
-        <h2 style="margin: 0 0 16px; font-size: 20px; color: #1a1a1a;">You're invited to ReciFind!</h2>
-        <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;"><strong>${senderProfile.displayName}</strong> invited you to join <a href="https://recifind.elisawidjaja.com" style="color: #6200EA; text-decoration: none;">ReciFind</a> and share recipes together.</p>
-        <a href="https://recifind.elisawidjaja.com?invite_token=${inviteId}" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Join ReciFind</a>
+        <h2 style="margin: 0 0 16px; font-size: 20px; color: #1a1a1a;">You're invited to ReciFriend!</h2>
+        <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;"><strong>${senderProfile.displayName}</strong> invited you to join <a href="https://recifriend.com" style="color: #6200EA; text-decoration: none;">ReciFriend</a> and share recipes together.</p>
+        <a href="https://recifriend.com?invite_token=${inviteId}" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Join ReciFriend</a>
         <p style="margin: 24px 0 0; font-size: 13px; color: #999;">Once you create an account, you'll automatically be connected with ${senderProfile.displayName}.</p>
       </div>`
     ));
@@ -2143,12 +2143,12 @@ async function handleSendFriendRequest(request: Request, env: Env, user: Authent
   ctx.waitUntil(sendEmailNotification(
     env,
     email,
-    `${senderProfile.displayName}'s request to add you on ReciFind`,
+    `${senderProfile.displayName}'s request to add you on ReciFriend`,
     `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
       <h2 style="margin: 0 0 16px; font-size: 20px; color: #1a1a1a;">${senderProfile.displayName}'s request to add you</h2>
-      <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;"><strong>${senderProfile.displayName}</strong> wants to add you as a friend on <a href="https://recifind.elisawidjaja.com" style="color: #6200EA; text-decoration: none;">ReciFind</a> and share recipes together.</p>
-      <a href="https://recifind.elisawidjaja.com?accept_friend=${encodeURIComponent(user.userId)}" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Accept</a>
-      <p style="margin: 24px 0 0; font-size: 13px; color: #999;">You received this because someone sent you a friend request on ReciFind.</p>
+      <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;"><strong>${senderProfile.displayName}</strong> wants to add you as a friend on <a href="https://recifriend.com" style="color: #6200EA; text-decoration: none;">ReciFriend</a> and share recipes together.</p>
+      <a href="https://recifriend.com?accept_friend=${encodeURIComponent(user.userId)}" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Accept</a>
+      <p style="margin: 24px 0 0; font-size: 13px; color: #999;">You received this because someone sent you a friend request on ReciFriend.</p>
     </div>`
   ));
 
@@ -2241,7 +2241,7 @@ async function handleAcceptInvite(request: Request, env: Env, user: Authenticate
   ]);
   ctx.waitUntil(addNotification(env, inviterUserId, {
     type: 'friend_request',
-    message: `${newUserProfile.displayName} accepted your invite and joined ReciFind!`,
+    message: `${newUserProfile.displayName} accepted your invite and joined ReciFriend!`,
     data: { fromUserId: user.userId, fromEmail: user.email || '' },
     createdAt: now,
   }));
@@ -2288,7 +2288,7 @@ async function handleCheckInvites(env: Env, user: AuthenticatedUser, ctx: Execut
 
     ctx.waitUntil(addNotification(env, inviterUserId, {
       type: 'friend_request',
-      message: `${newUserProfile.displayName} accepted your invite and joined ReciFind!`,
+      message: `${newUserProfile.displayName} accepted your invite and joined ReciFriend!`,
       data: { fromUserId: user.userId, fromEmail: user.email || '' },
       createdAt: now,
     }));
@@ -2351,12 +2351,12 @@ async function handleAcceptFriendRequest(_request: Request, env: Env, user: Auth
   ctx.waitUntil(sendEmailNotification(
     env,
     fromProfile.email,
-    `${userProfile.displayName} accepted your friend request on ReciFind`,
+    `${userProfile.displayName} accepted your friend request on ReciFriend`,
     `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
       <h2 style="margin: 0 0 16px; font-size: 20px; color: #1a1a1a;">You're now connected!</h2>
-      <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;"><strong>${userProfile.displayName}</strong> accepted your friend request. You can now share recipes with each other on ReciFind.</p>
-      <a href="https://recifind.elisawidjaja.com" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Open ReciFind</a>
-      <p style="margin: 24px 0 0; font-size: 13px; color: #999;">You received this because your friend request was accepted on ReciFind.</p>
+      <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;"><strong>${userProfile.displayName}</strong> accepted your friend request. You can now share recipes with each other on ReciFriend.</p>
+      <a href="https://recifriend.com" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Open ReciFriend</a>
+      <p style="margin: 24px 0 0; font-size: 13px; color: #999;">You received this because your friend request was accepted on ReciFriend.</p>
     </div>`
   ));
 
@@ -2994,7 +2994,7 @@ async function sendEmailNotification(env: Env, to: string, subject: string, html
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        from: 'ReciFind <notifications@recifind.elisawidjaja.com>',
+        from: 'ReciFriend <hello@recifriend.com>',
         to,
         subject,
         html
@@ -3106,7 +3106,7 @@ async function getRecommendedRecipes(
     const token = await getOrCreateShareToken(db, r.userId, r.id);
     results.push({
       ...r,
-      shareUrl: `https://recifind.elisawidjaja.com/?share=${token}`,
+      shareUrl: `https://recifriend.com/?share=${token}`,
     });
   }
   return results;
@@ -3150,14 +3150,14 @@ function buildNudgeEmailHtml(
 <div style="max-width:600px;margin:0 auto;background:#fff;">
 
   <div style="background:#6200EA;padding:32px 24px;text-align:center;">
-    <div style="font-size:28px;font-weight:700;color:#fff;">🍳 ReciFind</div>
+    <div style="font-size:28px;font-weight:700;color:#fff;">🍳 ReciFriend</div>
     <div style="color:rgba(255,255,255,0.9);margin-top:8px;font-size:15px;">Your personal recipe collection</div>
   </div>
 
   <div style="padding:32px 24px 16px;">
     <div style="font-size:22px;font-weight:700;color:#1a1a1a;">Hey ${displayName}! 👋</div>
     <p style="color:#555;font-size:15px;line-height:1.6;margin-top:12px;">
-      Welcome to ReciFind! You haven't saved your first recipe yet. It only takes a few seconds — here's how:
+      Welcome to ReciFriend! You haven't saved your first recipe yet. It only takes a few seconds — here's how:
     </p>
   </div>
 
@@ -3176,7 +3176,7 @@ function buildNudgeEmailHtml(
         <td style="vertical-align:top;padding-left:12px;">
           <div style="height:28px;display:flex;align-items:center;"><div><div style="color:#1a1a1a;font-size:14px;font-weight:600;">Find a recipe online</div><div style="color:#888;font-size:12px;margin-top:1px;">TikTok, Instagram, any website</div></div></div>
           <div style="height:26px;"></div>
-          <div style="height:28px;display:flex;align-items:center;"><div><div style="color:#1a1a1a;font-size:14px;font-weight:600;">Paste the URL</div><div style="color:#888;font-size:12px;margin-top:1px;">Copy the link and paste it into ReciFind</div></div></div>
+          <div style="height:28px;display:flex;align-items:center;"><div><div style="color:#1a1a1a;font-size:14px;font-weight:600;">Paste the URL</div><div style="color:#888;font-size:12px;margin-top:1px;">Copy the link and paste it into ReciFriend</div></div></div>
           <div style="height:26px;"></div>
           <div style="height:28px;display:flex;align-items:center;"><div><div style="color:#1a1a1a;font-size:14px;font-weight:600;">We auto-fill everything!</div><div style="color:#888;font-size:12px;margin-top:1px;">Ingredients, steps, and photo — just hit Save</div></div></div>
         </td>
@@ -3185,7 +3185,7 @@ function buildNudgeEmailHtml(
   </div>
 
   <div style="text-align:center;padding:20px 24px 32px;">
-    <a href="https://recifind.elisawidjaja.com/?add=1" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:14px 36px;border-radius:999px;font-size:16px;font-weight:700;">Save Your First Recipe →</a>
+    <a href="https://recifriend.com/?add=1" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:14px 36px;border-radius:999px;font-size:16px;font-weight:700;">Save Your First Recipe →</a>
   </div>
 
   <div style="border-top:1px solid #eee;margin:0 24px;"></div>
@@ -3212,14 +3212,14 @@ function buildNudgeEmailHtml(
       <p style="font-size:14px;opacity:0.9;margin:12px 0 16px;line-height:1.5;">
         Invite 5 friends and when each friend adds 5 recipes, you'll earn a <strong>gift card</strong> and a <strong>mystery goody bag</strong>!
       </p>
-      <a href="https://recifind.elisawidjaja.com" style="display:inline-block;background:#fff;color:#764ba2;text-decoration:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:700;">Invite Friends →</a>
+      <a href="https://recifriend.com" style="display:inline-block;background:#fff;color:#764ba2;text-decoration:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:700;">Invite Friends →</a>
     </div>
   </div>
 
   <div style="background:#f9f9f9;padding:24px;text-align:center;border-top:1px solid #eee;">
     <div style="color:#999;font-size:12px;line-height:1.6;">
-      You're receiving this because you signed up for ReciFind.<br>
-      <a href="https://recifind-worker.elisawidjaja.workers.dev/unsubscribe?userId=__USER_ID__&token=__TOKEN__" style="color:#999;">Unsubscribe</a>
+      You're receiving this because you signed up for ReciFriend.<br>
+      <a href="https://api.recifriend.com/unsubscribe?userId=__USER_ID__&token=__TOKEN__" style="color:#999;">Unsubscribe</a>
     </div>
   </div>
 

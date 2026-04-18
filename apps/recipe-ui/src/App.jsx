@@ -110,7 +110,7 @@ const API_BASE_URL = (import.meta.env.VITE_RECIPES_API_BASE_URL || '').replace(/
 const DEV_API_TOKEN = import.meta.env.VITE_RECIPES_API_TOKEN || '';
 
 // Log version on load to bust cache
-console.log('ReciFind v2024.12.02.1');
+console.log('ReciFriend v2024.12.02.1');
 
 // localStorage cache key for recipes
 const RECIPES_CACHE_KEY = 'recifind-recipes-cache-v2';
@@ -1401,7 +1401,7 @@ function App() {
         body: JSON.stringify({ email })
       }, accessToken);
       trackEvent('send_friend_request');
-      const message = res?.invited ? 'Invite sent! They\'ll get an email to join ReciFind.' : 'Friend request sent!';
+      const message = res?.invited ? 'Invite sent! They\'ll get an email to join ReciFriend.' : 'Friend request sent!';
       setSnackbarState({ open: true, message, severity: 'success' });
       setAddFriendEmail('');
       setIsAddFriendOpen(false);
@@ -2488,7 +2488,7 @@ function App() {
             const name = result?.inviterName;
             setSnackbarState({
               open: true,
-              message: name ? `You're now connected with ${name}!` : "You're now connected with your friend on ReciFind!",
+              message: name ? `You're now connected with ${name}!` : "You're now connected with your friend on ReciFriend!",
               severity: 'success',
               anchorOrigin: { vertical: 'top', horizontal: 'center' }
             });
@@ -2601,7 +2601,7 @@ function App() {
     if (targetUrl) {
       if (isMobile) {
         // On mobile, navigate in the same tab so the back button
-        // returns to ReciFind with the recipe modal open
+        // returns to ReciFriend with the recipe modal open
         window.location.href = targetUrl;
       } else {
         window.open(targetUrl, '_blank', 'noopener,noreferrer');
@@ -3776,7 +3776,7 @@ function App() {
             onClick={() => setCurrentView('home')}
             sx={{ flexGrow: 1, fontWeight: 700, cursor: 'pointer', userSelect: 'none' }}
           >
-            ReciFind
+            ReciFriend
           </Typography>
           <Stack direction="row" spacing="6px" alignItems="center">
             <Button
@@ -4313,7 +4313,7 @@ function App() {
           setShareMenuState(null);
           if (navigator.share) {
             try {
-              await navigator.share({ title, text: `Check out this recipe on ReciFind: ${title}`, url });
+              await navigator.share({ title, text: `Check out this recipe on ReciFriend: ${title}`, url });
               trackEvent('share_recipe', { method: 'native_share' });
               return;
             } catch (err) {
@@ -4333,7 +4333,7 @@ function App() {
           const { url, title } = shareMenuState;
           setShareMenuState(null);
           const subject = encodeURIComponent(`Check out this recipe: ${title}`);
-          const body = encodeURIComponent(`Check out this recipe on ReciFind: ${title}\n\n${url}`);
+          const body = encodeURIComponent(`Check out this recipe on ReciFriend: ${title}\n\n${url}`);
           window.location.href = `mailto:?subject=${subject}&body=${body}`;
           trackEvent('share_recipe', { method: 'email' });
         }}>
@@ -5399,8 +5399,8 @@ function App() {
                             } finally { setOpenInviteLinkLoading(false); }
                             if (!token) return;
                           }
-                          const subject = encodeURIComponent('Join me on ReciFind!');
-                          const body = encodeURIComponent(`Hey! I'd love to share recipes with you on ReciFind.\n\nJoin me here: ${window.location.origin}?invite=${token}`);
+                          const subject = encodeURIComponent('Join me on ReciFriend!');
+                          const body = encodeURIComponent(`Hey! I'd love to share recipes with you on ReciFriend.\n\nJoin me here: ${window.location.origin}?invite=${token}`);
                           window.location.href = `mailto:?subject=${subject}&body=${body}`;
                           trackEvent('invite_friend', { method: 'email' });
                         },
@@ -5420,7 +5420,7 @@ function App() {
                             if (!token) return;
                           }
                           const inviteUrl = `${window.location.origin}?invite=${token}`;
-                          const text = `Hey! I'd love to share recipes with you on ReciFind. Join me here: ${inviteUrl}`;
+                          const text = `Hey! I'd love to share recipes with you on ReciFriend. Join me here: ${inviteUrl}`;
                           if (navigator.share) {
                             try {
                               await navigator.share({ text, url: inviteUrl });
@@ -5699,7 +5699,7 @@ function App() {
           <Box
             component="img"
             src="/icon-192.png"
-            alt="ReciFind"
+            alt="ReciFriend"
             sx={{ width: 44, height: 44, borderRadius: 2, flexShrink: 0 }}
           />
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
@@ -5890,7 +5890,7 @@ function App() {
         <Box sx={{ p: 3 }}>
           <Typography sx={{ fontWeight: 700, fontSize: 17, mb: 0.5 }}>Invite Friends</Typography>
           <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 2.5 }}>
-            Share ReciFind with people you cook with
+            Share ReciFriend with people you cook with
           </Typography>
           <Stack spacing={1.5}>
             <Button
@@ -5899,8 +5899,8 @@ function App() {
               startIcon={<EmailOutlinedIcon />}
               disabled={inviteSheetLoading || !inviteSheetUrl}
               onClick={() => {
-                const subject = encodeURIComponent('Join me on ReciFind!');
-                const body = encodeURIComponent(`Hey! I'm using ReciFind to save and share recipes. Join me here: ${inviteSheetUrl}`);
+                const subject = encodeURIComponent('Join me on ReciFriend!');
+                const body = encodeURIComponent(`Hey! I'm using ReciFriend to save and share recipes. Join me here: ${inviteSheetUrl}`);
                 window.location.href = `mailto:?subject=${subject}&body=${body}`;
               }}
               sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 700 }}
@@ -5913,7 +5913,7 @@ function App() {
               startIcon={<SmsOutlinedIcon />}
               disabled={inviteSheetLoading || !inviteSheetUrl}
               onClick={() => {
-                const msg = encodeURIComponent(`Hey! I'm using ReciFind to save and share recipes. Join me: ${inviteSheetUrl}`);
+                const msg = encodeURIComponent(`Hey! I'm using ReciFriend to save and share recipes. Join me: ${inviteSheetUrl}`);
                 window.open(`sms:?body=${msg}`);
               }}
               sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 700 }}
