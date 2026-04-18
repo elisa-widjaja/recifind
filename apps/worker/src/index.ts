@@ -229,6 +229,13 @@ export default {
     try {
       const url = new URL(request.url);
 
+      // === [rebrand] 301 from old domain (path + query preserved) ===
+      if (url.hostname === 'recifind.elisawidjaja.com') {
+        const dest = new URL(url.pathname + url.search + url.hash, 'https://recifriend.com');
+        return Response.redirect(dest.toString(), 301);
+      }
+      // === [/rebrand] ===
+
       if (request.method === 'OPTIONS') {
         return handleOptions();
       }

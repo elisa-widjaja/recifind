@@ -3,7 +3,8 @@ main = "src/index.ts"
 compatibility_date = "2024-03-20"
 workers_dev = true
 routes = [
-  { pattern = "api.recifriend.com/*", zone_name = "recifriend.com" }
+  { pattern = "api.recifriend.com/*", zone_name = "recifriend.com" },
+  { pattern = "recifind.elisawidjaja.com/*", zone_name = "elisawidjaja.com" }
 ]
 
 [observability]
