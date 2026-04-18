@@ -8,5 +8,9 @@
     "strict": true,
     "noEmit": true,
     "allowJs": true
-  }
+  },
+  "include": [
+    "src/**/*",
+    "../shared/**/*"
+  ]
 }
