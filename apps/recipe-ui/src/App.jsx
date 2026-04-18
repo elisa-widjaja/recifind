@@ -90,7 +90,7 @@ import SoupKitchenOutlinedIcon from '@mui/icons-material/SoupKitchenOutlined';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import FeedbackOutlinedIcon from '@mui/icons-material/FeedbackOutlined';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from './supabaseClient';
 import PublicLanding from './components/PublicLanding';
 import WelcomeModal from './components/WelcomeModal';
 import OnboardingFlow from './components/OnboardingFlow';
@@ -183,19 +183,7 @@ function clearRecipesCache() {
   }
 }
 
-// Initialize Supabase client
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = supabaseUrl && supabaseAnonKey
-  ? createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        persistSession: true,
-        storageKey: 'recifind-auth',
-        autoRefreshToken: true,
-        detectSessionInUrl: true
-      }
-    })
-  : null;
+// Supabase client is initialized in ./supabaseClient.js (PKCE + Capacitor storage)
 
 async function callRecipesApi(path, init = {}, token = null) {
   if (!API_BASE_URL) {
