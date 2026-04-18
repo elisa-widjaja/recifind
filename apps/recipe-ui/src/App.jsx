@@ -3674,7 +3674,7 @@ function App() {
         });
       }
       if (API_BASE_URL) {
-        const response = await fetch(`${API_BASE_URL}/recipes/${encodeURIComponent(recipeId)}/share`, {
+        const response = await fetch(`${API_BASE_URL}/recipes/${encodeURIComponent(recipeId)}/share-link`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -3693,7 +3693,7 @@ function App() {
           const saveRes = await callRecipesApi('/recipes', { method: 'POST', body: JSON.stringify(payload) }, accessToken);
           const savedRecipe = normalizeRecipeFromApi(saveRes?.recipe);
           if (savedRecipe?.id) {
-            const shareRes2 = await fetch(`${API_BASE_URL}/recipes/${encodeURIComponent(savedRecipe.id)}/share`, {
+            const shareRes2 = await fetch(`${API_BASE_URL}/recipes/${encodeURIComponent(savedRecipe.id)}/share-link`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
             });
@@ -3730,7 +3730,7 @@ function App() {
       let shareUrl = null;
       if (API_BASE_URL && accessToken && pickerRecipeId) {
         try {
-          const response = await fetch(`${API_BASE_URL}/recipes/${encodeURIComponent(pickerRecipeId)}/share`, {
+          const response = await fetch(`${API_BASE_URL}/recipes/${encodeURIComponent(pickerRecipeId)}/share-link`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
           });
