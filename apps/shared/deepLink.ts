@@ -10,7 +10,7 @@ export function parseDeepLink(raw: string): DeepLink | null {
   let url: URL;
   try { url = new URL(raw); } catch { return null; }
 
-  const isUniversalLink = url.protocol === 'https:' && ALLOWED_HOSTS.has(url.host);
+  const isUniversalLink = url.protocol === 'https:' && ALLOWED_HOSTS.has(url.hostname) && url.port === '';
   const isCustomScheme  = url.protocol === CUSTOM_SCHEME_PROTOCOL;
   if (!isUniversalLink && !isCustomScheme) return null;
 
@@ -25,13 +25,14 @@ export function parseDeepLink(raw: string): DeepLink | null {
   // /recipes/:id
   const recipeMatch = fullPath.match(/^\/recipes\/([^/?#]+)\/?$/);
   if (recipeMatch) {
-    const id = decodeURIComponent(recipeMatch[1]);
+    let id: string;
+    try { id = decodeURIComponent(recipeMatch[1]); } catch { return null; }
     if (!RECIPE_ID_REGEX.test(id)) return null;
     return { kind: 'recipe_detail', recipe_id: id };
   }
 
   // /auth/callback — Universal Link ONLY (security S1: prevents custom scheme hijack)
-  if (fullPath.startsWith('/auth/callback')) {
+  if (fullPath === '/auth/callback' || fullPath === '/auth/callback/') {
     if (!isUniversalLink) return null;
     const code = url.searchParams.get('code');
     if (!code) return null;
@@ -39,7 +40,7 @@ export function parseDeepLink(raw: string): DeepLink | null {
   }
 
   // /add-recipe?url=<http(s)://...>
-  if (fullPath.startsWith('/add-recipe')) {
+  if (fullPath === '/add-recipe' || fullPath === '/add-recipe/') {
     const shared = url.searchParams.get('url');
     if (!shared || !/^https?:\/\//.test(shared)) return null;
     return { kind: 'add_recipe', url: shared };
