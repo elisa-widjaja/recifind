@@ -11,6 +11,21 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="ReciFriend" />
     <title>ReciFriend — Recipes worth sharing</title>
+    <style>
+      /* iOS safe-area inset handling — keeps content clear of Dynamic Island + home indicator.
+         Requires viewport-fit=cover (set above). MUI AppBars / fixed-position elements inside
+         #root now see env(safe-area-inset-*) = 0 since the root already inset them, so any
+         component-level env() adds no extra padding. */
+      html, body { margin: 0; padding: 0; background: #fafafa; }
+      #root {
+        min-height: 100vh;
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
+        box-sizing: border-box;
+      }
+    </style>
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-W2LEPNDMF0"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
