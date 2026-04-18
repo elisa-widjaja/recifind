@@ -1,3 +1,7 @@
+// === [S03] Recipe share endpoint ===
+import { handleShareRecipe } from './routes/share';
+// === [/S03] ===
+
 const DEFAULT_PAGE_SIZE = 1000;
 const MAX_PAGE_SIZE = 1000;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB per preview upload.
@@ -7,6 +11,7 @@ const GEMINI_SCOPE = 'https://www.googleapis.com/auth/generative-language';
 export interface Env {
   DB: D1Database;
   AI_PICKS_CACHE: KVNamespace;
+  KV_RATE: KVNamespace;
   AUTH_ISSUER: string;
   AUTH_AUDIENCE: string;
   AUTH_JWKS_URL: string;
@@ -445,22 +450,16 @@ export default {
       }
 
       const recipeMatch = url.pathname.match(/^\/recipes\/([^/]+)$/);
-      // Create share link for a recipe
+      // === [S03] Recipe share endpoint ===
+      // POST /recipes/:id/share — C1 share API (sends recipe to friends)
       const shareMatch = url.pathname.match(/^\/recipes\/([^/]+)\/share$/);
       if (shareMatch && request.method === 'POST') {
-        if (!user) {
-          throw new HttpError(401, 'Missing Authorization header');
-        }
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
         const recipeId = decodeURIComponent(shareMatch[1]);
-        const result = await handleCreateShareLink(env, user, recipeId);
-        ctx.waitUntil(sendEmailNotification(
-          env,
-          'elisa.widjaja@gmail.com',
-          `Recipe shared by ${user.email}`,
-          `<div style="font-family:sans-serif;padding:24px;"><strong>${user.email}</strong> shared a recipe (ID: ${recipeId})</div>`
-        ));
-        return result;
+        const body = await request.json() as { recipient_user_ids?: unknown };
+        return await handleShareRecipe({ env, sharerId: user.userId, recipeId, body: body as any });
       }
+      // === [/S03] ===
 
       // Log cook event
       const cookMatch = url.pathname.match(/^\/recipes\/([^/]+)\/cook$/);
@@ -1073,7 +1072,29 @@ async function handleUpdateProfile(request: Request, env: Env, user: Authenticat
 }
 
 async function handleGetRecipe(request: Request, env: Env, user: AuthenticatedUser, recipeId: string) {
-  const recipe = await loadRecipe(env, user.userId, recipeId);
+  let recipe: Recipe;
+  try {
+    recipe = await loadRecipe(env, user.userId, recipeId);
+  } catch (e) {
+    if (e instanceof HttpError && e.status === 404) {
+      // === [S03] Recipe share endpoint ===
+      // Caller doesn't own the recipe — check if they received it via a share
+      const shareRow = await env.DB.prepare(
+        'SELECT recipe_id FROM recipe_shares WHERE recipient_id = ? AND recipe_id = ? LIMIT 1'
+      ).bind(user.userId, recipeId).first<{ recipe_id: string }>();
+      if (!shareRow) throw e; // re-throw 404
+
+      // Load recipe by id (any owner) since recipient has access
+      const row = await env.DB.prepare(
+        'SELECT * FROM recipes WHERE id = ?'
+      ).bind(recipeId).first();
+      if (!row) throw e;
+      recipe = rowToRecipe(row as Record<string, unknown>);
+      // === [/S03] ===
+    } else {
+      throw e;
+    }
+  }
   const lastModified = new Date(recipe.updatedAt);
   const etag = makeEtag(`recipe-${recipe.id}-${recipe.updatedAt}`);
   const notModified = checkConditional(request, etag, lastModified);
@@ -1565,26 +1586,39 @@ export async function getFriendsRecentlySaved(db: D1Database, userId: string): P
   return items.sort((a, b) => b.recipe.createdAt.localeCompare(a.recipe.createdAt)).slice(0, 8);
 }
 
+// === [S03] Recipe share endpoint ===
 export async function getFriendsRecentlyShared(db: D1Database, userId: string): Promise<FriendRecipeItem[]> {
-  const friends = await db.prepare(
-    `SELECT friend_id, friend_name FROM friends WHERE user_id = ?`
+  // Query recipes shared directly with this user via recipe_shares table
+  const rows = await db.prepare(
+    `SELECT r.id, r.user_id, r.title, r.source_url, r.image_url, r.meal_types,
+            r.duration_minutes, r.created_at, r.ingredients, r.steps,
+            rs.created_at as shared_at, rs.sharer_id,
+            p.display_name as sharer_name
+     FROM recipe_shares rs
+     JOIN recipes r ON r.id = rs.recipe_id
+     LEFT JOIN profiles p ON p.user_id = rs.sharer_id
+     WHERE rs.recipient_id = ?
+     ORDER BY rs.created_at DESC
+     LIMIT 10`
   ).bind(userId).all();
-  const items: FriendRecipeItem[] = [];
-  for (const friend of (friends.results as Array<Record<string, unknown>>)) {
-    const rows = await db.prepare(
-      // shared_with_friends = 1 filter only — ORDER BY created_at (updated_at not in schema)
-      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at, ingredients, steps FROM recipes WHERE user_id = ? AND shared_with_friends = 1 ORDER BY created_at DESC LIMIT 2`
-    ).bind(String(friend.friend_id)).all();
-    for (const r of (rows.results as Array<Record<string, unknown>>)) {
-      items.push({
-        friendName: String(friend.friend_name),
-        friendId: String(friend.friend_id),
-        recipe: { id: String(r.id), title: String(r.title), sourceUrl: r.source_url ? String(r.source_url) : null, imageUrl: r.image_url ? String(r.image_url) : null, mealTypes: JSON.parse(String(r.meal_types || '[]')), durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null, createdAt: String(r.created_at), ingredients: JSON.parse(String(r.ingredients || '[]')), steps: JSON.parse(String(r.steps || '[]')) }
-      });
-    }
-  }
-  return items.sort((a, b) => b.recipe.createdAt.localeCompare(a.recipe.createdAt)).slice(0, 8);
+
+  return (rows.results as Array<Record<string, unknown>>).map((r) => ({
+    friendName: r.sharer_name ? String(r.sharer_name) : 'A friend',
+    friendId: String(r.sharer_id),
+    recipe: {
+      id: String(r.id),
+      title: String(r.title),
+      sourceUrl: r.source_url ? String(r.source_url) : null,
+      imageUrl: r.image_url ? String(r.image_url) : null,
+      mealTypes: JSON.parse(String(r.meal_types || '[]')),
+      durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
+      createdAt: String(r.shared_at ?? r.created_at),
+      ingredients: JSON.parse(String(r.ingredients || '[]')),
+      steps: JSON.parse(String(r.steps || '[]')),
+    },
+  }));
 }
+// === [/S03] ===
 
 export async function logCookEvent(db: D1Database, userId: string, recipeId: string): Promise<void> {
   await db.prepare(
