@@ -1799,7 +1799,11 @@ function App() {
         const { data, error } = await supabase.auth.signInWithOAuth({
           provider: 'google',
           options: {
-            redirectTo: 'https://recifriend.com/auth/callback',
+            // Custom scheme so Capacitor Browser auto-closes on callback. Safe
+            // from OAuth code interception because native client uses PKCE —
+            // even if another app claims recifriend://, they lack the
+            // code_verifier stored locally in ReciFriend's Keychain.
+            redirectTo: 'recifriend://auth/callback',
             skipBrowserRedirect: true,
           },
         });
@@ -1846,7 +1850,7 @@ function App() {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'apple',
         options: {
-          redirectTo: 'https://recifriend.com/auth/callback',
+          redirectTo: 'recifriend://auth/callback',
           skipBrowserRedirect: true,
         },
       });

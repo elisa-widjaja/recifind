@@ -31,9 +31,13 @@ export function parseDeepLink(raw: string): DeepLink | null {
     return { kind: 'recipe_detail', recipe_id: id };
   }
 
-  // /auth/callback — Universal Link ONLY (security S1: prevents custom scheme hijack)
+  // /auth/callback — accepted via Universal Link OR custom scheme.
+  // Security S1: custom-scheme OAuth is safe because native auth uses PKCE —
+  // the code_verifier is stored only in this app's Keychain, so even if
+  // another app claimed recifriend:// and intercepted the code, they can't
+  // exchange it for a session. Implicit flow on web uses hash tokens, never
+  // this path.
   if (fullPath === '/auth/callback' || fullPath === '/auth/callback/') {
-    if (!isUniversalLink) return null;
     const code = url.searchParams.get('code');
     if (!code) return null;
     return { kind: 'auth_callback', code };

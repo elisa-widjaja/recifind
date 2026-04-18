@@ -61,8 +61,10 @@ describe('parseDeepLink — /auth/callback', () => {
       kind: 'auth_callback', code: 'abc123',
     });
   });
-  it('REJECTS auth callback via custom scheme (security: S1)', () => {
-    expect(parseDeepLink('recifriend://auth/callback?code=abc123')).toBeNull();
+  it('accepts auth callback via custom scheme (PKCE-safe on native)', () => {
+    expect(parseDeepLink('recifriend://auth/callback?code=abc123')).toEqual({
+      kind: 'auth_callback', code: 'abc123',
+    });
   });
   it('rejects if code missing', () => {
     expect(parseDeepLink('https://recifriend.com/auth/callback')).toBeNull();
