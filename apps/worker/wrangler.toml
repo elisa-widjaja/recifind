@@ -36,6 +36,10 @@ SUPABASE_STORAGE_BUCKET = "recipe-previews"
 # - DEV_API_KEY
 # - SUPABASE_SERVICE_ROLE_KEY
 # - GEMINI_SERVICE_ACCOUNT_B64
+# - APNS_AUTH_KEY_P8   (ES256 private key from Apple Developer portal)
+# - APNS_KEY_ID        (MFH9S45A26)
+# - APNS_TEAM_ID       (7C6PMUN99K)
+# - APNS_BUNDLE_ID     (com.recifriend.app)
 
 [triggers]
 crons = ["0 * * * *"]

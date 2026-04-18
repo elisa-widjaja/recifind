@@ -1,6 +1,10 @@
 // === [S03] Recipe share endpoint ===
 import { handleShareRecipe } from './routes/share';
 // === [/S03] ===
+// === [S05] Device registration + push triggers ===
+import { handleRegisterDevice, handleUnregisterDevice } from './routes/devices';
+import { sendPushToUser } from './push/apns';
+// === [/S05] ===
 
 const DEFAULT_PAGE_SIZE = 1000;
 const MAX_PAGE_SIZE = 1000;
@@ -22,6 +26,13 @@ export interface Env {
   SUPABASE_JWT_SECRET?: string;
   GEMINI_SERVICE_ACCOUNT_B64?: string;
   RESEND_API_KEY?: string;
+  // === [S05] APNs secrets ===
+  APNS_AUTH_KEY_P8?: string;
+  APNS_KEY_ID?: string;
+  APNS_TEAM_ID?: string;
+  APNS_BUNDLE_ID?: string;
+  APNS_HOST?: string;
+  // === [/S05] ===
 }
 
 interface Recipe {
@@ -468,6 +479,19 @@ export default {
         return await handleCreateShareLink({ env, user, recipeId });
       }
       // === [/S03] ===
+
+      // === [S05] Device registration + push triggers ===
+      if (url.pathname === '/devices/register') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        const body = await request.json() as { apns_token?: unknown };
+        if (request.method === 'POST') {
+          return await handleRegisterDevice({ env, userId: user.userId, body: body as any });
+        }
+        if (request.method === 'DELETE') {
+          return await handleUnregisterDevice({ env, userId: user.userId, body: body as any });
+        }
+      }
+      // === [/S05] ===
 
       // Log cook event
       const cookMatch = url.pathname.match(/^\/recipes\/([^/]+)\/cook$/);
@@ -1711,6 +1735,15 @@ async function handleCreateRecipe(request: Request, env: Env, user: Authenticate
         : { saverId: user.userId, friendName: saverName },
       createdAt: new Date().toISOString(),
     });
+    // === [S05] Push notification to friend when a public recipe is saved ===
+    if (isPublic) {
+      sendPushToUser(env as any, f.friend_id, {
+        title: 'ReciFriend',
+        body: `${saverName} saved ${recipe.title}`,
+        deepLink: `https://recifriend.com/recipes/${recipe.id}`,
+      }).catch(() => { /* silent — push is best-effort */ });
+    }
+    // === [/S05] ===
   }
 
   return json({ recipe }, 201);
@@ -2151,6 +2184,14 @@ async function handleSendFriendRequest(request: Request, env: Env, user: Authent
       <p style="margin: 24px 0 0; font-size: 13px; color: #999;">You received this because someone sent you a friend request on ReciFriend.</p>
     </div>`
   ));
+
+  // === [S05] Push notification to recipient ===
+  ctx.waitUntil(sendPushToUser(env as any, targetUser.id, {
+    title: 'ReciFriend',
+    body: `${senderProfile.displayName} wants to connect on ReciFriend`,
+    deepLink: 'https://recifriend.com/friend-requests',
+  }).catch(() => { /* silent — push is best-effort */ }));
+  // === [/S05] ===
 
   return json({ success: true, message: 'Friend request sent' }, 201);
 }
