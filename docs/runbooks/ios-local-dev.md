@@ -22,6 +22,26 @@ Capacitor generated the Xcode project at `apps/ios/ios/App/` (one extra `ios/` n
 
 ---
 
+## First-time setup: install CocoaPods
+
+macOS ships without CocoaPods. Run ONCE before your first build:
+
+```bash
+sudo gem install cocoapods
+```
+
+Then, any time Capacitor pulls in new native plugins:
+
+```bash
+cd apps/ios/ios/App && pod install
+# or from the project root:
+cd apps/ios && npx cap sync ios   # runs pod install if CocoaPods is present
+```
+
+After pod install, always open `App.xcworkspace` (not `App.xcodeproj`).
+
+---
+
 ## One-time Xcode setup (required before first build)
 
 ### 1. Install CocoaPods and run pod install
