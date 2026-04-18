@@ -459,6 +459,14 @@ export default {
         const body = await request.json() as { recipient_user_ids?: unknown };
         return await handleShareRecipe({ env, sharerId: user.userId, recipeId, body: body as any });
       }
+
+      // Legacy token-based shareable link (restored after Story 03 repurposed the old path)
+      const shareLinkMatch = url.pathname.match(/^\/recipes\/([^/]+)\/share-link$/);
+      if (shareLinkMatch && request.method === 'POST') {
+        if (!user) throw new HttpError(401, 'Unauthorized');
+        const recipeId = decodeURIComponent(shareLinkMatch[1]);
+        return await handleCreateShareLink({ env, user, recipeId });
+      }
       // === [/S03] ===
 
       // Log cook event
@@ -1114,6 +1122,28 @@ function generateShareToken(): string {
   return Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
 }
 
+async function handleCreateShareLink({ env, user, recipeId }: { env: Env; user: AuthenticatedUser; recipeId: string }) {
+  const recipe = await env.DB.prepare(
+    'SELECT id FROM recipes WHERE user_id = ? AND id = ?'
+  ).bind(user.userId, recipeId).first();
+  if (!recipe) {
+    return json({ error: 'Recipe not found' }, 404, withCors());
+  }
+
+  const existing = await env.DB.prepare(
+    'SELECT token FROM share_links WHERE user_id = ? AND recipe_id = ?'
+  ).bind(user.userId, recipeId).first<{ token: string }>();
+  if (existing) {
+    return json({ token: existing.token }, 200, withCors());
+  }
+
+  const token = generateShareToken();
+  await env.DB.prepare(
+    'INSERT INTO share_links (token, user_id, recipe_id, created_at) VALUES (?, ?, ?, ?)'
+  ).bind(token, user.userId, recipeId, new Date().toISOString()).run();
+
+  return json({ token }, 201, withCors());
+}
 
 async function handleCreateFriendShareLink(env: Env, friendId: string, recipeId: string) {
   // Only share if the recipe is shared with friends
