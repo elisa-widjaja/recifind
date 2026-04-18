@@ -93,6 +93,15 @@
   - `merlin.ns.cloudflare.com`
 - [ ] **Nameservers propagated** (agent verifies with `dig NS recifriend.com`)
 
+**Story 01 rebrand progress (automated by agent, 2026-04-17):**
+- [x] `apps/recipe-ui/.env.production` updated to `https://api.recifriend.com`
+- [x] Worker deployed with `api.recifriend.com/*` route in `wrangler.toml`
+- [x] All user-visible "ReciFind" copy replaced with "ReciFriend" in App.jsx, WelcomeModal, index.html, _middleware.js, index.ts (email templates)
+- [x] Email sender updated to `hello@recifriend.com`
+- [x] `privacy.html` created at `apps/recipe-ui/public/privacy.html`
+- [ ] Cloudflare Pages custom domains `recifriend.com` + `www.recifriend.com` — see rebrand-checklist.md (needs Cloudflare API or dashboard after NS propagates)
+- [ ] 301 redirect from `recifind.elisawidjaja.com` — needs elisawidjaja.com zone access (see rebrand-checklist.md)
+
 ---
 
 ### B3. Playwright MCP reconnection
