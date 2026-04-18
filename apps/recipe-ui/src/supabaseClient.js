@@ -10,7 +10,7 @@ export const supabase = url && key
       auth: {
         flowType: 'pkce',
         storage: Capacitor.isNativePlatform() ? capacitorStorage : undefined,
-        storageKey: 'recifind-auth',
+        storageKey: 'recifriend-auth',
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: !Capacitor.isNativePlatform(),
