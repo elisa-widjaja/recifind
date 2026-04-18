@@ -102,6 +102,12 @@ import RecipesPage from './RecipesPage';
 import { FriendPicker } from './components/FriendPicker';
 import { shareRecipe } from './lib/shareRecipe';
 // === [/S04] ===
+// === [S09] Capacitor auth ===
+import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
+import { App as CapacitorApp } from '@capacitor/app';
+import { createDispatcher } from './lib/deepLinkDispatch';
+// === [/S09] ===
 import { formatDuration } from './utils/videoEmbed';
 import recipesData from '../recipes.json';
 import recipesFromPdfData from '../recipes_from_pdf.json';
@@ -1298,6 +1304,54 @@ function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // === [S09] Capacitor auth — deep-link dispatcher (hoisted so Story 11 can reference it) ===
+  const dispatchDeepLink = useCallback((urlString) => {
+    const dispatch = createDispatcher({
+      onAuthCallback: async (code) => {
+        if (!supabase) return;
+        await supabase.auth.exchangeCodeForSession(code);
+        try { await Browser.close(); } catch { /* ignore if already closed */ }
+      },
+      onAddRecipe: (url) => {
+        // Pre-fill source URL and open Add Recipe dialog directly (user is already authed on native)
+        setNewRecipeForm((prev) => ({ ...prev, sourceUrl: url }));
+        setNewRecipeErrors({});
+        setNewRecipePrefillInfo({ matched: false, hasIngredients: false, hasSteps: false });
+        setSourceParseState({ status: 'idle', message: '' });
+        setIsAddDialogOpen(true);
+      },
+      onFriendRequests: () => {
+        setCurrentView('friend-requests');
+      },
+      onRecipeDetail: (recipeId) => {
+        // Look up recipe by id and open details dialog
+        const recipe = recipes.find((r) => r.id === recipeId);
+        if (recipe) handleOpenRecipeDetails(recipe);
+      },
+    });
+    return dispatch(urlString);
+  }, [recipes, handleOpenRecipeDetails]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Register appUrlOpen listener for deep links while app is running
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let listenerHandle;
+    CapacitorApp.addListener('appUrlOpen', ({ url }) => {
+      dispatchDeepLink(url);
+    }).then((handle) => { listenerHandle = handle; });
+    return () => { listenerHandle?.remove(); };
+  }, [dispatchDeepLink]);
+
+  // Handle cold-start deep link (app was killed, opened via link)
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    (async () => {
+      const launch = await CapacitorApp.getLaunchUrl();
+      if (launch?.url) dispatchDeepLink(launch.url);
+    })();
+  }, [dispatchDeepLink]);
+  // === [/S09] ===
+
   // Show welcome modal once after first sign-in
   useEffect(() => {
     if (!isAuthChecked || !session) return;
@@ -1682,6 +1736,20 @@ function App() {
     setIsAuthLoading(true);
     setAuthError('');
     try {
+      // === [S09] Capacitor auth ===
+      if (Capacitor.isNativePlatform()) {
+        const { data, error } = await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+            redirectTo: 'https://recifriend.com/auth/callback',
+            skipBrowserRedirect: true,
+          },
+        });
+        if (error) throw error;
+        await Browser.open({ url: data.url, windowName: '_self', presentationStyle: 'popover' });
+        return;
+      }
+      // === [/S09] ===
       const pendingId = sessionStorage.getItem('pending_accept_friend');
       const pendingInvite = sessionStorage.getItem('pending_invite_token');
       const pendingOpenInvite = sessionStorage.getItem('pending_open_invite');
@@ -1707,6 +1775,32 @@ function App() {
       setIsAuthLoading(false);
     }
   };
+
+  // === [S09] Capacitor auth ===
+  const handleAppleSignIn = async () => {
+    if (!supabase) {
+      setAuthError('Authentication is not configured.');
+      return;
+    }
+    setIsAuthLoading(true);
+    setAuthError('');
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'apple',
+        options: {
+          redirectTo: 'https://recifriend.com/auth/callback',
+          skipBrowserRedirect: true,
+        },
+      });
+      if (error) throw error;
+      await Browser.open({ url: data.url });
+    } catch (error) {
+      setAuthError(error.message || 'Failed to sign in with Apple.');
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+  // === [/S09] ===
 
   const handleSendMagicLink = async (event) => {
     event.preventDefault();
@@ -1764,6 +1858,22 @@ function App() {
     if (!supabase) return;
 
     setAccountMenuAnchor(null);
+    // === [S09] Capacitor auth ===
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const jwt = (await supabase.auth.getSession())?.data?.session?.access_token;
+        // getCurrentApnsToken() will be provided by Story 11; guard with try/catch
+        const token = typeof getCurrentApnsToken !== 'undefined' ? await getCurrentApnsToken() : null;
+        if (token && jwt) {
+          await fetch(`${API_BASE_URL}/devices/register`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apns_token: token }),
+          });
+        }
+      } catch { /* Story 11 not merged yet — safe to fail silently */ }
+    }
+    // === [/S09] ===
     clearRecipesCache();
     setRecipes([]);
     setHasNewRecipes(false);
@@ -5828,6 +5938,28 @@ function App() {
             >
               Sign in with Google
             </Button>
+
+            {/* === [S09] Capacitor auth — Apple sign-in (iOS only) === */}
+            {Capacitor.isNativePlatform() && (
+              <Button
+                variant="contained"
+                fullWidth
+                disabled={isAuthLoading}
+                onClick={handleAppleSignIn}
+                sx={{
+                  textTransform: 'none',
+                  fontWeight: 500,
+                  fontSize: '0.95rem',
+                  py: 1.2,
+                  backgroundColor: '#000',
+                  color: '#fff',
+                  '&:hover': { backgroundColor: '#222' },
+                }}
+              >
+                Continue with Apple
+              </Button>
+            )}
+            {/* === [/S09] === */}
 
             <Divider sx={{ fontSize: '0.8rem', color: 'text.secondary' }}>or</Divider>
 
