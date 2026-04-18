@@ -45,5 +45,22 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.recifriend.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>recifriend</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>ReciFriend sends notifications when a friend shares a recipe with you or saves one of yours.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>ReciFriend uses the camera to photograph your cooking so you can share it with friends.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>ReciFriend uses your photo library so you can attach recipe photos.</string>
 </dict>
 </plist>
