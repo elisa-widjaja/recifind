@@ -102,3 +102,40 @@ describe('parseDeepLink — unknown paths', () => {
     expect(parseDeepLink('https://recifriend.com/../etc/passwd')).toBeNull();
   });
 });
+
+describe('parseDeepLink — path prefix confusion guards (security)', () => {
+  it('rejects /auth/callback-evil (prefix lookalike)', () => {
+    expect(parseDeepLink('https://recifriend.com/auth/callback-evil?code=abc')).toBeNull();
+  });
+  it('rejects /auth/callbackevil (prefix lookalike, no separator)', () => {
+    expect(parseDeepLink('https://recifriend.com/auth/callbackevil?code=abc')).toBeNull();
+  });
+  it('rejects /auth/callback/extra (prefix + extra segment)', () => {
+    expect(parseDeepLink('https://recifriend.com/auth/callback/extra?code=abc')).toBeNull();
+  });
+  it('accepts /auth/callback/ (trailing slash is fine)', () => {
+    expect(parseDeepLink('https://recifriend.com/auth/callback/?code=abc')).toEqual({ kind: 'auth_callback', code: 'abc' });
+  });
+  it('rejects /add-recipe-evil (prefix lookalike)', () => {
+    expect(parseDeepLink('https://recifriend.com/add-recipe-evil?url=https://x')).toBeNull();
+  });
+  it('rejects /add-recipe/extra (prefix + extra segment)', () => {
+    expect(parseDeepLink('https://recifriend.com/add-recipe/extra?url=https://x')).toBeNull();
+  });
+  it('accepts /add-recipe/ (trailing slash is fine)', () => {
+    expect(parseDeepLink('https://recifriend.com/add-recipe/?url=https%3A%2F%2Ftiktok.com%2Fabc')).toEqual({ kind: 'add_recipe', url: 'https://tiktok.com/abc' });
+  });
+});
+
+describe('parseDeepLink — port + encoding guards', () => {
+  it('rejects explicit port on Universal Link', () => {
+    expect(parseDeepLink('https://recifriend.com:8080/recipes/abc')).toBeNull();
+  });
+  it('rejects invalid percent-encoding in recipe id (decode throws)', () => {
+    // Shouldn't throw; should return null
+    expect(parseDeepLink('https://recifriend.com/recipes/%ZZ')).toBeNull();
+  });
+  it('rejects custom scheme without // (recifriend:recipes/123)', () => {
+    expect(parseDeepLink('recifriend:recipes/123')).toBeNull();
+  });
+});
