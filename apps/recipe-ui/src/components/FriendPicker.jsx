@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -27,7 +27,16 @@ export function FriendPicker({ open, friends, onClose, onSend }) {
     setSelected(next);
   };
 
+  useEffect(() => {
+    if (!open) {
+      setSelected(new Set());
+      setBusy(false);
+      setResult(null);
+    }
+  }, [open]);
+
   const handleSend = async () => {
+    setResult(null);
     setBusy(true);
     const ids = Array.from(selected);
     const res = await onSend(ids);

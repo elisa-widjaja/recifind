@@ -3715,7 +3715,7 @@ function App() {
   };
 
   // === [S04] Friend picker wiring ===
-  const openSharePicker = async (recipeId) => {
+  const openSharePicker = (recipeId) => {
     setPickerRecipeId(recipeId);
     setPickerOpen(true);
   };
@@ -3724,10 +3724,34 @@ function App() {
     return await shareRecipe({ apiBase: API_BASE_URL, jwt: accessToken, recipeId: pickerRecipeId, recipientUserIds });
   };
 
-  const handlePickerClose = (action) => {
+  const handlePickerClose = async (action) => {
     setPickerOpen(false);
     if (action === 'copy-link') {
-      navigator.clipboard.writeText(`${window.location.origin}/recipes/${pickerRecipeId}`);
+      let shareUrl = null;
+      if (API_BASE_URL && accessToken && pickerRecipeId) {
+        try {
+          const response = await fetch(`${API_BASE_URL}/recipes/${encodeURIComponent(pickerRecipeId)}/share`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+          });
+          if (response.ok) {
+            const { token } = await response.json();
+            shareUrl = `${window.location.origin}?share=${token}`;
+          }
+        } catch (err) {
+          console.error('Share token error:', err);
+        }
+      }
+      // Fallback: query-param URL (no token needed, works without auth)
+      if (!shareUrl && pickerRecipeId) {
+        const uid = session?.user?.id;
+        shareUrl = uid
+          ? `${window.location.origin}?recipe=${encodeURIComponent(pickerRecipeId)}&user=${encodeURIComponent(uid)}`
+          : `${window.location.origin}?recipe=${encodeURIComponent(pickerRecipeId)}`;
+      }
+      if (shareUrl) {
+        navigator.clipboard.writeText(shareUrl);
+      }
     }
   };
   // === [/S04] ===
