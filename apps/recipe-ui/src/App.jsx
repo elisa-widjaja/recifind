@@ -4551,6 +4551,8 @@ function App() {
             display: 'flex',
             flexDirection: 'column',
             borderRadius: 0,
+            paddingTop: 'env(safe-area-inset-top)',
+            paddingBottom: 'env(safe-area-inset-bottom)',
           }
         } : {}}
       >

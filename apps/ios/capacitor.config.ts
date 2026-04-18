@@ -6,12 +6,9 @@ const config: CapacitorConfig = {
   webDir: '../recipe-ui/dist',
   ios: {
     scheme: 'recifriend',
-    // contentInset 'always' makes the native WebView respect safe areas —
-    // status bar / Dynamic Island no longer overlaps content, and the home
-    // indicator area stays clear. The CSS env(safe-area-inset-*) values
-    // inside the webview return 0 when contentInset is always, so the
-    // #root env() padding in index.html only fires for web PWA users.
-    contentInset: 'always',
+    // Safe-area handling is done via CSS env(safe-area-inset-*) on individual
+    // components (AppBar, drawers, dialogs, FABs). Setting contentInset here
+    // would cause double-padding since env() still returns device insets.
   },
 };
 
