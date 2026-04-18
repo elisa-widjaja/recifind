@@ -1182,6 +1182,8 @@ function App() {
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const deferredInstallPrompt = useRef(null);
   const isPwaInstalled = () =>
+    // Native Capacitor app = no "Add to Home Screen" prompt needed.
+    Capacitor.isNativePlatform() ||
     localStorage.getItem('recifriend-pwa-used') ||
     document.cookie.includes('recifriend-pwa-installed=1');
 
