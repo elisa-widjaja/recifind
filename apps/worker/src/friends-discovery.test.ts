@@ -108,20 +108,37 @@ describe('getFriendsRecentlySaved', () => {
 });
 
 describe('getFriendsRecentlyShared', () => {
-  it('returns only shared_with_friends recipes', async () => {
+  it('returns recipes shared directly with the user via recipe_shares JOIN', async () => {
     const mockDb = {
       prepare: vi.fn().mockReturnValue({
         bind: vi.fn().mockReturnThis(),
-        all: vi.fn()
-          .mockResolvedValueOnce({ results: [{ friend_id: 'friend-1', friend_name: 'Elisa' }] })
-          .mockResolvedValueOnce({ results: [
-            { id: 'r2', title: 'Miso Ramen', source_url: '', image_url: '', meal_types: '[]', duration_minutes: 20, created_at: '2026-03-09', ingredients: '["miso","ramen"]', steps: '["boil","serve"]' }
-          ]})
-      })
+        all: vi.fn().mockResolvedValueOnce({
+          results: [
+            {
+              id: 'r2',
+              user_id: 'friend-1',
+              title: 'Miso Ramen',
+              source_url: '',
+              image_url: '',
+              meal_types: '[]',
+              duration_minutes: 20,
+              created_at: '2026-03-09T00:00:00Z',
+              ingredients: '["miso","ramen"]',
+              steps: '["boil","serve"]',
+              shared_at: '2026-03-10T08:00:00Z',
+              sharer_id: 'friend-1',
+              sharer_name: 'Elisa',
+            },
+          ],
+        }),
+      }),
     } as unknown as D1Database;
 
     const result = await getFriendsRecentlyShared(mockDb, mockUserId);
+    expect(result).toHaveLength(1);
     expect(result[0].recipe.title).toBe('Miso Ramen');
     expect(result[0].recipe.ingredients).toEqual(['miso', 'ramen']);
+    expect(result[0].friendId).toBe('friend-1');
+    expect(result[0].friendName).toBe('Elisa');
   });
 });
