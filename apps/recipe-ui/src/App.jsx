@@ -108,6 +108,10 @@ import { Browser } from '@capacitor/browser';
 import { App as CapacitorApp } from '@capacitor/app';
 import { createDispatcher } from './lib/deepLinkDispatch';
 // === [/S09] ===
+// === [S11] Push client ===
+import { ensureRegistered, getCurrentApnsToken, onNotificationTap, hasPromptedForPermission } from './lib/pushClient';
+import { NotificationSoftPrompt } from './components/NotificationSoftPrompt';
+// === [/S11] ===
 import { formatDuration } from './utils/videoEmbed';
 import recipesData from '../recipes.json';
 import recipesFromPdfData from '../recipes_from_pdf.json';
@@ -1352,6 +1356,46 @@ function App() {
   }, [dispatchDeepLink]);
   // === [/S09] ===
 
+  // === [S11] Push client ===
+  const [softPromptOpen, setSoftPromptOpen] = useState(false);
+  const [softPromptContext, setSoftPromptContext] = useState(null);
+
+  const pushApi = {
+    register: ({ apns_token }) =>
+      fetch(`${API_BASE_URL}/devices/register`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apns_token }),
+      }).then(r => r.json()),
+  };
+
+  async function triggerSoftPromptIfNeeded(context) {
+    if (!Capacitor.isNativePlatform()) return;
+    if (await hasPromptedForPermission()) return;
+    setSoftPromptContext(context);
+    setSoftPromptOpen(true);
+  }
+
+  async function handleSoftPromptAccept() {
+    setSoftPromptOpen(false);
+    await ensureRegistered({ api: pushApi, jwt: accessToken });
+  }
+
+  // Wire notification taps to the same dispatcher as deep links
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let sub;
+    (async () => {
+      sub = await onNotificationTap((deepLinkUrl) => {
+        dispatchDeepLink(deepLinkUrl);
+      });
+      // If already granted (e.g., from a previous session), re-register silently
+      await ensureRegistered({ api: pushApi, jwt: accessToken });
+    })();
+    return () => { sub?.remove(); };
+  }, [accessToken]); // eslint-disable-line react-hooks/exhaustive-deps
+  // === [/S11] ===
+
   // Show welcome modal once after first sign-in
   useEffect(() => {
     if (!isAuthChecked || !session) return;
@@ -1448,6 +1492,9 @@ function App() {
       setAddFriendEmail('');
       setIsAddFriendOpen(false);
       await fetchFriendRequests();
+      // === [S11] Push client ===
+      triggerSoftPromptIfNeeded('friend-request-sent');
+      // === [/S11] ===
     } catch (error) {
       const msg = error.message || '';
       const isAlreadyFriends = msg.includes('already friends');
@@ -1862,8 +1909,7 @@ function App() {
     if (Capacitor.isNativePlatform()) {
       try {
         const jwt = (await supabase.auth.getSession())?.data?.session?.access_token;
-        // getCurrentApnsToken() will be provided by Story 11; guard with try/catch
-        const token = typeof getCurrentApnsToken !== 'undefined' ? await getCurrentApnsToken() : null;
+        const token = getCurrentApnsToken(); // provided by S11 pushClient
         if (token && jwt) {
           await fetch(`${API_BASE_URL}/devices/register`, {
             method: 'DELETE',
@@ -1871,7 +1917,7 @@ function App() {
             body: JSON.stringify({ apns_token: token }),
           });
         }
-      } catch { /* Story 11 not merged yet — safe to fail silently */ }
+      } catch { /* sign-out should always complete even if deregister fails */ }
     }
     // === [/S09] ===
     clearRecipesCache();
@@ -3819,7 +3865,11 @@ function App() {
   };
 
   const handlePickerSend = async (recipientUserIds) => {
-    return await shareRecipe({ apiBase: API_BASE_URL, jwt: accessToken, recipeId: pickerRecipeId, recipientUserIds });
+    const result = await shareRecipe({ apiBase: API_BASE_URL, jwt: accessToken, recipeId: pickerRecipeId, recipientUserIds });
+    // === [S11] Push client ===
+    triggerSoftPromptIfNeeded('recipe-shared');
+    // === [/S11] ===
+    return result;
   };
 
   const handlePickerClose = async (action) => {
@@ -4313,6 +4363,15 @@ function App() {
         onSend={handlePickerSend}
       />
       {/* === [/S04] === */}
+
+      {/* === [S11] Push client === */}
+      <NotificationSoftPrompt
+        open={softPromptOpen}
+        context={softPromptContext}
+        onAccept={handleSoftPromptAccept}
+        onDismiss={() => setSoftPromptOpen(false)}
+      />
+      {/* === [/S11] === */}
 
       {/* Logged-out: show discovery landing page. Only render after auth is checked to avoid flash. */}
       {!session && isAuthChecked && (
