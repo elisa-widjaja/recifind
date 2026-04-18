@@ -1,7 +1,7 @@
 {
-  "name": "ReciFind",
-  "short_name": "ReciFind",
-  "description": "Save and share your favorite recipes",
+  "name": "ReciFriend",
+  "short_name": "ReciFriend",
+  "description": "Save recipes from anywhere. Share with your favorite people.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#fafafa",
