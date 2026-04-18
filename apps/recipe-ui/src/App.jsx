@@ -98,6 +98,10 @@ import FriendSections from './components/FriendSections';
 import StatsTiles from './components/StatsTiles';
 import RecipeListCard from './components/RecipeListCard';
 import RecipesPage from './RecipesPage';
+// === [S04] Friend picker wiring ===
+import { FriendPicker } from './components/FriendPicker';
+import { shareRecipe } from './lib/shareRecipe';
+// === [/S04] ===
 import { formatDuration } from './utils/videoEmbed';
 import recipesData from '../recipes.json';
 import recipesFromPdfData from '../recipes_from_pdf.json';
@@ -1193,6 +1197,10 @@ function App() {
 
   // Friends state
   const [friends, setFriends] = useState([]);
+  // === [S04] Friend picker wiring ===
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerRecipeId, setPickerRecipeId] = useState(null);
+  // === [/S04] ===
   const [friendRequests, setFriendRequests] = useState([]);
   const [sentRequests, setSentRequests] = useState([]);
   const [sentInvites, setSentInvites] = useState([]);
@@ -3706,6 +3714,24 @@ function App() {
     }
   };
 
+  // === [S04] Friend picker wiring ===
+  const openSharePicker = async (recipeId) => {
+    setPickerRecipeId(recipeId);
+    setPickerOpen(true);
+  };
+
+  const handlePickerSend = async (recipientUserIds) => {
+    return await shareRecipe({ apiBase: API_BASE_URL, jwt: accessToken, recipeId: pickerRecipeId, recipientUserIds });
+  };
+
+  const handlePickerClose = (action) => {
+    setPickerOpen(false);
+    if (action === 'copy-link') {
+      navigator.clipboard.writeText(`${window.location.origin}/recipes/${pickerRecipeId}`);
+    }
+  };
+  // === [/S04] ===
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -4157,6 +4183,15 @@ function App() {
         onDismiss={handleOnboardingDismiss}
       />
 
+      {/* === [S04] Friend picker wiring === */}
+      <FriendPicker
+        open={pickerOpen}
+        friends={friends}
+        onClose={handlePickerClose}
+        onSend={handlePickerSend}
+      />
+      {/* === [/S04] === */}
+
       {/* Logged-out: show discovery landing page. Only render after auth is checked to avoid flash. */}
       {!session && isAuthChecked && (
         <PublicLanding
@@ -4195,12 +4230,7 @@ function App() {
                   dietaryPrefs={userProfile?.dietaryPrefs ?? null}
                   onOpenRecipe={handleOpenEditorPickRecipe}
                   onSaveRecipe={handleSavePublicRecipe}
-                  onShareRecipe={(recipe, event) => {
-                    const anchorPosition = event?.currentTarget
-                      ? { top: event.currentTarget.getBoundingClientRect().bottom, left: event.currentTarget.getBoundingClientRect().left }
-                      : { top: window.innerHeight / 2, left: window.innerWidth / 2 };
-                    handleShare(recipe, anchorPosition);
-                  }}
+                  onShareRecipe={(recipe) => openSharePicker(recipe?.id) /* [S04] */}
                   onInviteFriend={() => setIsFriendsDialogOpen(true)}
                   darkMode={darkMode}
                   onCookWithFriendsVisible={setCookWithFriendsVisible}
@@ -4228,7 +4258,7 @@ function App() {
                 searchBarRef={searchBarRef}
                 handleOpenRecipe={handleOpenRecipeDetails}
                 toggleFavorite={toggleFavorite}
-                handleShare={handleShare}
+                handleShare={(recipe) => openSharePicker(recipe?.id) /* [S04] */}
                 handleVideoThumbnailClick={handleVideoThumbnailClick}
                 onAddRecipe={openAddDialog}
                 addRecipeBtnRef={addRecipeBtnRef}
@@ -4777,18 +4807,17 @@ function App() {
             <DialogActions sx={{ justifyContent: (isSharedRecipeView || !session) ? 'space-between' : 'flex-end', gap: 1, px: (isSharedRecipeView || !session) ? '24px' : (isEditMode && !isSharedRecipeView ? 0 : 1), ...(isEditMode && !isSharedRecipeView ? (darkMode ? { backgroundColor: '#121212', borderTop: '1px solid rgba(255, 255, 255, 0.13)' } : { backgroundColor: '#fff', borderTop: '1px solid rgba(0, 0, 0, 0.12)' }) : (darkMode ? { backgroundColor: '#121212', borderTop: '1px solid rgba(255, 255, 255, 0.13)' } : {})) }}>
               {isSharedRecipeView ? (
                 <>
+                  {/* === [S04] Friend picker wiring === */}
                   <Button
                     variant="outlined"
                     color="inherit"
                     startIcon={<IosShareOutlinedIcon />}
                     sx={{ flex: 1 }}
-                    onClick={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      handleShare(activeRecipe, { top: rect.bottom, left: rect.left });
-                    }}
+                    onClick={() => openSharePicker(activeRecipe?.id)}
                   >
                     Share
                   </Button>
+                  {/* === [/S04] === */}
                   <Button
                     variant={savedSharedRecipeIds.has(activeRecipe?.id) ? 'outlined' : 'contained'}
                     color="primary"
