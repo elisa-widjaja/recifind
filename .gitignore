@@ -20,6 +20,9 @@ __pycache__
 # Cloudflare Wrangler
 .wrangler
 
+# Apple APNs auth keys — never commit (spec §S4)
+*.p8
+
 # Vercel
 .vercel
 

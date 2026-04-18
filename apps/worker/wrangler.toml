@@ -17,6 +17,11 @@ binding = "AI_PICKS_CACHE"
 id = "d5c0419e6a2e4b5aadc271a376a73b01"
 preview_id = "a4ad5a02524345358465751ef99b8b91"
 
+[[kv_namespaces]]
+binding = "KV_RATE"
+id = "9d046018460a42ec803ac41f77b5cd10"
+preview_id = "eb1a7faac0034745b248b4f40d6ded00"
+
 [vars]
 AUTH_ISSUER = "https://jpjuaaxwfpemecbwwthk.supabase.co/auth/v1"
 AUTH_AUDIENCE = "authenticated"
