@@ -593,6 +593,7 @@ export default {
           return json({ items }, 200, withCors());
         })();
       }
+      // === [S03] Recipe share endpoint ===
       if (url.pathname === '/friends/recently-shared' && request.method === 'GET') {
         if (!user) throw new HttpError(401, 'Unauthorized');
         return await (async () => {
@@ -600,6 +601,7 @@ export default {
           return json({ items }, 200, withCors());
         })();
       }
+      // === [/S03] ===
       // GET /friends/suggestions — People you may know
       if (url.pathname === '/friends/suggestions' && request.method === 'GET') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
