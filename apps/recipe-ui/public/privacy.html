@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy — ReciFriend</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+      color: #1a1a1a;
+      line-height: 1.6;
+    }
+    h1 { font-size: 28px; font-weight: 800; margin: 0 0 4px; }
+    .meta { font-size: 13px; color: #888; margin-bottom: 40px; }
+    h2 { font-size: 18px; font-weight: 700; margin: 36px 0 8px; }
+    p, li { font-size: 15px; color: #333; margin: 0 0 12px; }
+    ul { padding-left: 20px; margin: 0 0 12px; }
+    a { color: #6200EA; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .back { display: inline-block; margin-bottom: 32px; font-size: 14px; color: #6200EA; }
+  </style>
+</head>
+<body>
+  <a href="/" class="back">← Back to ReciFriend</a>
+  <h1>Privacy Policy</h1>
+  <p class="meta">Last updated: 2026-04-17</p>
+
+  <p>ReciFriend ("we", "us", "our") is a recipe-saving and sharing app. This policy explains what data we collect, how we use it, and your rights.</p>
+
+  <h2>1. What we collect</h2>
+  <ul>
+    <li><strong>Account information:</strong> email address and display name provided via Google Sign-In.</li>
+    <li><strong>Recipes:</strong> URLs, titles, ingredients, steps, and images you save to your collection.</li>
+    <li><strong>Friend graph:</strong> the list of friends you connect with and pending friend invites.</li>
+    <li><strong>Preferences:</strong> meal type preferences, dietary preferences, and skill level you set during onboarding.</li>
+    <li><strong>Security logs:</strong> IP address and browser user-agent for rate limiting and abuse prevention. These are not stored long-term.</li>
+    <li><strong>Email opt-out status:</strong> whether you have unsubscribed from notification emails.</li>
+  </ul>
+
+  <h2>2. Third-party services</h2>
+  <ul>
+    <li><strong>Supabase</strong> — authentication (Google OAuth), user accounts, and image storage. <a href="https://supabase.com/privacy" target="_blank" rel="noopener">supabase.com/privacy</a></li>
+    <li><strong>Cloudflare</strong> — app hosting (Pages), API worker, database (D1), and key-value storage (KV). Cloudflare processes requests on their global network. <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener">cloudflare.com/privacypolicy</a></li>
+    <li><strong>Google Gemini</strong> — used server-side to enrich recipe data (extract ingredients and steps from a URL). Recipe URLs may be sent to Gemini; no personal account data is shared.</li>
+    <li><strong>Resend</strong> — transactional email delivery (friend invites, friend-request notifications). Your email address is passed to Resend only when sending you a notification. <a href="https://resend.com/legal/privacy-policy" target="_blank" rel="noopener">resend.com/legal/privacy-policy</a></li>
+    <li><strong>Apple APNs</strong> — push notifications on iOS. A device token is stored server-side and used only to deliver notifications relevant to your account.</li>
+  </ul>
+  <p>We do not use any advertising networks, tracking pixels, or third-party analytics beyond what is listed above.</p>
+
+  <h2>3. How we use your data</h2>
+  <ul>
+    <li>To operate the app: display your recipes, connect you with friends, and send transactional notifications.</li>
+    <li>To improve recipe enrichment: recipe URLs are processed by Gemini to extract structured data.</li>
+    <li>To prevent abuse: request rate limiting based on IP address.</li>
+  </ul>
+  <p>We do not sell your data, share it with advertisers, or use it for profiling outside of ReciFriend.</p>
+
+  <h2>4. Your rights</h2>
+  <ul>
+    <li><strong>Export your data:</strong> email us at <a href="mailto:hello@recifriend.com">hello@recifriend.com</a> to request a copy of your recipes, friend list, and account data.</li>
+    <li><strong>Delete your account:</strong> email us at <a href="mailto:hello@recifriend.com">hello@recifriend.com</a> with subject "Delete my account". We will remove your profile, recipes, and friend connections within 30 days.</li>
+    <li><strong>Unsubscribe from emails:</strong> every notification email includes an unsubscribe link. You can also email us to opt out.</li>
+  </ul>
+
+  <h2>5. Data retention</h2>
+  <p>Your data is retained for as long as your account is active. Deleted accounts are purged within 30 days. Security logs are not stored beyond request handling.</p>
+
+  <h2>6. Children</h2>
+  <p>ReciFriend is not directed at children under 13. We do not knowingly collect personal information from children under 13.</p>
+
+  <h2>7. Changes to this policy</h2>
+  <p>We may update this policy. Material changes will be communicated by email to your registered address. Continued use of ReciFriend after updates constitutes acceptance.</p>
+
+  <h2>8. Contact</h2>
+  <p>Questions or requests: <a href="mailto:hello@recifriend.com">hello@recifriend.com</a></p>
+</body>
+</html>
