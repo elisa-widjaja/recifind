@@ -91,6 +91,9 @@ import MenuBookIcon from '@mui/icons-material/MenuBook';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import FeedbackOutlinedIcon from '@mui/icons-material/FeedbackOutlined';
 import { supabase } from './supabaseClient';
+// === [rebrand] ===
+import { migrateLegacyStorage } from './lib/migrateLegacyStorage';
+// === [/rebrand] ===
 import PublicLanding from './components/PublicLanding';
 import WelcomeModal from './components/WelcomeModal';
 import OnboardingFlow from './components/OnboardingFlow';
@@ -123,7 +126,7 @@ const DEV_API_TOKEN = import.meta.env.VITE_RECIPES_API_TOKEN || '';
 console.log('ReciFriend v2024.12.02.1');
 
 // localStorage cache key for recipes
-const RECIPES_CACHE_KEY = 'recifind-recipes-cache-v2';
+const RECIPES_CACHE_KEY = 'recifriend-recipes-cache-v2';
 
 function loadRecipesFromCache(userId) {
   try {
@@ -939,6 +942,10 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // === [rebrand] ===
+  useEffect(() => { migrateLegacyStorage(); }, []);
+  // === [/rebrand] ===
+
   const [showFloatingFab, setShowFloatingFab] = useState(false);
   const [showHomeFab, setShowHomeFab] = useState(false);
   const [cookWithFriendsVisible, setCookWithFriendsVisible] = useState(false);
@@ -962,7 +969,7 @@ function App() {
   const mobileFilterChipsRef = useRef(null);
   const [favorites, setFavorites] = useState(() => {
     try {
-      const stored = localStorage.getItem('recifind-favorites');
+      const stored = localStorage.getItem('recifriend-favorites');
       return stored ? new Set(JSON.parse(stored)) : new Set();
     } catch { return new Set(); }
   });
@@ -996,7 +1003,7 @@ function App() {
       const wasFavorited = prev.has(recipeId);
       const next = new Set(prev);
       if (wasFavorited) next.delete(recipeId); else next.add(recipeId);
-      localStorage.setItem('recifind-favorites', JSON.stringify([...next]));
+      localStorage.setItem('recifriend-favorites', JSON.stringify([...next]));
       trackEvent('favorite', { recipe_id: recipeId, action: wasFavorited ? 'remove' : 'add' });
       return next;
     });
@@ -1175,8 +1182,8 @@ function App() {
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const deferredInstallPrompt = useRef(null);
   const isPwaInstalled = () =>
-    localStorage.getItem('recifind-pwa-used') ||
-    document.cookie.includes('recifind-pwa-installed=1');
+    localStorage.getItem('recifriend-pwa-used') ||
+    document.cookie.includes('recifriend-pwa-installed=1');
 
   // Auth state
   const [session, setSession] = useState(null);
@@ -1237,7 +1244,7 @@ function App() {
 
   // Dark mode state
   const [darkMode, setDarkMode] = useState(() => {
-    const saved = localStorage.getItem('recifind-dark-mode');
+    const saved = localStorage.getItem('recifriend-dark-mode');
     if (saved !== null) return saved === 'true';
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
@@ -1270,7 +1277,7 @@ function App() {
   const toggleDarkMode = () => {
     setDarkMode(prev => {
       const next = !prev;
-      localStorage.setItem('recifind-dark-mode', String(next));
+      localStorage.setItem('recifriend-dark-mode', String(next));
       return next;
     });
   };
@@ -2218,7 +2225,7 @@ function App() {
   useEffect(() => {
     if (isStandalone) return;
     if (isPwaInstalled()) return;
-    if (localStorage.getItem('recifind-install-banner-dismissed')) return;
+    if (localStorage.getItem('recifriend-install-banner-dismissed')) return;
     if (sessionStorage.getItem('pending_invite_token')) return;
     if (onboardingOpen) return;
     let timer;
@@ -2245,7 +2252,7 @@ function App() {
     if (!isIosSafari) return;
     if (isStandalone) return;
     if (isPwaInstalled()) return;
-    if (localStorage.getItem('recifind-install-banner-dismissed')) return;
+    if (localStorage.getItem('recifriend-install-banner-dismissed')) return;
     if (sessionStorage.getItem('pending_invite_token')) return;
     if (sessionStorage.getItem('invite_entry')) return;
     if (onboardingOpen) return;
@@ -2587,7 +2594,7 @@ function App() {
             setSnackbarState({ open: true, message: name ? `You're now connected with ${name}` : "You're now connected!", severity: 'success', duration: 8000, anchorOrigin: { vertical: 'top', horizontal: 'center' } });
           }, 400);
           fetchFriends();
-          if (!isStandalone && !isPwaInstalled() && !localStorage.getItem('recifind-install-banner-dismissed')) {
+          if (!isStandalone && !isPwaInstalled() && !localStorage.getItem('recifriend-install-banner-dismissed')) {
             setTimeout(() => setShowInstallBanner(true), 30000);
           }
         })
@@ -2728,7 +2735,7 @@ function App() {
             setSnackbarState({ open: true, message: `You're now connected with ${res.connected.join(', ')}`, severity: 'success', duration: 8000, anchorOrigin: { vertical: 'top', horizontal: 'center' } });
           }, 400);
           fetchFriends();
-          if (!isStandalone && !isPwaInstalled() && !localStorage.getItem('recifind-install-banner-dismissed')) {
+          if (!isStandalone && !isPwaInstalled() && !localStorage.getItem('recifriend-install-banner-dismissed')) {
             setTimeout(() => setShowInstallBanner(true), 30000);
           }
         }
@@ -5898,7 +5905,7 @@ function App() {
               const { outcome } = await deferredInstallPrompt.current.userChoice;
               if (outcome === 'accepted') {
                 setShowInstallBanner(false);
-                localStorage.setItem('recifind-install-banner-dismissed', '1');
+                localStorage.setItem('recifriend-install-banner-dismissed', '1');
               }
             }}
           >
@@ -5913,7 +5920,7 @@ function App() {
           sx={{ mt: 1.5, cursor: 'pointer', textAlign: 'center' }}
           onClick={() => {
             setShowInstallBanner(false);
-            localStorage.setItem('recifind-install-banner-dismissed', '1');
+            localStorage.setItem('recifriend-install-banner-dismissed', '1');
           }}
         >
           <Typography variant="body2" color="text.secondary">Dismiss and don't show again</Typography>
