@@ -1304,7 +1304,13 @@ function App() {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
+      if (event === 'SIGNED_IN') {
+        setCurrentView('home');
+        setIsAuthDialogOpen(false);  // close sign-in dialog (e.g. after native OAuth returns)
+        setAuthError('');
+        setIsAuthLoading(false);
+      }
+      if (event === 'SIGNED_OUT') {
         setCurrentView('home');
       }
       if (window.gtag) {
