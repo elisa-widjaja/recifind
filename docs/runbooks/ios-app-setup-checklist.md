@@ -3,7 +3,7 @@
 > **For the agent:** tick checkboxes as items verify green. Use `- [x]` for completed, `- [ ]` for pending. Each section below has a **How to verify** line — run that check before ticking.
 
 **Last updated:** 2026-04-17
-**Overall progress:** 3 of 8 ready (auto-verified items already green)
+**Overall progress:** 10 of 14 ready (auto-verified + Apple Dev already held by user)
 
 ---
 
@@ -55,8 +55,9 @@
 
 **Agent verification when approved:** user pastes Team ID (10 uppercase chars) into conversation; agent uses it in Story 07 AASA file.
 
-- [ ] **Apple Dev enrollment submitted**
-- [ ] **Apple Dev enrollment approved** (fill in Team ID: `__________`)
+- [x] **Apple Dev enrollment submitted** ✅
+- [x] **Apple Dev enrollment approved** ✅
+- [x] **Team ID captured: `7C6PMUN99K`** ✅
 
 ---
 
@@ -86,8 +87,11 @@
 
 **Agent verification:** `dig NS recifriend.com` returns Cloudflare nameservers.
 
-- [ ] **Cloudflare zone added for recifriend.com**
-- [ ] **Nameservers propagated** (agent verifies with `dig`)
+- [x] **Cloudflare zone added for recifriend.com** ✅ (Zone ID: `bb104f8ae2fcad09cb22fa663d487b81`)
+- [ ] **Nameservers updated at registrar** — user to replace current NS with:
+  - `jade.ns.cloudflare.com`
+  - `merlin.ns.cloudflare.com`
+- [ ] **Nameservers propagated** (agent verifies with `dig NS recifriend.com`)
 
 ---
 
