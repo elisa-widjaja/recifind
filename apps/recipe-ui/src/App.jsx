@@ -1294,6 +1294,23 @@ function App() {
       return;
     }
 
+    // Magic-link fallback: when emailRedirectTo lands on /?token_hash=xxx&type=magiclink
+    // (Supabase PKCE magic-link format), detectSessionInUrl doesn't auto-exchange.
+    // We verifyOtp manually and then strip the params from the URL.
+    const urlParams = new URLSearchParams(window.location.search);
+    const tokenHash = urlParams.get('token_hash');
+    const magicType = urlParams.get('type');
+    if (tokenHash && magicType) {
+      supabase.auth.verifyOtp({ token_hash: tokenHash, type: magicType }).then(({ error }) => {
+        if (error) console.warn('Magic link verifyOtp failed:', error.message);
+        // Clean the URL regardless so stale params don't persist
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete('token_hash');
+        cleanUrl.searchParams.delete('type');
+        window.history.replaceState({}, '', cleanUrl.toString());
+      });
+    }
+
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
