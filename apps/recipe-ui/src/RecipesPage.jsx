@@ -226,10 +226,7 @@ export default function RecipesPage({
                 recipe={recipe}
                 onOpen={handleOpenRecipe}
                 onSave={() => { if (!session) { openAuthDialog(); return; } toggleFavorite(recipe.id); }}
-                onShare={(_, e) => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  handleShare(recipe, { top: rect.bottom, left: rect.right });
-                }}
+                onShare={(_, e) => handleShare(recipe, e)}
                 saveIcon={
                   !session
                     ? <BookmarkBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />

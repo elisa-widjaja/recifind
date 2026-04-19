@@ -1164,7 +1164,7 @@ function App() {
     anchorOrigin: { vertical: 'bottom', horizontal: 'center' }
   });
   const [shareMenuState, setShareMenuState] = useState(null); // { anchorEl, url, title }
-  const [shareSheetState, setShareSheetState] = useState(null); // { recipe, anchorEvent }
+  const [shareSheetState, setShareSheetState] = useState(null); // { recipe, anchorPosition }
   const sentinelRef = useRef(null);
   const searchBarRef = useRef(null);
   const lastParseResultRef = useRef({ url: '', status: '' });
