@@ -1924,24 +1924,21 @@ function App() {
     setAuthError('');
 
     try {
-      // === [S09] Native: send OTP code, switch UI to code entry ===
-      if (Capacitor.isNativePlatform()) {
-        const { error } = await supabase.auth.signInWithOtp({
-          email,
-          options: { shouldCreateUser: true },
-        });
-        if (error) throw error;
-        setOtpSentToEmail(email);
-        return;
-      }
-      // === [/S09] ===
       const pendingId = sessionStorage.getItem('pending_accept_friend');
       const pendingInvite = sessionStorage.getItem('pending_invite_token');
       const pendingOpenInvite = sessionStorage.getItem('pending_open_invite');
       const pendingShareToken = sessionStorage.getItem('pending_share_token');
       const pendingSaveShare = sessionStorage.getItem('pending_save_share');
-      // Web: magic link (still works — user stays in their browser)
-      const emailBase = 'https://recifriend.com/auth/callback';
+      // === [S09] Native uses recifriend:// custom scheme for magic link redirect.
+      // Flow: user taps email link in Mail → opens Safari → Safari GETs Supabase's
+      // /verify → Supabase 302s to `recifriend://auth/callback?token_hash=…` →
+      // Safari detects custom scheme → iOS opens ReciFriend app → app's
+      // appUrlOpen listener fires → verifyOtp. Universal Link approach doesn't
+      // work because Safari doesn't re-fire Universal Links mid-session.
+      const emailBase = Capacitor.isNativePlatform()
+        ? 'recifriend://auth/callback'
+        : 'https://recifriend.com/auth/callback';
+      // === [/S09] ===
       const emailRedirectTo = pendingId
         ? `${emailBase}?accept_friend=${encodeURIComponent(pendingId)}`
         : pendingInvite
