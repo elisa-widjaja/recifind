@@ -24,6 +24,10 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Visible privacy link so OAuth consent screen verifiers (Google etc.)
+         can confirm the home page links to the privacy policy. Subtle in the
+         corner, doesn't interfere with the app UI. -->
+    <a href="/privacy" style="position:fixed; bottom:4px; right:8px; font-size:10px; color:#999; text-decoration:none; z-index:9999; opacity:0.6;">Privacy</a>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
