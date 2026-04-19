@@ -1345,7 +1345,20 @@ function App() {
   // it directly here puts it in a temporal dead zone when the bundler hoists the
   // dispatcher. We populate the ref in a useEffect once the handler exists.
   const handleOpenRecipeDetailsRef = useRef(null);
-  const dispatchDeepLink = useCallback((urlString) => {
+  const dispatchDeepLink = useCallback(async (urlString) => {
+    // Magic link URLs (?token_hash=&type=magiclink) bypass the OAuth
+    // dispatcher because they need verifyOtp instead of exchangeCodeForSession.
+    try {
+      const parsed = new URL(urlString);
+      const tokenHash = parsed.searchParams.get('token_hash');
+      const otpType = parsed.searchParams.get('type');
+      if (tokenHash && otpType && supabase) {
+        await supabase.auth.verifyOtp({ token_hash: tokenHash, type: otpType });
+        try { await Browser.close(); } catch { /* ignore */ }
+        return;
+      }
+    } catch { /* not a parseable URL; fall through */ }
+
     const dispatch = createDispatcher({
       onAuthCallback: async (code) => {
         if (!supabase) return;
@@ -1911,20 +1924,20 @@ function App() {
       const pendingOpenInvite = sessionStorage.getItem('pending_open_invite');
       const pendingShareToken = sessionStorage.getItem('pending_share_token');
       const pendingSaveShare = sessionStorage.getItem('pending_save_share');
-      // Magic link must use the public HTTPS origin, not window.location.origin —
-      // inside Capacitor that's capacitor://localhost which the email app can't
-      // open. recifriend.com is a Universal Link on iOS (routes to app if
-      // installed) and a regular URL on desktop.
-      const emailOrigin = 'https://recifriend.com';
+      // Magic link redirects to /auth/callback — that path is in AASA so iOS
+      // fires Universal Link, opening the app if installed. On desktop the
+      // same URL loads in browser, where the token_hash handler on mount
+      // picks up the params.
+      const emailBase = 'https://recifriend.com/auth/callback';
       const emailRedirectTo = pendingId
-        ? `${emailOrigin}?accept_friend=${encodeURIComponent(pendingId)}`
+        ? `${emailBase}?accept_friend=${encodeURIComponent(pendingId)}`
         : pendingInvite
-          ? `${emailOrigin}?invite_token=${encodeURIComponent(pendingInvite)}`
+          ? `${emailBase}?invite_token=${encodeURIComponent(pendingInvite)}`
           : pendingOpenInvite
-            ? `${emailOrigin}?invite=${encodeURIComponent(pendingOpenInvite)}`
+            ? `${emailBase}?invite=${encodeURIComponent(pendingOpenInvite)}`
             : (pendingShareToken && pendingSaveShare)
-              ? `${emailOrigin}?share=${encodeURIComponent(pendingShareToken)}`
-              : emailOrigin;
+              ? `${emailBase}?share=${encodeURIComponent(pendingShareToken)}`
+              : emailBase;
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: { emailRedirectTo }
