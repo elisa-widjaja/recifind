@@ -103,6 +103,7 @@ import RecipeListCard from './components/RecipeListCard';
 import RecipesPage from './RecipesPage';
 // === [S04] Friend picker wiring ===
 import { FriendPicker } from './components/FriendPicker';
+import { ShareSheet } from './components/ShareSheet';
 import { shareRecipe } from './lib/shareRecipe';
 // === [/S04] ===
 // === [S09] Capacitor auth ===
@@ -1163,6 +1164,7 @@ function App() {
     anchorOrigin: { vertical: 'bottom', horizontal: 'center' }
   });
   const [shareMenuState, setShareMenuState] = useState(null); // { anchorEl, url, title }
+  const [shareSheetState, setShareSheetState] = useState(null); // { recipe, anchorEvent }
   const sentinelRef = useRef(null);
   const searchBarRef = useRef(null);
   const lastParseResultRef = useRef({ url: '', status: '' });
@@ -1341,10 +1343,15 @@ function App() {
   }, []);
 
   // === [S09] Capacitor auth — deep-link dispatcher (hoisted so Story 11 can reference it) ===
-  // Ref pattern: handleOpenRecipeDetails is defined later in the component. Referencing
-  // it directly here puts it in a temporal dead zone when the bundler hoists the
-  // dispatcher. We populate the ref in a useEffect once the handler exists.
+  // The dispatcher must be STABLE (same identity for the app's lifetime). Earlier
+  // versions recreated it on every `recipes` change, which caused the appUrlOpen
+  // listener to re-register and Capacitor to re-flush the retained launch URL —
+  // reopening the Add Recipe dialog after save/delete. Instead we read mutable
+  // state (recipes) via a ref so dispatchDeepLink never changes identity.
   const handleOpenRecipeDetailsRef = useRef(null);
+  const recipesRef = useRef(recipes);
+  useEffect(() => { recipesRef.current = recipes; }, [recipes]);
+
   const dispatchDeepLink = useCallback(async (urlString) => {
     // Magic link URLs (?token_hash=&type=magiclink) bypass the OAuth
     // dispatcher because they need verifyOtp instead of exchangeCodeForSession.
@@ -1377,27 +1384,40 @@ function App() {
         setCurrentView('friend-requests');
       },
       onRecipeDetail: (recipeId) => {
-        // Look up recipe by id and open details dialog via ref (handler defined later)
-        const recipe = recipes.find((r) => r.id === recipeId);
+        const recipe = recipesRef.current.find((r) => r.id === recipeId);
         if (recipe) handleOpenRecipeDetailsRef.current?.(recipe);
       },
     });
     return dispatch(urlString);
-  }, [recipes]);
+  }, []);
 
-  // Register appUrlOpen listener for deep links while app is running
+  // Register appUrlOpen listener exactly once. Never re-subscribe — every
+  // re-subscription flushes Capacitor's retained `appUrlOpen` event again
+  // (see @capacitor/app iOS: notifyListeners(..., retainUntilConsumed: true)).
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     let listenerHandle;
+    let cancelled = false;
     CapacitorApp.addListener('appUrlOpen', ({ url }) => {
       dispatchDeepLink(url);
-    }).then((handle) => { listenerHandle = handle; });
-    return () => { listenerHandle?.remove(); };
+    }).then((handle) => {
+      if (cancelled) { handle.remove(); return; }
+      listenerHandle = handle;
+    });
+    return () => {
+      cancelled = true;
+      listenerHandle?.remove();
+    };
   }, [dispatchDeepLink]);
 
-  // Handle cold-start deep link (app was killed, opened via link)
+  // Handle cold-start deep link (app was killed, opened via link).
+  // getLaunchUrl() persists across calls — guard with a ref so the URL
+  // fires at most once per app session.
+  const launchUrlDispatchedRef = useRef(false);
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
+    if (launchUrlDispatchedRef.current) return;
+    launchUrlDispatchedRef.current = true;
     (async () => {
       const launch = await CapacitorApp.getLaunchUrl();
       if (launch?.url) dispatchDeepLink(launch.url);
@@ -2899,6 +2919,7 @@ function App() {
       saveRecipesToCache(updated, userId, serverVersionRef.current);
       return updated;
     });
+    if (session) setCurrentView('recipes');
     setActiveRecipe(null);
     setActiveRecipeDraft(null);
     setIsDeleteConfirmOpen(false);
@@ -3899,7 +3920,31 @@ function App() {
     resetFormState(`Added "${newRecipe.title}".`);
   };
 
-  const handleShare = async (recipe, anchorPosition) => {
+  const openShareSheet = (recipe, event) => {
+    const anchorPosition = event?.currentTarget
+      ? { top: event.currentTarget.getBoundingClientRect().bottom, left: event.currentTarget.getBoundingClientRect().left }
+      : { top: window.innerHeight / 2, left: window.innerWidth / 2 };
+    if (!session) {
+      // Logged-out: skip chooser, go straight to native share with no auth required.
+      handleSharePublicRecipe(recipe, event);
+      return;
+    }
+    setShareSheetState({ recipe, anchorPosition });
+  };
+
+  const handleShareSheetPickFriends = () => {
+    const state = shareSheetState;
+    setShareSheetState(null);
+    if (state) triggerNativeShare(state.recipe, state.anchorPosition);
+  };
+
+  const handleShareSheetPickConnections = () => {
+    const state = shareSheetState;
+    setShareSheetState(null);
+    if (state?.recipe?.id) openSharePicker(state.recipe.id);
+  };
+
+  const triggerNativeShare = async (recipe, anchorPosition) => {
     try {
       const accessToken = (await supabase?.auth.getSession())?.data?.session?.access_token;
       if (!accessToken) {
@@ -4460,6 +4505,13 @@ function App() {
         onDismiss={handleOnboardingDismiss}
       />
 
+      <ShareSheet
+        open={Boolean(shareSheetState)}
+        onClose={() => setShareSheetState(null)}
+        onPickFriends={handleShareSheetPickFriends}
+        onPickConnections={handleShareSheetPickConnections}
+      />
+
       {/* === [S04] Friend picker wiring === */}
       <FriendPicker
         open={pickerOpen}
@@ -4485,7 +4537,7 @@ function App() {
           onOpenRecipe={handleOpenRecipeDetails}
           darkMode={darkMode}
           onCookWithFriendsVisible={setCookWithFriendsVisible}
-          onShare={handleSharePublicRecipe}
+          onShare={(recipe, event) => openShareSheet(recipe, event)}
         />
       )}
 
@@ -4516,7 +4568,7 @@ function App() {
                   dietaryPrefs={userProfile?.dietaryPrefs ?? null}
                   onOpenRecipe={handleOpenEditorPickRecipe}
                   onSaveRecipe={handleSavePublicRecipe}
-                  onShareRecipe={(recipe) => openSharePicker(recipe?.id) /* [S04] */}
+                  onShareRecipe={(recipe, event) => openShareSheet(recipe, event) /* [S04] */}
                   onInviteFriend={() => setIsFriendsDialogOpen(true)}
                   darkMode={darkMode}
                   onCookWithFriendsVisible={setCookWithFriendsVisible}
@@ -4544,7 +4596,7 @@ function App() {
                 searchBarRef={searchBarRef}
                 handleOpenRecipe={handleOpenRecipeDetails}
                 toggleFavorite={toggleFavorite}
-                handleShare={(recipe) => openSharePicker(recipe?.id) /* [S04] */}
+                handleShare={(recipe, event) => openShareSheet(recipe, event) /* [S04] */}
                 handleVideoThumbnailClick={handleVideoThumbnailClick}
                 onAddRecipe={openAddDialog}
                 addRecipeBtnRef={addRecipeBtnRef}
@@ -5617,7 +5669,7 @@ function App() {
                         setActiveRecipeDraft(null);
                       }}
                       onSave={() => handleSavePublicRecipe(recipe)}
-                      onShare={(r, e) => handleShare(r, e)}
+                      onShare={(r, e) => openShareSheet(r, e)}
                       cardSx={darkMode ? { backgroundColor: 'transparent' } : {}}
                     />
                   ))}
