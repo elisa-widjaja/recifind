@@ -1894,15 +1894,20 @@ function App() {
       const pendingOpenInvite = sessionStorage.getItem('pending_open_invite');
       const pendingShareToken = sessionStorage.getItem('pending_share_token');
       const pendingSaveShare = sessionStorage.getItem('pending_save_share');
+      // Magic link must use the public HTTPS origin, not window.location.origin —
+      // inside Capacitor that's capacitor://localhost which the email app can't
+      // open. recifriend.com is a Universal Link on iOS (routes to app if
+      // installed) and a regular URL on desktop.
+      const emailOrigin = 'https://recifriend.com';
       const emailRedirectTo = pendingId
-        ? `${window.location.origin}?accept_friend=${encodeURIComponent(pendingId)}`
+        ? `${emailOrigin}?accept_friend=${encodeURIComponent(pendingId)}`
         : pendingInvite
-          ? `${window.location.origin}?invite_token=${encodeURIComponent(pendingInvite)}`
+          ? `${emailOrigin}?invite_token=${encodeURIComponent(pendingInvite)}`
           : pendingOpenInvite
-            ? `${window.location.origin}?invite=${encodeURIComponent(pendingOpenInvite)}`
+            ? `${emailOrigin}?invite=${encodeURIComponent(pendingOpenInvite)}`
             : (pendingShareToken && pendingSaveShare)
-              ? `${window.location.origin}?share=${encodeURIComponent(pendingShareToken)}`
-              : window.location.origin;
+              ? `${emailOrigin}?share=${encodeURIComponent(pendingShareToken)}`
+              : emailOrigin;
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: { emailRedirectTo }
