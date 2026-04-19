@@ -3,7 +3,7 @@ name: tunnel
 description: Start a cloudflared tunnel to expose the local ReciFind dev server to the internet and get a public HTTPS URL for mobile testing. Use this skill whenever the user wants a tunnel URL, wants to test on their phone, wants a public URL for the local dev server, or mentions cloudflared, ngrok, or mobile preview.
 ---
 
-Start the Vite dev server (if not running) and spin up the named Cloudflare tunnel. The URL is always **https://dev-recifind.elisawidjaja.com** — no Supabase update needed.
+Start the Vite dev server (if not running) and spin up the named Cloudflare tunnel. The URL is always **https://dev.recifriend.com** (frontend) and **https://api-dev.recifriend.com** (worker) — both permanent, no Supabase update needed. The old `dev-recifind.elisawidjaja.com` / `api-dev-recifind.elisawidjaja.com` hostnames still work as aliases on the same tunnel.
 
 ## Steps
 
@@ -46,7 +46,8 @@ Start the Vite dev server (if not running) and spin up the named Cloudflare tunn
 
 6. **Report to the user**:
    - Local URL: `http://localhost:5173`
-   - Tunnel URL: `https://dev-recifind.elisawidjaja.com` (permanent — no Supabase update needed)
+   - Tunnel URL (frontend): `https://dev.recifriend.com` (permanent — no Supabase update needed)
+   - Tunnel URL (worker): `https://api-dev.recifriend.com`
 
 ---
 
