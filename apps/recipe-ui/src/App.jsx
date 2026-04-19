@@ -6180,9 +6180,7 @@ function App() {
             >
               <Stack spacing={2}>
                 <Typography variant="body2" color="text.secondary">
-                  {Capacitor.isNativePlatform()
-                    ? 'Enter your email and we\'ll send you a 6-digit code to sign in.'
-                    : 'Enter your email and we\'ll send you a magic link to sign in.'}
+                  Enter your email and we'll send you a magic link to sign in.
                 </Typography>
                 <TextField
                   label="Email"
@@ -6203,7 +6201,7 @@ function App() {
                   disabled={isAuthLoading}
                   startIcon={isAuthLoading ? <CircularProgress size={18} /> : null}
                 >
-                  {Capacitor.isNativePlatform() ? 'Send code' : 'Send Magic Link'}
+                  Send Magic Link
                 </Button>
               </Stack>
             </Box>
