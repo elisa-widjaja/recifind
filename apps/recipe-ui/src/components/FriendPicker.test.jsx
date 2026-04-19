@@ -53,4 +53,13 @@ describe('FriendPicker', () => {
     expect(screen.getByText(/you don't have friends yet/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /copy link/i })).toBeInTheDocument();
   });
+
+  it('shows a checkmark badge on the selected friend\'s avatar', () => {
+    render(<FriendPicker open friends={FRIENDS} onClose={() => {}} onSend={() => {}} />);
+    fireEvent.click(screen.getByText('Alice'));
+    const aliceRow = screen.getByText('Alice').closest('[data-testid="friend-row"]');
+    expect(aliceRow).toHaveAttribute('data-selected', 'true');
+    const bobRow = screen.getByText('Bob').closest('[data-testid="friend-row"]');
+    expect(bobRow).toHaveAttribute('data-selected', 'false');
+  });
 });

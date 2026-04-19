@@ -1,31 +1,81 @@
 import { useState, useEffect } from 'react';
 import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
+  Drawer,
+  Box,
   Button,
-  List,
-  ListItem,
-  ListItemButton,
-  Checkbox,
-  ListItemText,
+  Stack,
   Avatar,
-  ListItemAvatar,
   Alert,
   Typography,
+  IconButton,
 } from '@mui/material';
+import CheckIcon from '@mui/icons-material/Check';
+import CloseIcon from '@mui/icons-material/Close';
+
+function FriendRow({ friend, selected, onToggle }) {
+  return (
+    <Box
+      data-testid="friend-row"
+      data-selected={selected ? 'true' : 'false'}
+      onClick={() => onToggle(friend.id)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onToggle(friend.id);
+        }
+      }}
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1.5,
+        px: 2,
+        py: 1.5,
+        borderRadius: 2,
+        cursor: 'pointer',
+        bgcolor: selected ? 'action.selected' : 'transparent',
+        transition: 'background-color 120ms',
+        '&:hover': { bgcolor: selected ? 'action.selected' : 'action.hover' },
+      }}
+    >
+      <Box sx={{ position: 'relative' }}>
+        <Avatar src={friend.avatar_url ?? undefined}>
+          {(friend.display_name ?? '?').charAt(0)}
+        </Avatar>
+        {selected && (
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: -2,
+              right: -2,
+              width: 18,
+              height: 18,
+              borderRadius: '50%',
+              bgcolor: 'primary.main',
+              color: 'primary.contrastText',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              border: '2px solid',
+              borderColor: 'background.paper',
+            }}
+          >
+            <CheckIcon sx={{ fontSize: 12 }} />
+          </Box>
+        )}
+      </Box>
+      <Typography sx={{ flex: 1, fontWeight: 500 }}>
+        {friend.display_name ?? friend.id}
+      </Typography>
+    </Box>
+  );
+}
 
 export function FriendPicker({ open, friends, onClose, onSend }) {
   const [selected, setSelected] = useState(new Set());
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState(null); // { kind: 'success', count } | { kind: 'error', message }
-
-  const toggle = (id) => {
-    const next = new Set(selected);
-    next.has(id) ? next.delete(id) : next.add(id);
-    setSelected(next);
-  };
+  const [result, setResult] = useState(null);
 
   useEffect(() => {
     if (!open) {
@@ -34,6 +84,14 @@ export function FriendPicker({ open, friends, onClose, onSend }) {
       setResult(null);
     }
   }, [open]);
+
+  const toggle = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
 
   const handleSend = async () => {
     setResult(null);
@@ -55,69 +113,77 @@ export function FriendPicker({ open, friends, onClose, onSend }) {
     }
   };
 
-  const handleCopyLink = () => {
-    onClose('copy-link');
-  };
-
-  if (!open) return null;
+  const handleCopyLink = () => onClose('copy-link');
 
   return (
-    <Dialog open={open} onClose={() => onClose()} fullWidth maxWidth="xs">
-      <DialogTitle>Share this recipe</DialogTitle>
-      <DialogContent>
-        {friends.length === 0 ? (
-          <>
-            <Typography variant="body2">You don&apos;t have friends yet on ReciFriend.</Typography>
-            <Button onClick={handleCopyLink} sx={{ mt: 2 }}>
-              Copy link
-            </Button>
-          </>
-        ) : (
-          <List>
-            {friends.map((f) => (
-              <ListItem key={f.id} disablePadding>
-                <ListItemButton onClick={() => toggle(f.id)}>
-                  <Checkbox
-                    edge="start"
-                    checked={selected.has(f.id)}
-                    tabIndex={-1}
-                    disableRipple
-                  />
-                  <ListItemAvatar>
-                    <Avatar src={f.avatar_url ?? undefined}>
-                      {(f.display_name ?? '?').charAt(0)}
-                    </Avatar>
-                  </ListItemAvatar>
-                  <ListItemText primary={f.display_name ?? f.id} />
-                </ListItemButton>
-              </ListItem>
-            ))}
-          </List>
-        )}
-        {result?.kind === 'success' && (
-          <Alert severity="success" sx={{ mt: 2 }}>
-            Shared with {result.count} friend{result.count === 1 ? '' : 's'}
-          </Alert>
-        )}
-        {result?.kind === 'error' && (
-          <Alert severity="error" sx={{ mt: 2 }}>
-            {result.message}
-          </Alert>
-        )}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={() => onClose()}>Cancel</Button>
+    <Drawer
+      anchor="bottom"
+      open={open}
+      onClose={() => onClose()}
+      slotProps={{
+        paper: {
+          sx: {
+            borderTopLeftRadius: 16,
+            borderTopRightRadius: 16,
+            paddingBottom: 'env(safe-area-inset-bottom)',
+            maxHeight: '85vh',
+          },
+        },
+      }}
+    >
+      <Box sx={{ width: '100%', maxWidth: 600, mx: 'auto', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1.5 }}>
+          <Typography variant="h6">Share this recipe</Typography>
+          <IconButton onClick={() => onClose()} aria-label="close">
+            <CloseIcon />
+          </IconButton>
+        </Box>
+
+        <Box sx={{ overflowY: 'auto', px: 1, pb: 1 }}>
+          {friends.length === 0 ? (
+            <Box sx={{ px: 2, py: 3 }}>
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                You don&apos;t have friends yet on ReciFriend.
+              </Typography>
+              <Button onClick={handleCopyLink} variant="outlined">Copy link</Button>
+            </Box>
+          ) : (
+            <Stack spacing={0.5}>
+              {friends.map((f) => (
+                <FriendRow
+                  key={f.id}
+                  friend={f}
+                  selected={selected.has(f.id)}
+                  onToggle={toggle}
+                />
+              ))}
+            </Stack>
+          )}
+          {result?.kind === 'success' && (
+            <Alert severity="success" sx={{ mt: 2, mx: 1 }}>
+              Shared with {result.count} friend{result.count === 1 ? '' : 's'}
+            </Alert>
+          )}
+          {result?.kind === 'error' && (
+            <Alert severity="error" sx={{ mt: 2, mx: 1 }}>
+              {result.message}
+            </Alert>
+          )}
+        </Box>
+
         {friends.length > 0 && (
-          <Button onClick={handleCopyLink}>Copy link</Button>
+          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', px: 2, py: 1.5, borderTop: 1, borderColor: 'divider' }}>
+            <Button onClick={handleCopyLink}>Copy link</Button>
+            <Button
+              onClick={handleSend}
+              variant="contained"
+              disabled={busy || selected.size === 0}
+            >
+              Send
+            </Button>
+          </Box>
         )}
-        <Button
-          onClick={handleSend}
-          variant="contained"
-          disabled={busy || selected.size === 0 || friends.length === 0}
-        >
-          Send
-        </Button>
-      </DialogActions>
-    </Dialog>
+      </Box>
+    </Drawer>
   );
 }
