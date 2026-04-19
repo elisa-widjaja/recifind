@@ -1902,6 +1902,11 @@ function App() {
   };
   // === [/S09] ===
 
+  // === [S09] OTP state — mobile uses 6-digit code instead of magic link ===
+  const [otpSentToEmail, setOtpSentToEmail] = useState('');  // email that received a code; empty = input email
+  const [otpCode, setOtpCode] = useState('');
+  // === [/S09] ===
+
   const handleSendMagicLink = async (event) => {
     event.preventDefault();
     if (!supabase) {
@@ -1919,15 +1924,23 @@ function App() {
     setAuthError('');
 
     try {
+      // === [S09] Native: send OTP code, switch UI to code entry ===
+      if (Capacitor.isNativePlatform()) {
+        const { error } = await supabase.auth.signInWithOtp({
+          email,
+          options: { shouldCreateUser: true },
+        });
+        if (error) throw error;
+        setOtpSentToEmail(email);
+        return;
+      }
+      // === [/S09] ===
       const pendingId = sessionStorage.getItem('pending_accept_friend');
       const pendingInvite = sessionStorage.getItem('pending_invite_token');
       const pendingOpenInvite = sessionStorage.getItem('pending_open_invite');
       const pendingShareToken = sessionStorage.getItem('pending_share_token');
       const pendingSaveShare = sessionStorage.getItem('pending_save_share');
-      // Magic link redirects to /auth/callback — that path is in AASA so iOS
-      // fires Universal Link, opening the app if installed. On desktop the
-      // same URL loads in browser, where the token_hash handler on mount
-      // picks up the params.
+      // Web: magic link (still works — user stays in their browser)
       const emailBase = 'https://recifriend.com/auth/callback';
       const emailRedirectTo = pendingId
         ? `${emailBase}?accept_friend=${encodeURIComponent(pendingId)}`
@@ -1958,6 +1971,36 @@ function App() {
       setIsAuthLoading(false);
     }
   };
+
+  // === [S09] Verify the 6-digit OTP code (mobile only) ===
+  const handleVerifyOtpCode = async (event) => {
+    event.preventDefault();
+    if (!supabase) return;
+    const code = otpCode.trim();
+    if (code.length < 6) {
+      setAuthError('Enter the 6-digit code from your email.');
+      return;
+    }
+    setIsAuthLoading(true);
+    setAuthError('');
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email: otpSentToEmail,
+        token: code,
+        type: 'email',
+      });
+      if (error) throw error;
+      // onAuthStateChange will close the dialog + clear UI
+      setOtpSentToEmail('');
+      setOtpCode('');
+      setAuthEmail('');
+    } catch (error) {
+      setAuthError(error.message || 'Invalid or expired code.');
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+  // === [/S09] ===
 
   const handleLogout = async () => {
     if (!supabase) return;
@@ -6092,13 +6135,57 @@ function App() {
 
             <Divider sx={{ fontSize: '0.8rem', color: 'text.secondary' }}>or</Divider>
 
+            {/* === [S09] Native: show OTP code input after email sent === */}
+            {otpSentToEmail ? (
+              <Box component="form" onSubmit={handleVerifyOtpCode}>
+                <Stack spacing={2}>
+                  <Typography variant="body2" color="text.secondary">
+                    We sent a 6-digit code to <strong>{otpSentToEmail}</strong>. Enter it below.
+                  </Typography>
+                  <TextField
+                    label="6-digit code"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={otpCode}
+                    onChange={(e) => {
+                      setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6));
+                      setAuthError('');
+                    }}
+                    required
+                    fullWidth
+                    placeholder="123456"
+                    inputProps={{ maxLength: 6, pattern: '[0-9]*' }}
+                  />
+                  <Button
+                    type="submit"
+                    variant="contained"
+                    fullWidth
+                    disabled={isAuthLoading || otpCode.length < 6}
+                    startIcon={isAuthLoading ? <CircularProgress size={18} /> : null}
+                  >
+                    Verify code
+                  </Button>
+                  <Button
+                    size="small"
+                    onClick={() => { setOtpSentToEmail(''); setOtpCode(''); setAuthError(''); }}
+                    disabled={isAuthLoading}
+                    sx={{ textTransform: 'none' }}
+                  >
+                    Use a different email
+                  </Button>
+                </Stack>
+              </Box>
+            ) : (
             <Box
               component="form"
               onSubmit={handleSendMagicLink}
             >
               <Stack spacing={2}>
                 <Typography variant="body2" color="text.secondary">
-                  Enter your email and we'll send you a magic link to sign in.
+                  {Capacitor.isNativePlatform()
+                    ? 'Enter your email and we\'ll send you a 6-digit code to sign in.'
+                    : 'Enter your email and we\'ll send you a magic link to sign in.'}
                 </Typography>
                 <TextField
                   label="Email"
@@ -6119,10 +6206,12 @@ function App() {
                   disabled={isAuthLoading}
                   startIcon={isAuthLoading ? <CircularProgress size={18} /> : null}
                 >
-                  Send Magic Link
+                  {Capacitor.isNativePlatform() ? 'Send code' : 'Send Magic Link'}
                 </Button>
               </Stack>
             </Box>
+            )}
+            {/* === [/S09] === */}
           </Stack>
         </DialogContent>
         <DialogActions>
