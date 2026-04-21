@@ -106,4 +106,26 @@ describe('SuggestionsShelf', () => {
     fireEvent.click(screen.getByRole('button', { name: /dismiss/i }));
     expect(container.firstChild).toBeNull();
   });
+
+  it('fetches /friends/suggestions on mount with Authorization header and renders results', async () => {
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ suggestions: SUGGESTIONS }),
+    });
+    render(<SuggestionsShelf accessToken="tok" />);
+    await screen.findByText('Maya R.');
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/friends/suggestions'),
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer tok' }),
+      })
+    );
+  });
+
+  it('renders nothing when the fetch fails (non-ok response)', async () => {
+    global.fetch.mockResolvedValueOnce({ ok: false, status: 500, json: async () => null });
+    const { container } = render(<SuggestionsShelf accessToken="tok" />);
+    // Wait a tick for the effect + then-chain to settle
+    await waitFor(() => expect(container.firstChild).toBeNull());
+  });
 });

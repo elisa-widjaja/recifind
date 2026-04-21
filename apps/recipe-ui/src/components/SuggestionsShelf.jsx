@@ -111,6 +111,8 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
         {onOpenFriends && (
           <Typography
             component="button"
+            type="button"
+            aria-label="See all friend suggestions"
             onClick={onOpenFriends}
             sx={{
               background: 'none',
@@ -120,6 +122,12 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
               color: 'text.secondary',
               fontSize: 13,
               fontFamily: 'inherit',
+              '&:focus-visible': {
+                outline: '2px solid',
+                outlineColor: 'primary.main',
+                outlineOffset: 2,
+                borderRadius: 1,
+              },
             }}
           >
             See all
