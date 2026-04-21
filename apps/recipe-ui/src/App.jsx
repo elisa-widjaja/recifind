@@ -4596,6 +4596,8 @@ function App() {
                   onShareRecipe={(recipe, event) => openShareSheet(recipe, event) /* [S04] */}
                   onInviteFriend={() => setIsFriendsDialogOpen(true)}
                   onOpenFriends={() => setIsFriendsDialogOpen(true)}
+                  onAcceptFriendRequest={acceptFriendRequest}
+                  onDeclineFriendRequest={declineFriendRequest}
                   darkMode={darkMode}
                   onCookWithFriendsVisible={setCookWithFriendsVisible}
                 />

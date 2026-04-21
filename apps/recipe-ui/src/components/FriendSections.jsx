@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Box, Typography, Stack, Button } from '@mui/material';
+import { Box, Typography, Stack, Button, ButtonBase } from '@mui/material';
 import RecipeShelf from './RecipeShelf';
 import RecipeListCard from './RecipeListCard';
 import TrendingHealthCarousel from './TrendingHealthCarouselB';
@@ -32,8 +32,10 @@ function timeAgo(iso) {
  *   onOpenRecipe: (recipe) => void
  *   onSaveRecipe: (recipe) => void
  *   onOpenFriends?: () => void — opens the friends management drawer (threaded into "See all" on the suggestions shelf)
+ *   onAcceptFriendRequest?: (fromUserId) => Promise<void> — called when user taps Accept on a friend_request activity item
+ *   onDeclineFriendRequest?: (fromUserId) => Promise<void> — called when user taps Decline on a friend_request activity item
  */
-export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, dietaryPrefs, onOpenRecipe, onSaveRecipe, onShareRecipe, onInviteFriend, onOpenFriends, darkMode, onCookWithFriendsVisible }) {
+export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, dietaryPrefs, onOpenRecipe, onSaveRecipe, onShareRecipe, onInviteFriend, onOpenFriends, onAcceptFriendRequest, onDeclineFriendRequest, darkMode, onCookWithFriendsVisible }) {
   const [activity, setActivity] = useState([]);
   const [recentlySaved, setRecentlySaved] = useState([]);
   const [recentlyShared, setRecentlyShared] = useState([]);
@@ -111,7 +113,13 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
           }}>
             {activity.slice(0, activityExpanded ? 5 : 2).map((item, index, arr) => (
               <Box key={item.id}>
-                <ActivityItem item={item} onOpenRecipe={onOpenRecipe} />
+                <ActivityItem
+                  item={item}
+                  onOpenRecipe={onOpenRecipe}
+                  onAcceptFriendRequest={onAcceptFriendRequest}
+                  onDeclineFriendRequest={onDeclineFriendRequest}
+                  onResolveRequest={(id) => setActivity((prev) => prev.filter((a) => a.id !== id))}
+                />
                 {index < arr.length - 1 && (
                   <Box sx={{ height: '1px', bgcolor: 'divider', mx: 1.5 }} />
                 )}
@@ -318,14 +326,119 @@ const VERB_MAP = {
 // Notification types that carry a recipe — show structured sentence + thumbnail
 const RECIPE_TYPES = new Set(['friend_cooked_recipe', 'friend_saved_recipe', 'friend_shared_recipe']);
 
-function ActivityItem({ item, onOpenRecipe }) {
+export function ActivityItem({ item, onOpenRecipe, onAcceptFriendRequest, onDeclineFriendRequest, onResolveRequest }) {
   const friendName = item.friendName ?? '?';
   const color = AVATAR_COLORS[Math.abs(item.id) % AVATAR_COLORS.length];
   const initial = friendName.charAt(0).toUpperCase();
   const isRecipeNotif = RECIPE_TYPES.has(item.type) && item.recipe;
+  const isFriendRequest = item.type === 'friend_request' && typeof item.fromUserId === 'string' && item.fromUserId.length > 0;
+  const [busy, setBusy] = useState(false);
+
+  async function handleAccept(e) {
+    e.stopPropagation();
+    if (busy || !onAcceptFriendRequest) return;
+    setBusy(true);
+    try {
+      await onAcceptFriendRequest(item.fromUserId);
+      onResolveRequest?.(item.id);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDecline(e) {
+    e.stopPropagation();
+    if (busy || !onDeclineFriendRequest) return;
+    setBusy(true);
+    try {
+      await onDeclineFriendRequest(item.fromUserId);
+      onResolveRequest?.(item.id);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function handleClick() {
     if (isRecipeNotif) onOpenRecipe?.(item.recipe);
+  }
+
+  // Friend request layout: message + Accept/Decline buttons
+  if (isFriendRequest) {
+    return (
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '10px',
+          px: 1.25,
+          py: '10px',
+        }}
+      >
+        {/* Avatar */}
+        <Box sx={{
+          width: 32, height: 32, borderRadius: '50%', bgcolor: color,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, mt: '2px',
+        }}>
+          <Typography sx={{ color: '#fff', fontSize: 13, fontWeight: 700, lineHeight: 1 }}>{initial}</Typography>
+        </Box>
+
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography sx={{
+            fontSize: 12, lineHeight: 1.4, color: 'text.secondary',
+            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+          }}>
+            {item.message}
+          </Typography>
+
+          <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+            <ButtonBase
+              onClick={handleAccept}
+              disabled={busy}
+              aria-label="Accept friend request"
+              sx={{
+                borderRadius: '999px',
+                py: '6px',
+                px: '16px',
+                fontSize: 12,
+                fontWeight: 700,
+                bgcolor: '#10b981',
+                color: '#fff',
+                opacity: busy ? 0.6 : 1,
+                '&:hover': { bgcolor: '#059669' },
+                '&.Mui-disabled': { bgcolor: '#10b981', color: '#fff', opacity: 0.6 },
+              }}
+            >
+              Accept
+            </ButtonBase>
+            <ButtonBase
+              onClick={handleDecline}
+              disabled={busy}
+              aria-label="Decline friend request"
+              sx={{
+                borderRadius: '999px',
+                py: '6px',
+                px: '16px',
+                fontSize: 12,
+                fontWeight: 700,
+                bgcolor: 'transparent',
+                color: 'text.secondary',
+                border: '1px solid #ccc',
+                opacity: busy ? 0.6 : 1,
+                '&:hover': { bgcolor: 'action.hover' },
+                '&.Mui-disabled': { opacity: 0.6 },
+              }}
+            >
+              Decline
+            </ButtonBase>
+          </Box>
+        </Box>
+
+        {/* Timestamp */}
+        <Typography sx={{ fontSize: 10, color: 'text.disabled', flexShrink: 0, mt: '4px' }}>
+          {timeAgo(item.createdAt)}
+        </Typography>
+      </Box>
+    );
   }
 
   return (
