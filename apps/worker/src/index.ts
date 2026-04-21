@@ -1040,6 +1040,9 @@ async function handleRecipeCount(request: Request, env: Env, user: Authenticated
 async function handleGetProfile(env: Env, user: AuthenticatedUser) {
   const profile = await getOrCreateProfile(env, user.userId, user.email);
   const meta = await getCollectionMeta(env, user.userId);
+  const onboardingRow = await env.DB.prepare(
+    'SELECT onboarding_seen FROM profiles WHERE user_id = ?'
+  ).bind(user.userId).first<{ onboarding_seen: number | null }>();
   return json({
     displayName: profile.displayName,
     email: profile.email,
@@ -1048,11 +1051,12 @@ async function handleGetProfile(env: Env, user: AuthenticatedUser) {
     cookingFor: profile.cookingFor,
     cuisinePrefs: profile.cuisinePrefs,
     dietaryPrefs: profile.dietaryPrefs,
+    onboardingSeen: Boolean(onboardingRow?.onboarding_seen),
   });
 }
 
 async function handleUpdateProfile(request: Request, env: Env, user: AuthenticatedUser) {
-  const body = await request.json() as { displayName?: string; mealTypePrefs?: string[]; dietaryPrefs?: string[]; skillLevel?: string; cookingFor?: string; cuisinePrefs?: string[] };
+  const body = await request.json() as { displayName?: string; mealTypePrefs?: string[]; dietaryPrefs?: string[]; skillLevel?: string; cookingFor?: string; cuisinePrefs?: string[]; onboardingSeen?: boolean };
 
   // Prepare optional fields
   const mealTypePrefs = typeof body.mealTypePrefs !== 'undefined' ? JSON.stringify(body.mealTypePrefs) : undefined;
@@ -1102,6 +1106,10 @@ async function handleUpdateProfile(request: Request, env: Env, user: Authenticat
     fields.push('cuisine_prefs = ?');
     values.push(JSON.stringify(body.cuisinePrefs));
   }
+  if (body.onboardingSeen !== undefined) {
+    fields.push('onboarding_seen = ?');
+    values.push(body.onboardingSeen ? 1 : 0);
+  }
 
   if (fields.length === 0) {
     throw new HttpError(400, 'At least one field must be provided for update');
@@ -1118,6 +1126,7 @@ async function handleUpdateProfile(request: Request, env: Env, user: Authenticat
   if (skillLevel !== undefined) response.skillLevel = body.skillLevel;
   if (body.cookingFor !== undefined) response.cookingFor = body.cookingFor;
   if (body.cuisinePrefs !== undefined) response.cuisinePrefs = body.cuisinePrefs;
+  if (body.onboardingSeen !== undefined) response.onboardingSeen = Boolean(body.onboardingSeen);
 
   return json(response);
 }

@@ -1458,14 +1458,22 @@ function App() {
   }, [accessToken]); // eslint-disable-line react-hooks/exhaustive-deps
   // === [/S11] ===
 
-  // Show welcome modal once after first sign-in
+  // Show welcome modal once after first sign-in.
+  // Source of truth is the server (profiles.onboarding_seen) — localStorage
+  // is a per-device cache so we don't flash the modal on every subsequent
+  // load. iOS app reinstalls wipe localStorage but the server flag persists.
   useEffect(() => {
     if (!isAuthChecked || !session) return;
     if (new URLSearchParams(window.location.search).get('reset_onboarding') === '1') {
       localStorage.removeItem('onboarding_seen');
     }
-    const onboardingSeen = localStorage.getItem('onboarding_seen');
-    if (onboardingSeen) return;
+    if (localStorage.getItem('onboarding_seen')) return;
+    // Wait for profile to load before deciding — server flag wins over cold cache
+    if (!userProfile) return;
+    if (userProfile.onboardingSeen) {
+      localStorage.setItem('onboarding_seen', '1');
+      return;
+    }
 
     // Fetch welcome recipes: editors-pick as fallback
     fetch(`${API_BASE_URL}/public/editors-pick`)
@@ -1474,7 +1482,7 @@ function App() {
       .catch(() => {});
 
     setWelcomeOpen(true);
-  }, [isAuthChecked, session]);
+  }, [isAuthChecked, session, userProfile]);
 
   // ── Profile API functions ─────────────────────────────────────────
 
@@ -1724,6 +1732,20 @@ function App() {
   };
 
 
+  // Mark onboarding seen — cache locally AND persist to server so it survives
+  // iOS app reinstalls (which wipe the WKWebView localStorage).
+  const markOnboardingSeen = async () => {
+    localStorage.setItem('onboarding_seen', '1');
+    if (!accessToken) return;
+    try {
+      await callRecipesApi('/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({ onboardingSeen: true })
+      }, accessToken);
+      setUserProfile(prev => prev ? { ...prev, onboardingSeen: true } : prev);
+    } catch (_) { /* non-fatal — localStorage still carries us through the session */ }
+  };
+
   const handleWelcomeDismiss = () => {
     setWelcomeOpen(false);
     const onboardingSeen = localStorage.getItem('onboarding_seen');
@@ -1734,12 +1756,12 @@ function App() {
 
   const handleWelcomeSkip = () => {
     setWelcomeOpen(false);
-    localStorage.setItem('onboarding_seen', '1');
+    markOnboardingSeen();
   };
 
   const handleOnboardingComplete = async (prefs) => {
     setOnboardingOpen(false);
-    localStorage.setItem('onboarding_seen', '1');
+    await markOnboardingSeen();
     setIsFirstRecipe(true);
     openAddDialog();
     if (accessToken && (prefs.dietaryPrefs?.length || prefs.cookingFor || prefs.cuisinePrefs?.length)) {
@@ -1754,7 +1776,7 @@ function App() {
 
   const handleOnboardingSkip = () => {
     setOnboardingOpen(false);
-    localStorage.setItem('onboarding_seen', '1');
+    markOnboardingSeen();
     setIsFirstRecipe(true);
     openAddDialog();
   };
