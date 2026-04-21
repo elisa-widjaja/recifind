@@ -1620,7 +1620,7 @@ export async function getFriendsRecentlySaved(db: D1Database, userId: string): P
       items.push({
         friendName: String(friend.friend_name),
         friendId: String(friend.friend_id),
-        recipe: { id: String(r.id), title: String(r.title), sourceUrl: r.source_url ? String(r.source_url) : null, imageUrl: r.image_url ? String(r.image_url) : null, mealTypes: JSON.parse(String(r.meal_types || '[]')), durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null, createdAt: String(r.created_at), ingredients: JSON.parse(String(r.ingredients || '[]')), steps: JSON.parse(String(r.steps || '[]')) }
+        recipe: { id: String(r.id), userId: String(friend.friend_id), title: String(r.title), sourceUrl: r.source_url ? String(r.source_url) : null, imageUrl: r.image_url ? String(r.image_url) : null, mealTypes: JSON.parse(String(r.meal_types || '[]')), durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null, createdAt: String(r.created_at), ingredients: JSON.parse(String(r.ingredients || '[]')), steps: JSON.parse(String(r.steps || '[]')) }
       });
     }
   }
@@ -1648,6 +1648,7 @@ export async function getFriendsRecentlyShared(db: D1Database, userId: string): 
     friendId: String(r.sharer_id),
     recipe: {
       id: String(r.id),
+      userId: String(r.user_id),
       title: String(r.title),
       sourceUrl: r.source_url ? String(r.source_url) : null,
       imageUrl: r.image_url ? String(r.image_url) : null,
@@ -2015,18 +2016,24 @@ export async function resolveEmailFromUserId(db: D1Database, userId: string): Pr
   return row?.email ?? null;
 }
 
-export async function handleFriendSuggestions(db: D1Database, userId: string): Promise<{ suggestions: Array<{ userId: string; name: string; reason: string }> }> {
-  // --- FOF pass ---
+export async function handleFriendSuggestions(
+  db: D1Database,
+  userId: string
+): Promise<{
+  suggestions: Array<
+    | { userId: string; name: string; kind: 'fof'; mutualCount: number }
+    | { userId: string; name: string; kind: 'pref'; sharedPref: string }
+  >;
+}> {
+  // --- FOF pass (no GROUP_CONCAT, no name leak) ---
   const fofRows = await db.prepare(`
     SELECT
-      f2.friend_id                         AS userId,
-      p.display_name                       AS name,
-      COUNT(DISTINCT f1.friend_id)         AS mutualCount,
-      GROUP_CONCAT(mp.display_name, '||')  AS mutualNames
+      f2.friend_id                  AS userId,
+      p.display_name                AS name,
+      COUNT(DISTINCT f1.friend_id)  AS mutualCount
     FROM friends f1
-    JOIN friends f2  ON f2.user_id = f1.friend_id
-    JOIN profiles p  ON p.user_id  = f2.friend_id
-    JOIN profiles mp ON mp.user_id = f1.friend_id
+    JOIN friends f2 ON f2.user_id = f1.friend_id
+    JOIN profiles p ON p.user_id = f2.friend_id
     WHERE f1.user_id = ?
       AND f2.friend_id != ?
       AND f2.friend_id NOT IN (SELECT friend_id FROM friends WHERE user_id = ?)
@@ -2034,17 +2041,14 @@ export async function handleFriendSuggestions(db: D1Database, userId: string): P
     GROUP BY f2.friend_id
     ORDER BY mutualCount DESC
     LIMIT 10
-  `).bind(userId, userId, userId, userId).all<{ userId: string; name: string; mutualCount: number; mutualNames: string }>();
+  `).bind(userId, userId, userId, userId).all<{ userId: string; name: string; mutualCount: number }>();
 
-  const fofSuggestions = (fofRows.results || []).map(row => {
-    const names = row.mutualNames ? row.mutualNames.split('||') : [];
-    const reason = names.length === 0
-      ? 'Someone you may know'
-      : names.length === 1
-        ? `Friend of ${names[0]}`
-        : `Friend of ${names[0]} and ${names[1]}`;
-    return { userId: row.userId, name: row.name, reason };
-  });
+  const fofSuggestions = (fofRows.results || []).map(row => ({
+    userId: row.userId,
+    name: row.name,
+    kind: 'fof' as const,
+    mutualCount: row.mutualCount,
+  }));
 
   if (fofSuggestions.length >= 5) {
     return { suggestions: fofSuggestions };
@@ -2065,7 +2069,6 @@ export async function handleFriendSuggestions(db: D1Database, userId: string): P
   }
 
   const remaining = 10 - fofSuggestions.length;
-  // Build LIKE clauses for each pref — D1 stores prefs as JSON strings e.g. '["Vegetarian","Gluten-free"]'
   const likeClauses = allMyPrefs.map(() => `(p.dietary_prefs LIKE ? OR p.meal_type_prefs LIKE ?)`).join(' OR ');
   const likeBinds = allMyPrefs.flatMap(pref => [`%${pref}%`, `%${pref}%`]);
 
@@ -2078,7 +2081,12 @@ export async function handleFriendSuggestions(db: D1Database, userId: string): P
       AND (${likeClauses})
     ORDER BY p.display_name ASC
     LIMIT ?
-  `).bind(userId, userId, userId, ...likeBinds, remaining).all<{ userId: string; name: string; dietary_prefs: string | null; meal_type_prefs: string | null }>();
+  `).bind(userId, userId, userId, ...likeBinds, remaining).all<{
+    userId: string;
+    name: string;
+    dietary_prefs: string | null;
+    meal_type_prefs: string | null;
+  }>();
 
   const prefSuggestions = (prefRows.results || [])
     .filter(row => !alreadySuggested.has(row.userId))
@@ -2088,7 +2096,12 @@ export async function handleFriendSuggestions(db: D1Database, userId: string): P
         ...(row.meal_type_prefs ? JSON.parse(row.meal_type_prefs) : []),
       ];
       const sharedPref = allMyPrefs.find(p => theirPrefs.includes(p)) || theirPrefs[0] || 'cooking';
-      return { userId: row.userId, name: row.name, reason: `Likes ${sharedPref}` };
+      return {
+        userId: row.userId,
+        name: row.name,
+        kind: 'pref' as const,
+        sharedPref,
+      };
     });
 
   return { suggestions: [...fofSuggestions, ...prefSuggestions] };
@@ -2601,7 +2614,7 @@ async function handleGetFriendRecipes(request: Request, env: Env, user: Authenti
   if (notModified) return notModified;
 
   const result = await env.DB.prepare(
-    'SELECT * FROM recipes WHERE user_id = ? AND shared_with_friends = 1'
+    'SELECT * FROM recipes WHERE user_id = ? AND shared_with_friends = 1 ORDER BY created_at DESC'
   ).bind(friendId).all();
 
   const sharedRecipes = (result.results || []).map((row) => {
