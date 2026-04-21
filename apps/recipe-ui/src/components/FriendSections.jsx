@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Box, Typography, Stack, Button, Dialog, DialogContent } from '@mui/material';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import RecipeShelf from './RecipeShelf';
 import RecipeListCard from './RecipeListCard';
 import TrendingHealthCarousel from './TrendingHealthCarouselB';
@@ -511,7 +511,7 @@ export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest }) {
       {/* Resolved friend-request checkmark — shown instead of leaving the
           row tappable once the pending request is gone on the server. */}
       {isResolvedFriendRequest && (
-        <CheckCircleIcon
+        <CheckCircleOutlineIcon
           aria-label="Friend request accepted"
           sx={{ fontSize: 18, color: '#10b981', flexShrink: 0 }}
         />
