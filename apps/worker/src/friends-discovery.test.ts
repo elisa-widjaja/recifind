@@ -22,6 +22,7 @@ describe('getFriendActivity', () => {
     const mockDb = {
       prepare: vi.fn()
         .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: notificationRows }) })
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [] }) }) // pending_requests (empty — no pending, so non-friend_request unaffected)
         .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: recipeRows }) }),
     } as unknown as D1Database;
 
@@ -52,6 +53,7 @@ describe('getFriendActivity', () => {
     const mockDb = {
       prepare: vi.fn()
         .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: notificationRows }) })
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [] }) }) // pending_requests
         .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: recipeRows }) }),
     } as unknown as D1Database;
 
@@ -71,18 +73,19 @@ describe('getFriendActivity', () => {
       },
     ];
 
-    // Only one prepare call happens here: the implementation skips the batch recipe
-    // fetch entirely when recipeIds is empty. A second mockReturnValueOnce is intentionally
-    // absent to guard against a regression where the implementation fires a second query anyway.
+    // Two prepare calls happen: notifications (1) and pending-requests (2).
+    // The implementation skips the batch recipe fetch when recipeIds is empty,
+    // so no third query fires. A missing third mock would surface a regression.
     const mockDb = {
       prepare: vi.fn()
-        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: notificationRows }) }),
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: notificationRows }) })
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [{ from_user_id: 'user-3' }] }) }),
     } as unknown as D1Database;
 
     const result = await getFriendActivity(mockDb, 'user-123');
     expect(result[0].recipe).toBeNull();
     expect(result[0].friendName).toBe('Jules'); // fallback: message.split(' ')[0]
-    expect(mockDb.prepare).toHaveBeenCalledTimes(1); // confirms no spurious second query
+    expect(mockDb.prepare).toHaveBeenCalledTimes(2); // notifications + pending_requests, no spurious recipe batch
   });
 
   it('surfaces fromUserId on friend_request notifications', async () => {
@@ -99,13 +102,37 @@ describe('getFriendActivity', () => {
 
     const mockDb = {
       prepare: vi.fn()
-        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: notificationRows }) }),
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: notificationRows }) })
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [{ from_user_id: 'user-jules' }] }) }), // still pending
     } as unknown as D1Database;
 
     const result = await getFriendActivity(mockDb, 'user-123');
     expect(result).toHaveLength(1);
     expect(result[0].fromUserId).toBe('user-jules');
     expect(result[0].type).toBe('friend_request');
+    expect(result[0].resolved).toBe(false);
+  });
+
+  it('marks friend_request items as resolved when no pending request row remains', async () => {
+    const notificationRows = [
+      {
+        id: 6,
+        type: 'friend_request',
+        message: 'Jules sent you a friend request',
+        data: JSON.stringify({ fromUserId: 'user-jules' }),
+        created_at: '2026-03-09T08:00:00Z',
+        read: 0,
+      },
+    ];
+
+    const mockDb = {
+      prepare: vi.fn()
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: notificationRows }) })
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [] }) }), // pending list is empty — request was accepted/declined
+    } as unknown as D1Database;
+
+    const result = await getFriendActivity(mockDb, 'user-123');
+    expect(result[0].resolved).toBe(true);
   });
 
   it('omits fromUserId when notification data blob does not have it', async () => {
@@ -122,11 +149,13 @@ describe('getFriendActivity', () => {
 
     const mockDb = {
       prepare: vi.fn()
-        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: notificationRows }) }),
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: notificationRows }) })
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [] }) }),
     } as unknown as D1Database;
 
     const result = await getFriendActivity(mockDb, 'user-123');
     expect(result[0].fromUserId).toBeUndefined();
+    expect(result[0].resolved).toBeUndefined(); // only set for friend_request type
   });
 });
 

@@ -1566,6 +1566,7 @@ export async function getFriendActivity(
   message: string;
   friendName: string | null;
   fromUserId?: string;
+  resolved?: boolean;
   recipe: { id: string; title: string; imageUrl: string | null; sourceUrl: string; ingredients: string[]; steps: string[] } | null;
   createdAt: string;
   read: boolean;
@@ -1582,6 +1583,16 @@ export async function getFriendActivity(
     createdAt: String(r.created_at),
     read: Boolean(r.read),
   }));
+
+  // Friend_request notifications are "resolved" once the pending row is gone
+  // (either accepted or declined). One query fetches all still-pending senders
+  // for this recipient, then we check each notification against the set.
+  const pendingRows = await db.prepare(
+    `SELECT from_user_id FROM friend_requests WHERE to_user_id = ? AND status = 'pending'`
+  ).bind(userId).all<{ from_user_id: string }>();
+  const pendingFromUserIds = new Set(
+    (pendingRows.results || []).map(r => String(r.from_user_id))
+  );
 
   // Collect unique recipeIds for batch fetch — bounded to ≤10 by the LIMIT 10 in the notifications query above
   const recipeIds = [...new Set(
@@ -1615,12 +1626,16 @@ export async function getFriendActivity(
     const friendName: string | null =
       (d.friendName as string | undefined) ?? item.message.split(' ')[0] ?? null;
     const fromUserId = typeof d.fromUserId === 'string' ? d.fromUserId : undefined;
+    const resolved = item.type === 'friend_request' && fromUserId
+      ? !pendingFromUserIds.has(fromUserId)
+      : undefined;
     return {
       id: item.id,
       type: item.type,
       message: item.message,
       friendName,
       ...(fromUserId ? { fromUserId } : {}),
+      ...(resolved !== undefined ? { resolved } : {}),
       recipe: recipeId ? (recipeMap.get(recipeId) ?? null) : null,
       createdAt: item.createdAt,
       read: item.read,

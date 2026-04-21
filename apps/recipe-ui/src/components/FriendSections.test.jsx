@@ -65,4 +65,22 @@ describe('ActivityItem — friend_request', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
     expect(screen.getByText('Jules sent you a friend request')).toBeInTheDocument();
   });
+
+  it('shows a checkmark (not a button) when the request is resolved', () => {
+    const resolvedItem = { ...FRIEND_REQUEST_ITEM, resolved: true };
+    const onOpen = vi.fn();
+    render(
+      <ActivityItem
+        item={resolvedItem}
+        onOpenFriendRequest={onOpen}
+      />
+    );
+    // Not clickable — no button role, no tap handler
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    // Checkmark icon present (via aria-label)
+    expect(screen.getByLabelText('Friend request accepted')).toBeInTheDocument();
+    // Clicking the row (if user tries to) must NOT fire onOpenFriendRequest
+    fireEvent.click(screen.getByText('Jules sent you a friend request'));
+    expect(onOpen).not.toHaveBeenCalled();
+  });
 });

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Box, Typography, Stack, Button, Dialog, DialogContent } from '@mui/material';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import RecipeShelf from './RecipeShelf';
 import RecipeListCard from './RecipeListCard';
 import TrendingHealthCarousel from './TrendingHealthCarouselB';
@@ -52,7 +53,11 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
     setRequestDialogBusy(true);
     try {
       await onAcceptFriendRequest?.(requestDialogItem.fromUserId);
-      setActivity((prev) => prev.filter((a) => a.id !== requestDialogItem.id));
+      // Accepted — keep the row visible but flag it resolved so it renders
+      // with a checkmark and can't be tapped again.
+      setActivity((prev) => prev.map((a) =>
+        a.id === requestDialogItem.id ? { ...a, resolved: true } : a
+      ));
       setRequestDialogItem(null);
     } finally {
       setRequestDialogBusy(false);
@@ -64,6 +69,7 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
     setRequestDialogBusy(true);
     try {
       await onDeclineFriendRequest?.(requestDialogItem.fromUserId);
+      // Declined — remove the row entirely.
       setActivity((prev) => prev.filter((a) => a.id !== requestDialogItem.id));
       setRequestDialogItem(null);
     } finally {
@@ -434,7 +440,15 @@ export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest }) {
   const color = AVATAR_COLORS[Math.abs(item.id) % AVATAR_COLORS.length];
   const initial = friendName.charAt(0).toUpperCase();
   const isRecipeNotif = RECIPE_TYPES.has(item.type) && item.recipe;
-  const isFriendRequest = item.type === 'friend_request' && typeof item.fromUserId === 'string' && item.fromUserId.length > 0;
+  // friend_request items are "resolved" once the pending row is gone on the
+  // server (accepted via email or via this UI, or declined). Resolved items
+  // render with a checkmark and are not tappable.
+  const isFriendRequest =
+    item.type === 'friend_request' &&
+    typeof item.fromUserId === 'string' &&
+    item.fromUserId.length > 0 &&
+    !item.resolved;
+  const isResolvedFriendRequest = item.type === 'friend_request' && item.resolved;
   const isClickable = isRecipeNotif || isFriendRequest;
 
   function handleClick() {
@@ -492,6 +506,15 @@ export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest }) {
         }}>
           {item.message}
         </Typography>
+      )}
+
+      {/* Resolved friend-request checkmark — shown instead of leaving the
+          row tappable once the pending request is gone on the server. */}
+      {isResolvedFriendRequest && (
+        <CheckCircleIcon
+          aria-label="Friend request accepted"
+          sx={{ fontSize: 18, color: '#10b981', flexShrink: 0 }}
+        />
       )}
 
       {/* Timestamp */}
