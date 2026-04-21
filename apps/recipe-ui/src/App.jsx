@@ -122,6 +122,10 @@ import recipesFromPdfData from '../recipes_from_pdf.json';
 
 const API_BASE_URL = (import.meta.env.VITE_RECIPES_API_BASE_URL || '').replace(/\/$/, '');
 const DEV_API_TOKEN = import.meta.env.VITE_RECIPES_API_TOKEN || '';
+// Outbound share URLs always point at the production site so iMessage/Twitter/etc.
+// hit the Pages Functions OG-tag middleware and render rich link previews —
+// the dev tunnel only runs Vite (no middleware), so previews fail there.
+const SHARE_PUBLIC_URL = 'https://recifriend.com';
 
 // Log version on load to bust cache
 console.log('ReciFriend v2024.12.02.1');
@@ -1426,6 +1430,9 @@ function App() {
   // === [/S09] ===
 
   // === [S11] Push client ===
+  // Soft-prompt-first: friendly snackbar after a meaningful action. Only users
+  // who accept the soft prompt see the unrecoverable iOS native permission
+  // dialog. Users who dismiss the soft prompt can be re-asked later.
   const [softPromptOpen, setSoftPromptOpen] = useState(false);
   const [softPromptContext, setSoftPromptContext] = useState(null);
 
@@ -1450,7 +1457,11 @@ function App() {
     await ensureRegistered({ api: pushApi, jwt: accessToken });
   }
 
-  // Wire notification taps to the same dispatcher as deep links
+  // Wire notification taps; silently re-register on sign-in if permission was
+  // already granted in a prior session. On a fresh install (never prompted),
+  // DO NOT call ensureRegistered — it would fire the native iOS prompt
+  // immediately, bypassing our soft prompt. We defer registration until the
+  // user accepts the soft prompt in a contextual moment.
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     let sub;
@@ -1458,8 +1469,9 @@ function App() {
       sub = await onNotificationTap((deepLinkUrl) => {
         dispatchDeepLink(deepLinkUrl);
       });
-      // If already granted (e.g., from a previous session), re-register silently
-      await ensureRegistered({ api: pushApi, jwt: accessToken });
+      if (await hasPromptedForPermission()) {
+        await ensureRegistered({ api: pushApi, jwt: accessToken });
+      }
     })();
     return () => { sub?.remove(); };
   }, [accessToken]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1637,8 +1649,8 @@ function App() {
       ? { top: event.currentTarget.getBoundingClientRect().bottom, left: event.currentTarget.getBoundingClientRect().left }
       : { top: window.innerHeight / 2, left: window.innerWidth / 2 };
     const url = recipe.id && recipe.userId
-      ? `${window.location.origin}?recipe=${encodeURIComponent(recipe.id)}&user=${encodeURIComponent(recipe.userId)}`
-      : window.location.origin;
+      ? `${SHARE_PUBLIC_URL}?recipe=${encodeURIComponent(recipe.id)}&user=${encodeURIComponent(recipe.userId)}`
+      : SHARE_PUBLIC_URL;
     setShareMenuState({ anchorPosition, url, title: recipe.title, imageUrl: recipe.imageUrl || '' });
   };
 
@@ -2227,16 +2239,18 @@ function App() {
         try {
           const metaResponse = await callRecipesApi('/recipes/count', {}, accessToken);
           const serverVersion = metaResponse?.version ?? 0;
+          const serverCount = metaResponse?.count ?? 0;
           serverVersionRef.current = serverVersion;
 
-          if (serverVersion !== cached.version) {
-            // Version differs - fetch and auto-apply to sync cache
+          // Refetch on version bump OR when the cached list length disagrees with
+          // the server meta count — guards against meta/list drift that would
+          // otherwise leave the drawer showing a higher count than the list.
+          if (serverVersion !== cached.version || serverCount !== cached.recipes.length) {
             const normalized = await fetchAllRecipes();
             setRecipes(normalized);
             saveRecipesToCache(normalized, userId, serverVersion);
             setRemoteState({ status: 'success', message: '' });
           } else {
-            // Same version - cache is up to date
             setRemoteState({ status: 'success', message: '' });
           }
         } catch (error) {
@@ -2424,6 +2438,25 @@ function App() {
     if (visibleCount > filteredRecipes.length) {
       setVisibleCount(filteredRecipes.length);
     }
+  }, [filteredRecipes.length, visibleCount]);
+
+  // Fallback for the IntersectionObserver above: on iOS WebView the 1px sentinel
+  // occasionally fails to fire, leaving the list stuck at the initial page size.
+  // A passive window scroll listener triggers the next page once the user is
+  // within 800px of the document bottom.
+  useEffect(() => {
+    if (visibleCount >= filteredRecipes.length) return undefined;
+    const onScroll = () => {
+      const scrolled = window.scrollY + window.innerHeight;
+      const total = document.documentElement.scrollHeight;
+      if (total - scrolled < 800) {
+        setVisibleCount((prev) =>
+          Math.min(prev + RESULTS_PAGE_SIZE, filteredRecipes.length)
+        );
+      }
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
   }, [filteredRecipes.length, visibleCount]);
 
   // Cleanup scroll listener on unmount
@@ -3925,11 +3958,26 @@ function App() {
       ? { top: event.currentTarget.getBoundingClientRect().bottom, left: event.currentTarget.getBoundingClientRect().left }
       : { top: window.innerHeight / 2, left: window.innerWidth / 2 };
     if (!session) {
-      // Logged-out: skip chooser, go straight to native share with no auth required.
-      handleSharePublicRecipe(recipe, event);
+      shareLoggedOutDirect(recipe, anchorPosition);
       return;
     }
     setShareSheetState({ recipe, anchorPosition });
+  };
+
+  const shareLoggedOutDirect = async (recipe, anchorPosition) => {
+    const url = recipe.id && recipe.userId
+      ? `${SHARE_PUBLIC_URL}?recipe=${encodeURIComponent(recipe.id)}&user=${encodeURIComponent(recipe.userId)}`
+      : SHARE_PUBLIC_URL;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: recipe.title, text: `Check out this recipe on ReciFriend: ${recipe.title}`, url });
+        trackEvent('share_recipe', { method: 'native_share' });
+        return;
+      } catch (err) {
+        if (err?.name === 'AbortError') return;
+      }
+    }
+    setShareMenuState({ anchorPosition, url, title: recipe.title, imageUrl: recipe.imageUrl || '' });
   };
 
   const handleShareSheetPickFriends = () => {
@@ -3946,60 +3994,25 @@ function App() {
 
   const triggerNativeShare = async (recipe, anchorPosition) => {
     try {
-      const accessToken = (await supabase?.auth.getSession())?.data?.session?.access_token;
-      if (!accessToken) {
-        setIsAuthDialogOpen(true);
-        return;
-      }
-      let recipeId = recipe.id;
-      // Starter recipes have synthetic IDs like "recipe-0". Save to account first.
-      if (typeof recipeId === 'string' && recipeId.startsWith('recipe-')) {
-        const payload = await buildApiRecipePayload(recipe);
-        const saveRes = await callRecipesApi('/recipes', { method: 'POST', body: JSON.stringify(payload) }, accessToken);
-        const savedRecipe = normalizeRecipeFromApi(saveRes?.recipe);
-        if (!savedRecipe?.id) throw new Error('Failed to save recipe');
-        recipeId = savedRecipe.id;
-        setRecipes((prev) => {
-          const updated = prev.map((r) => r.id === recipe.id ? savedRecipe : r);
-          saveRecipesToCache(updated, session?.user?.id || null, serverVersionRef.current);
-          return updated;
-        });
-      }
-      if (API_BASE_URL) {
-        const response = await fetch(`${API_BASE_URL}/recipes/${encodeURIComponent(recipeId)}/share-link`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`
-          }
-        });
-        if (response.ok) {
-          const { token } = await response.json();
-          const shareUrl = `${window.location.origin}?share=${token}`;
-          setShareMenuState({ anchorPosition, url: shareUrl, title: recipe.title, imageUrl: recipe.imageUrl || '' });
+      // Build the share URL synchronously when possible so navigator.share is
+      // called inside the user-gesture window. Token URLs require an API
+      // round-trip and routinely break the gesture timing on iOS Safari.
+      const ownerId = recipe.userId || session?.user?.id || null;
+      const recipeId = typeof recipe.id === 'string' && !recipe.id.startsWith('recipe-') ? recipe.id : null;
+      const shareUrl = recipeId && ownerId
+        ? `${SHARE_PUBLIC_URL}?recipe=${encodeURIComponent(recipeId)}&user=${encodeURIComponent(ownerId)}`
+        : SHARE_PUBLIC_URL;
+
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: recipe.title, text: `Check out this recipe on ReciFriend: ${recipe.title}`, url: shareUrl });
+          trackEvent('share_recipe', { method: 'native_share' });
           return;
-        }
-        // Recipe not in user's collection — save a copy silently, then share
-        if (response.status === 404) {
-          const payload = await buildApiRecipePayload(recipe);
-          const saveRes = await callRecipesApi('/recipes', { method: 'POST', body: JSON.stringify(payload) }, accessToken);
-          const savedRecipe = normalizeRecipeFromApi(saveRes?.recipe);
-          if (savedRecipe?.id) {
-            const shareRes2 = await fetch(`${API_BASE_URL}/recipes/${encodeURIComponent(savedRecipe.id)}/share-link`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-            });
-            if (shareRes2.ok) {
-              const { token } = await shareRes2.json();
-              const shareUrl = `${window.location.origin}?share=${token}`;
-              setShareMenuState({ anchorPosition, url: shareUrl, title: recipe.title, imageUrl: recipe.imageUrl || '' });
-              return;
-            }
-          }
+        } catch (err) {
+          if (err?.name === 'AbortError') return;
         }
       }
-      // Last-resort fallback
-      setShareMenuState({ anchorPosition, url: window.location.origin, title: recipe.title, imageUrl: recipe.imageUrl || '' });
+      setShareMenuState({ anchorPosition, url: shareUrl, title: recipe.title, imageUrl: recipe.imageUrl || '' });
     } catch (error) {
       console.error('Error sharing:', error);
       setSnackbarState({ open: true, message: 'Failed to share', severity: 'error' });
@@ -4013,10 +4026,39 @@ function App() {
   };
 
   const handlePickerSend = async (recipientUserIds) => {
-    const result = await shareRecipe({ apiBase: API_BASE_URL, jwt: accessToken, recipeId: pickerRecipeId, recipientUserIds });
-    // === [S11] Push client ===
-    triggerSoftPromptIfNeeded('recipe-shared');
-    // === [/S11] ===
+    setSnackbarState({ open: true, message: 'Sending…', severity: 'info' });
+    let result;
+    try {
+      result = await shareRecipe({ apiBase: API_BASE_URL, jwt: accessToken, recipeId: pickerRecipeId, recipientUserIds });
+    } catch (err) {
+      console.error('shareRecipe threw:', err);
+      const detail = `${err?.name || 'Error'}: ${err?.message || String(err)} | recipe=${pickerRecipeId} | api=${API_BASE_URL} | token=${accessToken ? 'yes' : 'NO'}`;
+      setSnackbarState({ open: true, message: detail, severity: 'error' });
+      return { ok: false, error: { code: 'EXCEPTION' } };
+    }
+    try { triggerSoftPromptIfNeeded('recipe-shared'); } catch {}
+    if (result?.ok) {
+      // Always report the number of friends the user selected, not the DB "changes"
+      // count — INSERT OR IGNORE returns 0 for duplicates, which reads as a failure
+      // to the user even though every selected friend now has access.
+      const count = recipientUserIds.length;
+      setSnackbarState({ open: true, message: `Shared with ${count} friend${count === 1 ? '' : 's'}`, severity: 'success' });
+    } else {
+      const code = result?.error?.code;
+      // HttpError responses use { error: "<message>" } instead of { code }; surface either.
+      const errMsg = result?.error?.error || result?.error?.message;
+      const msg = code === 'RATE_LIMITED'
+        ? "You've shared too much recently. Try again later."
+        : code === 'NOT_FRIENDS'
+          ? "Some of those friends aren't connected with you yet."
+          : code === 'FORBIDDEN'
+            ? "You can't reshare this recipe — only the owner can."
+            : code
+              ? `Failed to share (${code}).`
+              : `Failed to share${errMsg ? `: ${errMsg}` : ''}.`;
+      console.warn('share failed:', result?.error);
+      setSnackbarState({ open: true, message: msg, severity: 'error' });
+    }
     return result;
   };
 
@@ -4032,7 +4074,7 @@ function App() {
           });
           if (response.ok) {
             const { token } = await response.json();
-            shareUrl = `${window.location.origin}?share=${token}`;
+            shareUrl = `${SHARE_PUBLIC_URL}?share=${token}`;
           }
         } catch (err) {
           console.error('Share token error:', err);
@@ -4042,8 +4084,8 @@ function App() {
       if (!shareUrl && pickerRecipeId) {
         const uid = session?.user?.id;
         shareUrl = uid
-          ? `${window.location.origin}?recipe=${encodeURIComponent(pickerRecipeId)}&user=${encodeURIComponent(uid)}`
-          : `${window.location.origin}?recipe=${encodeURIComponent(pickerRecipeId)}`;
+          ? `${SHARE_PUBLIC_URL}?recipe=${encodeURIComponent(pickerRecipeId)}&user=${encodeURIComponent(uid)}`
+          : `${SHARE_PUBLIC_URL}?recipe=${encodeURIComponent(pickerRecipeId)}`;
       }
       if (shareUrl) {
         navigator.clipboard.writeText(shareUrl);
@@ -4157,7 +4199,7 @@ function App() {
                     </Box>
                     <Divider />
                     <MenuItem disabled sx={{ opacity: '1 !important', pt: 1, pb: 0.25 }}>
-                      {userProfile?.recipeCount ?? recipes.length} recipes
+                      {recipes.length} recipes
                     </MenuItem>
                     <Divider />
                     <MenuItem onClick={handleCopyUserId}>
@@ -4283,7 +4325,7 @@ function App() {
               >
                 <Typography sx={{ fontSize: 18, lineHeight: 1 }}>🍳</Typography>
                 <Typography variant="body2" fontWeight={600} sx={{ flex: 1, textAlign: 'left' }}>Recipes</Typography>
-                <Typography variant="body2">{userProfile?.recipeCount ?? recipes.length}</Typography>
+                <Typography variant="body2">{recipes.length}</Typography>
               </Box>
             </Box>
             <Divider />
@@ -4510,14 +4552,20 @@ function App() {
         onClose={() => setShareSheetState(null)}
         onPickFriends={handleShareSheetPickFriends}
         onPickConnections={handleShareSheetPickConnections}
+        darkMode={darkMode}
       />
 
       {/* === [S04] Friend picker wiring === */}
       <FriendPicker
         open={pickerOpen}
-        friends={friends}
+        friends={(friends || []).map(f => ({
+          id: f.id ?? f.friendId,
+          display_name: f.display_name ?? f.friendName ?? f.friendEmail,
+          avatar_url: f.avatar_url ?? f.avatarUrl ?? null,
+        }))}
         onClose={handlePickerClose}
         onSend={handlePickerSend}
+        darkMode={darkMode}
       />
       {/* === [/S04] === */}
 
@@ -4552,7 +4600,7 @@ function App() {
             {currentView === 'home' && session && (
               <>
                 <StatsTiles
-                  recipeCount={userProfile?.recipeCount ?? recipes.length}
+                  recipeCount={recipes.length}
                   accessToken={accessToken}
                   onAddRecipe={openAddDialog}
                   onViewRecipes={() => setCurrentView('recipes')}
@@ -4570,6 +4618,7 @@ function App() {
                   onSaveRecipe={handleSavePublicRecipe}
                   onShareRecipe={(recipe, event) => openShareSheet(recipe, event) /* [S04] */}
                   onInviteFriend={() => setIsFriendsDialogOpen(true)}
+                  onOpenFriends={() => setIsFriendsDialogOpen(true)}
                   darkMode={darkMode}
                   onCookWithFriendsVisible={setCookWithFriendsVisible}
                 />
@@ -5156,7 +5205,7 @@ function App() {
                     color="inherit"
                     startIcon={<IosShareOutlinedIcon />}
                     sx={{ flex: 1 }}
-                    onClick={() => openSharePicker(activeRecipe?.id)}
+                    onClick={(e) => openShareSheet(activeRecipe, e)}
                   >
                     Share
                   </Button>
@@ -6325,7 +6374,7 @@ function App() {
       </Drawer>
 
       {/* Feedback widget */}
-      {showFeedbackWidget && !mobileFilterDrawerOpen && !isAddDialogOpen && !isFriendsDialogOpen && <Box sx={{ position: 'fixed', bottom: 'calc(20px + env(safe-area-inset-bottom))', right: 20, zIndex: 1300 }}>
+      {showFeedbackWidget && !mobileFilterDrawerOpen && !isAddDialogOpen && !isFriendsDialogOpen && !pickerOpen && !shareSheetState && <Box sx={{ position: 'fixed', bottom: 'calc(20px + env(safe-area-inset-bottom))', right: 20, zIndex: 1300 }}>
         <Tooltip title="Send feedback" placement="left">
           <IconButton
             onClick={() => { setFeedbackOpen(true); setFeedbackDone(false); }}
