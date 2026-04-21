@@ -9,10 +9,11 @@ const API_BASE = process.env.API_BASE!;
 
 
 async function openFriendsDrawer(page: Page) {
-  // On mobile, Friends is inside the hamburger drawer
-  await sel.hamburgerBtn(page).click();
-  await page.getByText('Friends', { exact: true }).click();
-  await page.waitForTimeout(500);
+  // Homepage stats card has "View friends" when friends.length > 0 — opens the
+  // same bottom drawer as the hamburger "Friends" menu item. All callers here
+  // run after a friendship has been established, so the button is present.
+  await page.getByRole('button', { name: 'View friends' }).click();
+  await sel.friendsDrawer(page).waitFor({ state: 'visible', timeout: 10_000 });
 }
 
 test.describe('Friends flow', () => {
@@ -109,8 +110,8 @@ test.describe('Friends flow', () => {
 
     // Read Bob's saved session
     const bobState = JSON.parse(fs.readFileSync(BOB_STATE, 'utf-8'));
-    const bobAuthEntry = bobState.origins?.[0]?.localStorage?.find((e: { name: string }) => e.name === 'recifind-auth');
-    if (!bobAuthEntry) throw new Error('Bob recifind-auth entry not found in .auth/bob.json — re-run test:setup');
+    const bobAuthEntry = bobState.origins?.[0]?.localStorage?.find((e: { name: string }) => e.name === 'recifriend-auth');
+    if (!bobAuthEntry) throw new Error('Bob recifriend-auth entry not found in .auth/bob.json — re-run test:setup');
 
     // Placeholder invite token — the real accept-open-invite call is intercepted below
     const fakeInviteToken = 'e2e-test-invite-token';
@@ -155,7 +156,7 @@ test.describe('Friends flow', () => {
       // the app's own module-level code runs.
       await freshContext.addInitScript(
         ({ sessionValue, inviteToken }: { sessionValue: string; inviteToken: string }) => {
-          localStorage.setItem('recifind-auth', sessionValue);
+          localStorage.setItem('recifriend-auth', sessionValue);
           localStorage.setItem('onboarding_seen', '1');
           sessionStorage.setItem('pending_open_invite', inviteToken);
           sessionStorage.setItem('invite_entry', '1');

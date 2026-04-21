@@ -33,7 +33,7 @@ function readSession(storageStatePath: string): Record<string, any> {
   const fs = require('fs');
   const state = JSON.parse(fs.readFileSync(storageStatePath, 'utf-8'));
   const localStorageEntries = state.origins?.[0]?.localStorage ?? [];
-  const authEntry = localStorageEntries.find((e: { name: string }) => e.name === 'recifind-auth');
+  const authEntry = localStorageEntries.find((e: { name: string }) => e.name === 'recifriend-auth');
   if (!authEntry) throw new Error('No auth token found in storageState');
   return JSON.parse(authEntry.value);
 }

@@ -68,10 +68,10 @@ async function injectSessionAndSave(page: any, email: string, outputPath: string
   // Navigate to the app first so localStorage origin is set
   await page.goto('/');
 
-  // Inject session in the exact format supabase-js v2 stores it under storageKey 'recifind-auth'
+  // Inject session in the exact format supabase-js v2 stores it under storageKey 'recifriend-auth'
   // Also mark onboarding as seen to prevent modal from blocking tests
   await page.evaluate(({ session }: { session: any }) => {
-    localStorage.setItem('recifind-auth', JSON.stringify(session));
+    localStorage.setItem('recifriend-auth', JSON.stringify(session));
     localStorage.setItem('onboarding_seen', '1');
   }, { session });
 
