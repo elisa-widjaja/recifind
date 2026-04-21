@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Box, Typography, Stack, Button, ButtonBase } from '@mui/material';
+import { Box, Typography, Stack, Button, Dialog, DialogContent } from '@mui/material';
 import RecipeShelf from './RecipeShelf';
 import RecipeListCard from './RecipeListCard';
 import TrendingHealthCarousel from './TrendingHealthCarouselB';
@@ -44,6 +44,32 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
   const [editorsPick, setEditorsPick] = useState([]);
   const [editorsExpanded, setEditorsExpanded] = useState(false);
   const [aiPicks, setAiPicks] = useState([]);
+  const [requestDialogItem, setRequestDialogItem] = useState(null);
+  const [requestDialogBusy, setRequestDialogBusy] = useState(false);
+
+  async function handleRequestAccept() {
+    if (!requestDialogItem || requestDialogBusy) return;
+    setRequestDialogBusy(true);
+    try {
+      await onAcceptFriendRequest?.(requestDialogItem.fromUserId);
+      setActivity((prev) => prev.filter((a) => a.id !== requestDialogItem.id));
+      setRequestDialogItem(null);
+    } finally {
+      setRequestDialogBusy(false);
+    }
+  }
+
+  async function handleRequestDecline() {
+    if (!requestDialogItem || requestDialogBusy) return;
+    setRequestDialogBusy(true);
+    try {
+      await onDeclineFriendRequest?.(requestDialogItem.fromUserId);
+      setActivity((prev) => prev.filter((a) => a.id !== requestDialogItem.id));
+      setRequestDialogItem(null);
+    } finally {
+      setRequestDialogBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!accessToken) return;
@@ -116,9 +142,7 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
                 <ActivityItem
                   item={item}
                   onOpenRecipe={onOpenRecipe}
-                  onAcceptFriendRequest={onAcceptFriendRequest}
-                  onDeclineFriendRequest={onDeclineFriendRequest}
-                  onResolveRequest={(id) => setActivity((prev) => prev.filter((a) => a.id !== id))}
+                  onOpenFriendRequest={(it) => setRequestDialogItem(it)}
                 />
                 {index < arr.length - 1 && (
                   <Box sx={{ height: '1px', bgcolor: 'divider', mx: 1.5 }} />
@@ -221,7 +245,86 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
         <CookWithFriends onInvite={onInviteFriend} darkMode={darkMode} />
       </Box>
 
+      <FriendRequestDialog
+        item={requestDialogItem}
+        busy={requestDialogBusy}
+        onAccept={handleRequestAccept}
+        onDecline={handleRequestDecline}
+        onClose={() => !requestDialogBusy && setRequestDialogItem(null)}
+      />
+
     </Stack>
+  );
+}
+
+function FriendRequestDialog({ item, busy, onAccept, onDecline, onClose }) {
+  if (!item) return null;
+  const friendName = item.friendName || '?';
+  const initial = friendName.charAt(0).toUpperCase();
+  const color = AVATAR_COLORS[Math.abs(item.id) % AVATAR_COLORS.length];
+  return (
+    <Dialog open onClose={onClose} fullWidth maxWidth="xs">
+      <DialogContent sx={{ textAlign: 'center', py: 4, px: 3 }}>
+        <Box sx={{
+          width: 64, height: 64, borderRadius: '50%', bgcolor: color,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          mx: 'auto', mb: 2,
+        }}>
+          <Typography sx={{ color: '#fff', fontSize: 26, fontWeight: 700 }}>{initial}</Typography>
+        </Box>
+        <Typography sx={{ fontWeight: 700, fontSize: 18, mb: 0.5 }}>{friendName}</Typography>
+        <Typography sx={{ color: 'text.secondary', fontSize: 14, mb: 3 }}>
+          wants to connect on ReciFriend
+        </Typography>
+        <Stack direction="row" gap={1.5} justifyContent="center">
+          <Box
+            component="button"
+            onClick={onDecline}
+            disabled={busy}
+            aria-label="Decline friend request"
+            sx={{
+              background: 'transparent',
+              color: 'text.secondary',
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: '999px',
+              py: '10px',
+              px: '24px',
+              fontSize: 14,
+              fontWeight: 700,
+              fontFamily: 'inherit',
+              lineHeight: 1,
+              cursor: busy ? 'default' : 'pointer',
+              opacity: busy ? 0.55 : 1,
+            }}
+          >
+            Decline
+          </Box>
+          <Box
+            component="button"
+            onClick={onAccept}
+            disabled={busy}
+            aria-label="Accept friend request"
+            sx={{
+              background: '#10b981',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '999px',
+              py: '10px',
+              px: '24px',
+              fontSize: 14,
+              fontWeight: 700,
+              fontFamily: 'inherit',
+              lineHeight: 1,
+              cursor: busy ? 'default' : 'pointer',
+              opacity: busy ? 0.55 : 1,
+            }}
+          >
+            Accept
+          </Box>
+        </Stack>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -326,137 +429,41 @@ const VERB_MAP = {
 // Notification types that carry a recipe — show structured sentence + thumbnail
 const RECIPE_TYPES = new Set(['friend_cooked_recipe', 'friend_saved_recipe', 'friend_shared_recipe']);
 
-export function ActivityItem({ item, onOpenRecipe, onAcceptFriendRequest, onDeclineFriendRequest, onResolveRequest }) {
+export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest }) {
   const friendName = item.friendName ?? '?';
   const color = AVATAR_COLORS[Math.abs(item.id) % AVATAR_COLORS.length];
   const initial = friendName.charAt(0).toUpperCase();
   const isRecipeNotif = RECIPE_TYPES.has(item.type) && item.recipe;
   const isFriendRequest = item.type === 'friend_request' && typeof item.fromUserId === 'string' && item.fromUserId.length > 0;
-  const [busy, setBusy] = useState(false);
-
-  async function handleAccept(e) {
-    e.stopPropagation();
-    if (busy || !onAcceptFriendRequest) return;
-    setBusy(true);
-    try {
-      await onAcceptFriendRequest(item.fromUserId);
-      onResolveRequest?.(item.id);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleDecline(e) {
-    e.stopPropagation();
-    if (busy || !onDeclineFriendRequest) return;
-    setBusy(true);
-    try {
-      await onDeclineFriendRequest(item.fromUserId);
-      onResolveRequest?.(item.id);
-    } finally {
-      setBusy(false);
-    }
-  }
+  const isClickable = isRecipeNotif || isFriendRequest;
 
   function handleClick() {
     if (isRecipeNotif) onOpenRecipe?.(item.recipe);
+    else if (isFriendRequest) onOpenFriendRequest?.(item);
   }
 
-  // Friend request layout: message + Accept/Decline buttons
-  if (isFriendRequest) {
-    return (
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: '10px',
-          px: 1.25,
-          py: '10px',
-        }}
-      >
-        {/* Avatar */}
-        <Box sx={{
-          width: 32, height: 32, borderRadius: '50%', bgcolor: color,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, mt: '2px',
-        }}>
-          <Typography sx={{ color: '#fff', fontSize: 13, fontWeight: 700, lineHeight: 1 }}>{initial}</Typography>
-        </Box>
-
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography sx={{
-            fontSize: 12, lineHeight: 1.4, color: 'text.secondary',
-            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-          }}>
-            {item.message}
-          </Typography>
-
-          <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
-            <ButtonBase
-              onClick={handleAccept}
-              disabled={busy}
-              aria-label="Accept friend request"
-              sx={{
-                borderRadius: '999px',
-                py: '6px',
-                px: '16px',
-                fontSize: 12,
-                fontWeight: 700,
-                bgcolor: '#10b981',
-                color: '#fff',
-                opacity: busy ? 0.6 : 1,
-                '&:hover': { bgcolor: '#059669' },
-                '&.Mui-disabled': { bgcolor: '#10b981', color: '#fff', opacity: 0.6 },
-              }}
-            >
-              Accept
-            </ButtonBase>
-            <ButtonBase
-              onClick={handleDecline}
-              disabled={busy}
-              aria-label="Decline friend request"
-              sx={{
-                borderRadius: '999px',
-                py: '6px',
-                px: '16px',
-                fontSize: 12,
-                fontWeight: 700,
-                bgcolor: 'transparent',
-                color: 'text.secondary',
-                border: '1px solid #ccc',
-                opacity: busy ? 0.6 : 1,
-                '&:hover': { bgcolor: 'action.hover' },
-                '&.Mui-disabled': { opacity: 0.6 },
-              }}
-            >
-              Decline
-            </ButtonBase>
-          </Box>
-        </Box>
-
-        {/* Timestamp */}
-        <Typography sx={{ fontSize: 10, color: 'text.disabled', flexShrink: 0, mt: '4px' }}>
-          {timeAgo(item.createdAt)}
-        </Typography>
-      </Box>
-    );
-  }
+  const ariaLabel = isRecipeNotif
+    ? `View ${item.recipe.title}`
+    : isFriendRequest
+      ? `Respond to friend request from ${friendName}`
+      : undefined;
 
   return (
     <Box
       onClick={handleClick}
-      role={isRecipeNotif ? 'button' : undefined}
-      tabIndex={isRecipeNotif ? 0 : undefined}
-      aria-label={isRecipeNotif ? `View ${item.recipe.title}` : undefined}
-      onKeyDown={isRecipeNotif ? (e) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); } : undefined}
+      role={isClickable ? 'button' : undefined}
+      tabIndex={isClickable ? 0 : undefined}
+      aria-label={ariaLabel}
+      onKeyDown={isClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); } : undefined}
       sx={{
         display: 'flex',
         alignItems: 'center',
         gap: '10px',
         px: 1.25,
         py: '8px',
-        cursor: isRecipeNotif ? 'pointer' : 'default',
-        '&:hover': isRecipeNotif ? { bgcolor: 'action.hover' } : {},
-        '&:focus-visible': isRecipeNotif ? { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: '-2px' } : {},
+        cursor: isClickable ? 'pointer' : 'default',
+        '&:hover': isClickable ? { bgcolor: 'action.hover' } : {},
+        '&:focus-visible': isClickable ? { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: '-2px' } : {},
       }}
     >
       {/* Avatar */}
