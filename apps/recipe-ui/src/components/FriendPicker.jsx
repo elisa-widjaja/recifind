@@ -5,14 +5,13 @@ import {
   Button,
   Stack,
   Avatar,
-  Alert,
   Typography,
-  IconButton,
 } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
-import CloseIcon from '@mui/icons-material/Close';
+import { getAvatarColor } from '../lib/avatarColor';
 
 function FriendRow({ friend, selected, onToggle }) {
+  const initial = (friend.display_name ?? '?').charAt(0).toUpperCase();
   return (
     <Box
       data-testid="friend-row"
@@ -40,8 +39,8 @@ function FriendRow({ friend, selected, onToggle }) {
       }}
     >
       <Box sx={{ position: 'relative' }}>
-        <Avatar src={friend.avatar_url ?? undefined}>
-          {(friend.display_name ?? '?').charAt(0)}
+        <Avatar src={friend.avatar_url ?? undefined} sx={{ bgcolor: getAvatarColor(friend.id) }}>
+          {initial}
         </Avatar>
         {selected && (
           <Box
@@ -72,17 +71,11 @@ function FriendRow({ friend, selected, onToggle }) {
   );
 }
 
-export function FriendPicker({ open, friends, onClose, onSend }) {
+export function FriendPicker({ open, friends, onClose, onSend, darkMode = false }) {
   const [selected, setSelected] = useState(new Set());
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState(null);
 
   useEffect(() => {
-    if (!open) {
-      setSelected(new Set());
-      setBusy(false);
-      setResult(null);
-    }
+    if (!open) setSelected(new Set());
   }, [open]);
 
   const toggle = (id) => {
@@ -93,24 +86,14 @@ export function FriendPicker({ open, friends, onClose, onSend }) {
     });
   };
 
-  const handleSend = async () => {
-    setResult(null);
-    setBusy(true);
+  const handleSend = () => {
     const ids = Array.from(selected);
-    const res = await onSend(ids);
-    setBusy(false);
-    if (res.ok) {
-      setResult({ kind: 'success', count: res.value.shared_with });
-    } else if (res.error?.code === 'RATE_LIMITED') {
-      setResult({
-        kind: 'error',
-        message: `You've shared too much recently. Try again in ${Math.ceil(res.error.retry_after_seconds / 60)} minutes.`,
-      });
-    } else if (res.error?.code === 'NOT_FRIENDS') {
-      setResult({ kind: 'error', message: "Some of those friends aren't connected with you yet." });
-    } else {
-      setResult({ kind: 'error', message: 'Something went wrong. Try again.' });
-    }
+    // Fire-and-forget: dismiss immediately so the drawer never feels stuck
+    // on a slow API. Parent owns progress + result via snackbar.
+    onClose('sent', ids.length);
+    Promise.resolve()
+      .then(() => onSend(ids))
+      .catch((err) => console.error('FriendPicker send threw:', err));
   };
 
   const handleCopyLink = () => onClose('copy-link');
@@ -120,26 +103,24 @@ export function FriendPicker({ open, friends, onClose, onSend }) {
       anchor="bottom"
       open={open}
       onClose={() => onClose()}
-      slotProps={{
-        paper: {
-          sx: {
-            borderTopLeftRadius: 16,
-            borderTopRightRadius: 16,
-            paddingBottom: 'env(safe-area-inset-bottom)',
-            maxHeight: '85vh',
-          },
+      sx={{ zIndex: (t) => t.zIndex.modal + 1 }}
+      PaperProps={{
+        sx: {
+          borderRadius: '16px 16px 0 0',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+          height: 'calc(85dvh + 20px)',
+          display: 'flex',
+          flexDirection: 'column',
+          ...(darkMode ? { backgroundColor: '#212328', backgroundImage: 'none' } : {}),
         },
       }}
     >
-      <Box sx={{ width: '100%', maxWidth: 600, mx: 'auto', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1.5 }}>
-          <Typography variant="h6">Share this recipe</Typography>
-          <IconButton onClick={() => onClose()} aria-label="close">
-            <CloseIcon />
-          </IconButton>
-        </Box>
-
-        <Box sx={{ overflowY: 'auto', px: 1, pb: 1 }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pt: 1.5, pb: 1, flexShrink: 0 }}>
+        <Box sx={{ width: 40, height: 4, borderRadius: 2, bgcolor: darkMode ? 'rgba(255,255,255,0.3)' : 'grey.300', mb: 1.5 }} />
+        <Typography variant="h6" sx={{ fontWeight: 600 }}>Share with Connections</Typography>
+      </Box>
+      <Box sx={{ width: '100%', maxWidth: 600, mx: 'auto', display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1 }}>
+        <Box sx={{ overflowY: 'auto', px: 1, pb: 1, flex: 1 }}>
           {friends.length === 0 ? (
             <Box sx={{ px: 2, py: 3 }}>
               <Typography variant="body2" sx={{ mb: 2 }}>
@@ -159,25 +140,16 @@ export function FriendPicker({ open, friends, onClose, onSend }) {
               ))}
             </Stack>
           )}
-          {result?.kind === 'success' && (
-            <Alert severity="success" sx={{ mt: 2, mx: 1 }}>
-              Shared with {result.count} friend{result.count === 1 ? '' : 's'}
-            </Alert>
-          )}
-          {result?.kind === 'error' && (
-            <Alert severity="error" sx={{ mt: 2, mx: 1 }}>
-              {result.message}
-            </Alert>
-          )}
         </Box>
 
         {friends.length > 0 && (
-          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', px: 2, py: 1.5, borderTop: 1, borderColor: 'divider' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1.5, borderTop: 1, borderColor: 'divider' }}>
             <Button onClick={handleCopyLink}>Copy link</Button>
             <Button
               onClick={handleSend}
               variant="contained"
-              disabled={busy || selected.size === 0}
+              disabled={selected.size === 0}
+              sx={{ minWidth: 120 }}
             >
               Send
             </Button>

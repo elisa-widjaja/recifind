@@ -32,20 +32,21 @@ describe('FriendPicker', () => {
     await waitFor(() => expect(onSend).toHaveBeenCalledWith(['f1', 'f2']));
   });
 
-  it('shows success toast-like message after Send', async () => {
+  it('dismisses the drawer after a successful Send (parent owns the snackbar)', async () => {
     const onSend = vi.fn().mockResolvedValue({ ok: true, value: { shared_with: 1, skipped: 0 } });
-    render(<FriendPicker open friends={FRIENDS} onClose={() => {}} onSend={onSend} />);
+    const onClose = vi.fn();
+    render(<FriendPicker open friends={FRIENDS} onClose={onClose} onSend={onSend} />);
     fireEvent.click(screen.getByText('Alice'));
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
-    await waitFor(() => expect(screen.getByText(/shared with 1 friend/i)).toBeInTheDocument());
+    await waitFor(() => expect(onClose).toHaveBeenCalledWith('sent', 1));
   });
 
-  it('shows rate-limit error after 429', async () => {
+  it('still calls onSend even on rate-limit (parent surfaces the error)', async () => {
     const onSend = vi.fn().mockResolvedValue({ ok: false, error: { code: 'RATE_LIMITED', retry_after_seconds: 600 } });
     render(<FriendPicker open friends={FRIENDS} onClose={() => {}} onSend={onSend} />);
     fireEvent.click(screen.getByText('Alice'));
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
-    await waitFor(() => expect(screen.getByText(/try again/i)).toBeInTheDocument());
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith(['f1']));
   });
 
   it('empty friend list shows zero state with copy-link fallback', () => {
