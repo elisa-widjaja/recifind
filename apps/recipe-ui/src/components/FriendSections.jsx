@@ -3,6 +3,7 @@ import { Box, Typography, Stack, Button } from '@mui/material';
 import RecipeShelf from './RecipeShelf';
 import RecipeListCard from './RecipeListCard';
 import TrendingHealthCarousel from './TrendingHealthCarouselB';
+import SuggestionsShelf from './SuggestionsShelf';
 
 const API_BASE_URL = import.meta.env.VITE_RECIPES_API_BASE_URL || '';
 
@@ -30,8 +31,9 @@ function timeAgo(iso) {
  *   accessToken: string
  *   onOpenRecipe: (recipe) => void
  *   onSaveRecipe: (recipe) => void
+ *   onOpenFriends?: () => void — opens the friends management drawer (threaded into "See all" on the suggestions shelf)
  */
-export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, dietaryPrefs, onOpenRecipe, onSaveRecipe, onShareRecipe, onInviteFriend, darkMode, onCookWithFriendsVisible }) {
+export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, dietaryPrefs, onOpenRecipe, onSaveRecipe, onShareRecipe, onInviteFriend, onOpenFriends, darkMode, onCookWithFriendsVisible }) {
   const [activity, setActivity] = useState([]);
   const [recentlySaved, setRecentlySaved] = useState([]);
   const [recentlyShared, setRecentlyShared] = useState([]);
@@ -167,6 +169,8 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
           />
         </Box>
       )}
+
+      <SuggestionsShelf accessToken={accessToken} onOpenFriends={onOpenFriends} />
 
       {hasEditorsPick && (
         <Box>
