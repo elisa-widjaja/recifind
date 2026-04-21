@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Box, Typography, Button, IconButton } from '@mui/material';
+import { Box, Typography, IconButton, useTheme } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 
 const API_BASE_URL = import.meta.env.VITE_RECIPES_API_BASE_URL || '';
@@ -39,6 +39,8 @@ function initialOf(name) {
  *   suggestions?: Array — test-only override; skips the fetch when provided
  */
 export default function SuggestionsShelf({ accessToken, onOpenFriends, variant = 'feed', suggestions: suggestionsProp }) {
+  const theme = useTheme();
+  const dark = theme.palette.mode === 'dark';
   const [suggestions, setSuggestions] = useState(suggestionsProp || []);
   const [loading, setLoading] = useState(suggestionsProp === undefined);
   const [requestedIds, setRequestedIds] = useState(() => new Set());
@@ -103,10 +105,10 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
   if (visible.length === 0) return null;
 
   return (
-    <Box sx={{ mb: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
-        <Typography variant="subtitle1" sx={{ fontWeight: 600, fontSize: 15 }}>
-          Friends you may know
+    <Box>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+        <Typography sx={{ fontWeight: 700, fontSize: 13, color: 'text.primary' }}>
+          Friends You May Know
         </Typography>
         {onOpenFriends && (
           <Typography
@@ -154,12 +156,12 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
                 position: 'relative',
                 minWidth: 150,
                 maxWidth: 150,
-                height: 200,
+                height: 175,
                 bgcolor: 'background.paper',
                 border: '1px solid',
                 borderColor: 'divider',
                 borderRadius: 3,
-                p: '16px 10px 12px',
+                p: '16px 10px 20px',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
@@ -183,14 +185,14 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
               </IconButton>
               <Box
                 sx={{
-                  width: 64,
-                  height: 64,
+                  width: 48,
+                  height: 48,
                   borderRadius: '50%',
                   background: gradientFor(s.userId),
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: 26,
+                  fontSize: 20,
                   fontWeight: 700,
                   color: '#fff',
                   flexShrink: 0,
@@ -203,7 +205,7 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
                   fontWeight: 600,
                   fontSize: 14,
                   textAlign: 'center',
-                  mt: 1,
+                  mt: '8px',
                   lineHeight: 1.2,
                   width: '100%',
                   whiteSpace: 'nowrap',
@@ -213,38 +215,45 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
               >
                 {s.name}
               </Typography>
-              <Box sx={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-                <Typography
-                  sx={{
-                    fontSize: 11,
-                    color: 'text.secondary',
-                    textAlign: 'center',
-                    lineHeight: 1.3,
-                    display: '-webkit-box',
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: 'vertical',
-                    overflow: 'hidden',
-                  }}
-                >
-                  {reasonText(s)}
-                </Typography>
-              </Box>
-              <Button
-                variant={isRequested ? 'outlined' : 'contained'}
-                disabled={isRequested}
-                size="small"
-                fullWidth
-                onClick={() => !isRequested && handleAdd(s.userId)}
+              <Typography
                 sx={{
-                  flexShrink: 0,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  borderRadius: 2,
-                  textTransform: 'none',
+                  mt: '6px',
+                  fontSize: 11,
+                  color: 'text.secondary',
+                  textAlign: 'center',
+                  lineHeight: 1.3,
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
                 }}
               >
-                {isRequested ? 'Requested' : 'Add friend'}
-              </Button>
+                {reasonText(s)}
+              </Typography>
+              <Box
+                component="button"
+                disabled={isRequested}
+                onClick={() => !isRequested && handleAdd(s.userId)}
+                sx={{
+                  mt: 'auto',
+                  flexShrink: 0,
+                  width: '80%',
+                  background: 'transparent',
+                  color: dark ? '#34d399' : '#059669',
+                  border: '1px solid #10b981',
+                  borderRadius: '999px',
+                  py: '8px',
+                  px: '12px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  fontFamily: 'inherit',
+                  lineHeight: 1,
+                  cursor: isRequested ? 'default' : 'pointer',
+                  opacity: isRequested ? 0.55 : 1,
+                }}
+              >
+                {isRequested ? 'Requested' : 'Add Friend'}
+              </Box>
             </Box>
           );
         })}

@@ -27,12 +27,12 @@ describe('SuggestionsShelf', () => {
     expect(screen.getByText('Likes Vegetarian')).toBeInTheDocument();
   });
 
-  it('renders "Friends you may know" header and "See all" when onOpenFriends is provided', () => {
+  it('renders "Friends You May Know" header and "See all" when onOpenFriends is provided', () => {
     const onOpenFriends = vi.fn();
     render(
       <SuggestionsShelf accessToken="t" suggestions={SUGGESTIONS} onOpenFriends={onOpenFriends} />
     );
-    expect(screen.getByText('Friends you may know')).toBeInTheDocument();
+    expect(screen.getByText('Friends You May Know')).toBeInTheDocument();
     const seeAll = screen.getByText('See all');
     fireEvent.click(seeAll);
     expect(onOpenFriends).toHaveBeenCalledTimes(1);
