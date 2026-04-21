@@ -91,11 +91,13 @@ describe('handleFriendSuggestions', () => {
       kind: 'pref',
       sharedPref: 'Vegetarian',
     });
+    // Nora K. has no dietary overlap (only meal-type), so sharedPref is empty
+    // — client renders "Fellow home cook" for empty sharedPref.
     expect(result.suggestions[2]).toEqual({
       userId: 'user-e',
       name: 'Nora K.',
       kind: 'pref',
-      sharedPref: 'Dinner',
+      sharedPref: '',
     });
   });
 

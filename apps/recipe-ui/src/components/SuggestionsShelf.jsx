@@ -22,7 +22,7 @@ function reasonText(s) {
     const n = s.mutualCount;
     return `${n} mutual ${n === 1 ? 'friend' : 'friends'}`;
   }
-  return `Likes ${s.sharedPref}`;
+  return s.sharedPref ? `Also into ${s.sharedPref}` : 'Fellow home cook';
 }
 
 function initialOf(name) {

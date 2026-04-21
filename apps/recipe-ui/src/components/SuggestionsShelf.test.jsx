@@ -24,7 +24,7 @@ describe('SuggestionsShelf', () => {
     expect(screen.getByText('James T.')).toBeInTheDocument();
     expect(screen.getByText('1 mutual friend')).toBeInTheDocument();
     expect(screen.getByText('Priya S.')).toBeInTheDocument();
-    expect(screen.getByText('Likes Vegetarian')).toBeInTheDocument();
+    expect(screen.getByText('Also into Vegetarian')).toBeInTheDocument();
   });
 
   it('renders "Friends You May Know" header and "See all" when onOpenFriends is provided', () => {

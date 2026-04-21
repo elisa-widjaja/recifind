@@ -2101,11 +2101,10 @@ export async function handleFriendSuggestions(
   const prefSuggestions = (prefRows.results || [])
     .filter(row => !alreadySuggested.has(row.userId))
     .map(row => {
-      const theirPrefs = [
-        ...(row.dietary_prefs ? JSON.parse(row.dietary_prefs) : []),
-        ...(row.meal_type_prefs ? JSON.parse(row.meal_type_prefs) : []),
-      ];
-      const sharedPref = allMyPrefs.find(p => theirPrefs.includes(p)) || theirPrefs[0] || 'cooking';
+      // Only surface dietary prefs in the label — meal-type overlaps fall back
+      // to a generic "Fellow home cook" string on the client.
+      const theirDietaryPrefs: string[] = row.dietary_prefs ? JSON.parse(row.dietary_prefs) : [];
+      const sharedPref = myDietaryPrefs.find(p => theirDietaryPrefs.includes(p)) || '';
       return {
         userId: row.userId,
         name: row.name,
