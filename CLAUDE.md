@@ -5,7 +5,7 @@ Recipe-sharing app. Frontend is JavaScript (React + Vite + MUI), backend is Type
 ## Deployment
 
 - **Production**: Cloudflare Pages — NOT Vercel. Project name: `recifind`
-- **Domain**: recifind.elisawidjaja.com
+- **Domain**: recifriend.com (old `recifind.elisawidjaja.com` still 301-redirects here)
 - **Frontend deploy** (must run from `apps/recipe-ui` so wrangler picks up `functions/`): `cd apps/recipe-ui && npm run build && npx wrangler pages deploy dist --project-name recifind`
 - **Worker deploy**: `cd apps/worker && npx wrangler deploy`
 - Git pushes do NOT auto-deploy — always deploy manually with wrangler
