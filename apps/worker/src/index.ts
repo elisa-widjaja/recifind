@@ -431,6 +431,16 @@ export default {
         return await handleRecipeCount(request, env, user);
       }
 
+      if (url.pathname === '/recipes/for-you' && request.method === 'GET') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        return await (async () => {
+          const recipes = await getRecipesForUser(env.DB, user.userId);
+          return json({ recipes }, 200, withCors());
+        })();
+      }
+
       if (url.pathname === '/recipes' && request.method === 'POST') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');
@@ -3171,6 +3181,58 @@ async function getRecommendedRecipes(
     });
   }
   return results;
+}
+
+async function getRecipesForUser(
+  db: D1Database,
+  userId: string,
+  limit = 11
+): Promise<Array<{
+  id: string; userId: string; title: string; sourceUrl: string; imageUrl: string;
+  mealTypes: string[]; durationMinutes: number | null;
+  ingredients: string[]; steps: string[];
+}>> {
+  const profile = await db.prepare(
+    'SELECT dietary_prefs, cuisine_prefs, meal_type_prefs FROM profiles WHERE user_id = ?'
+  ).bind(userId).first();
+
+  if (profile) {
+    const allPrefs: string[] = [];
+    for (const col of ['dietary_prefs', 'cuisine_prefs', 'meal_type_prefs'] as const) {
+      try {
+        const parsed = profile[col] ? JSON.parse(profile[col] as string) : [];
+        if (Array.isArray(parsed)) allPrefs.push(...parsed);
+      } catch { /* skip */ }
+    }
+    const validPrefs = allPrefs.filter(p => p && p !== 'None / all good');
+
+    if (validPrefs.length > 0) {
+      const likeClauses = validPrefs.map(() => '(r.meal_types LIKE ? OR r.ingredients LIKE ?)').join(' OR ');
+      const likeBinds = validPrefs.flatMap(pref => [`%${pref}%`, `%${pref}%`]);
+      const rows = await db.prepare(
+        `SELECT id, user_id, title, source_url, image_url, meal_types, duration_minutes, ingredients, steps
+         FROM recipes r
+         WHERE r.user_id != ? AND r.shared_with_friends = 1 AND (${likeClauses})
+         ORDER BY RANDOM() LIMIT ?`
+      ).bind(userId, ...likeBinds, limit).all();
+
+      if (rows.results.length > 0) {
+        return (rows.results as Array<Record<string, unknown>>).map((r) => ({
+          id: String(r.id),
+          userId: String(r.user_id),
+          title: String(r.title),
+          sourceUrl: String(r.source_url || ''),
+          imageUrl: String(r.image_url || ''),
+          mealTypes: JSON.parse(String(r.meal_types || '[]')),
+          durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
+          ingredients: JSON.parse(String(r.ingredients || '[]')),
+          steps: JSON.parse(String(r.steps || '[]')),
+        }));
+      }
+    }
+  }
+
+  return getEditorsPick(db);
 }
 
 function buildNudgeEmailHtml(

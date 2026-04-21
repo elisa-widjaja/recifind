@@ -1,22 +1,8 @@
-import { useState, useEffect } from 'react';
 import { Box, Typography, Stack, useTheme } from '@mui/material';
 
-const API_BASE_URL = import.meta.env.VITE_RECIPES_API_BASE_URL || '';
-
-export default function StatsTiles({ recipeCount, accessToken, onAddRecipe, onViewRecipes, onAddFriends, onViewFriends }) {
-  const [friendCount, setFriendCount] = useState(null);
+export default function StatsTiles({ recipeCount, friendCount, onAddRecipe, onViewRecipes, onAddFriends, onViewFriends }) {
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
-
-  useEffect(() => {
-    if (!accessToken) return;
-    fetch(`${API_BASE_URL}/friends`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-      .then((res) => (res.ok ? res.json() : Promise.reject()))
-      .then((data) => setFriendCount((data.friends || []).length))
-      .catch(() => setFriendCount(null));
-  }, [accessToken]);
 
   const recipesEmpty = recipeCount === 0;
   const friendsEmpty = friendCount === 0;
@@ -82,11 +68,9 @@ export default function StatsTiles({ recipeCount, accessToken, onAddRecipe, onVi
         </Typography>
         {/* Actions pinned to bottom */}
         <Stack spacing={0} sx={{ mt: 'auto' }}>
-          {!recipesEmpty && (
-            <Typography component="button" onClick={onViewRecipes} sx={{ ...linkBtn(t1.link), mb: 2 }}>
-              View recipes
-            </Typography>
-          )}
+          <Typography component="button" onClick={onViewRecipes} sx={{ ...linkBtn(t1.link), mb: 2 }}>
+            View recipes
+          </Typography>
           <Box component="button" onClick={onAddRecipe} sx={pillBtn(t1.btn, t1.btnText)}>
             + Add Recipe
           </Box>

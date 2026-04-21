@@ -406,26 +406,6 @@ const INITIAL_RECIPES = (() => {
   }
 })();
 
-const STARTER_RECIPE_TITLES = new Set([
-  // Dinner
-  'Beef and Guiness Stew',
-  'Loco moco',
-  'Galbi tang',
-  // Lunch
-  'Watermelon salad',
-  'Broccoli cheddar soup',
-  'Honey lime chicken bowl',
-  // Breakfast
-  'Blueberry cream pancake',
-  'Banana Bread',
-  'Swiss croissant bake',
-  // Dessert
-  'Pear puff pastry',
-  'Berry yogurt bake'
-]);
-
-const STARTER_RECIPES = INITIAL_RECIPES.filter((r) => STARTER_RECIPE_TITLES.has(r.title));
-
 function getUniqueMealTypes(recipes) {
   const types = new Set();
   recipes.forEach((recipe) => {
@@ -1210,6 +1190,7 @@ function App() {
 
   // Friends state
   const [friends, setFriends] = useState([]);
+  const [friendsLoaded, setFriendsLoaded] = useState(false);
   // === [S04] Friend picker wiring ===
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerRecipeId, setPickerRecipeId] = useState(null);
@@ -1529,6 +1510,7 @@ function App() {
     try {
       const response = await callRecipesApi('/friends', {}, accessToken);
       setFriends(response?.friends ?? []);
+      setFriendsLoaded(true);
     } catch (error) {
       console.error('Error fetching friends:', error);
     }
@@ -2277,10 +2259,7 @@ function App() {
       serverVersionRef.current = serverVersion;
 
       const normalized = await fetchAllRecipes();
-      const existingTitles = new Set(normalized.map((r) => r.title));
-      const missingStarters = STARTER_RECIPES.filter((r) => !existingTitles.has(r.title));
-      const recipesToShow = [...normalized, ...missingStarters];
-      setRecipes(recipesToShow);
+      setRecipes(normalized);
       saveRecipesToCache(normalized, userId, serverVersion);
       pendingRecipesRef.current = null;
       setHasNewRecipes(false);
@@ -2558,8 +2537,6 @@ function App() {
     () => resolveRecipeImageUrl(newRecipeForm.title, newRecipeForm.imageUrl),
     [newRecipeForm.title, newRecipeForm.imageUrl]
   );
-
-  const resultsLabel = filteredRecipes.length === 1 ? '1 result' : `${filteredRecipes.length} results`;
 
   const handleMealTypeSelect = (value) => {
     setSelectedMealType((prev) => (prev === value ? '' : value));
@@ -4601,7 +4578,7 @@ function App() {
               <>
                 <StatsTiles
                   recipeCount={recipes.length}
-                  accessToken={accessToken}
+                  friendCount={friendsLoaded ? friends.length : null}
                   onAddRecipe={openAddDialog}
                   onViewRecipes={() => setCurrentView('recipes')}
                   onAddFriends={() => { setIsFriendsDialogOpen(true); setIsAddFriendOpen(true); fetchFriends(); }}
@@ -4629,6 +4606,10 @@ function App() {
               <RecipesPage
                 displayedRecipes={displayedRecipes}
                 filteredRecipes={filteredRecipes}
+                totalRecipes={recipes.length}
+                accessToken={accessToken}
+                onSaveSuggestion={handleSavePublicRecipe}
+                onOpenSuggestion={handleOpenEditorPickRecipe}
                 ingredientInput={ingredientInput}
                 setIngredientInput={setIngredientInput}
                 ingredientInputKeyCount={ingredientInputKeyCount}
@@ -4640,7 +4621,6 @@ function App() {
                 setIngredientInputFocused={setIngredientInputFocused}
                 setIngredientInputKeyCount={setIngredientInputKeyCount}
                 normalizedIngredients={normalizedIngredients}
-                resultsLabel={resultsLabel}
                 isMobile={isMobile}
                 searchBarRef={searchBarRef}
                 handleOpenRecipe={handleOpenRecipeDetails}
