@@ -84,6 +84,50 @@ describe('getFriendActivity', () => {
     expect(result[0].friendName).toBe('Jules'); // fallback: message.split(' ')[0]
     expect(mockDb.prepare).toHaveBeenCalledTimes(1); // confirms no spurious second query
   });
+
+  it('surfaces fromUserId on friend_request notifications', async () => {
+    const notificationRows = [
+      {
+        id: 4,
+        type: 'friend_request',
+        message: 'Jules sent you a friend request',
+        data: JSON.stringify({ fromUserId: 'user-jules', fromEmail: 'jules@example.com' }),
+        created_at: '2026-03-09T08:00:00Z',
+        read: 0,
+      },
+    ];
+
+    const mockDb = {
+      prepare: vi.fn()
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: notificationRows }) }),
+    } as unknown as D1Database;
+
+    const result = await getFriendActivity(mockDb, 'user-123');
+    expect(result).toHaveLength(1);
+    expect(result[0].fromUserId).toBe('user-jules');
+    expect(result[0].type).toBe('friend_request');
+  });
+
+  it('omits fromUserId when notification data blob does not have it', async () => {
+    const notificationRows = [
+      {
+        id: 5,
+        type: 'friend_cooked_recipe',
+        message: 'Sarah cooked Spicy Thai Noodles 🍳',
+        data: JSON.stringify({ cookerId: 'cook-1', friendName: 'Sarah' }),
+        created_at: '2026-03-10T10:00:00Z',
+        read: 0,
+      },
+    ];
+
+    const mockDb = {
+      prepare: vi.fn()
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: notificationRows }) }),
+    } as unknown as D1Database;
+
+    const result = await getFriendActivity(mockDb, 'user-123');
+    expect(result[0].fromUserId).toBeUndefined();
+  });
 });
 
 describe('getFriendsRecentlySaved', () => {

@@ -1556,6 +1556,7 @@ export async function getFriendActivity(
   type: string;
   message: string;
   friendName: string | null;
+  fromUserId?: string;
   recipe: { id: string; title: string; imageUrl: string | null; sourceUrl: string; ingredients: string[]; steps: string[] } | null;
   createdAt: string;
   read: boolean;
@@ -1604,11 +1605,13 @@ export async function getFriendActivity(
     const recipeId = d.recipeId as string | undefined;
     const friendName: string | null =
       (d.friendName as string | undefined) ?? item.message.split(' ')[0] ?? null;
+    const fromUserId = typeof d.fromUserId === 'string' ? d.fromUserId : undefined;
     return {
       id: item.id,
       type: item.type,
       message: item.message,
       friendName,
+      ...(fromUserId ? { fromUserId } : {}),
       recipe: recipeId ? (recipeMap.get(recipeId) ?? null) : null,
       createdAt: item.createdAt,
       read: item.read,
