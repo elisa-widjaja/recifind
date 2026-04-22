@@ -1884,10 +1884,15 @@ async function handleEnrichRecipe(request: Request, env: Env) {
     throw new HttpError(503, 'Enrichment service is not configured');
   }
 
+  // The iOS Share Extension hands us short URLs (vm.tiktok.com/xxx) that
+  // r.jina.ai can't always expand. Resolve to the canonical URL once, then
+  // hand that to both fetch paths.
+  const resolvedUrl = await resolveSourceUrl(sourceUrl);
+
   // Fetch content and og:image in parallel
   const [rawText, ogImage] = await Promise.all([
-    fetchRawRecipeText(sourceUrl),
-    fetchOgImage(sourceUrl)
+    fetchRawRecipeText(resolvedUrl),
+    fetchOgImage(resolvedUrl)
   ]);
 
   // If we couldn't scrape the page but have a title, let Gemini use its culinary knowledge
@@ -3981,6 +3986,45 @@ function resolveExternalUrl(value: string, baseUrl: string): string {
     return resolved.toString();
   } catch (error) {
     return value;
+  }
+}
+
+// Resolve iOS Share Extension short URLs (vm.tiktok.com, tiktok.com/t/..., etc.)
+// to their canonical form and strip tracking params. r.jina.ai and oEmbed both
+// return better results when given the fully-expanded URL.
+async function resolveSourceUrl(sourceUrl: string): Promise<string> {
+  try {
+    const parsed = new URL(sourceUrl);
+
+    // Strip known tracking params for stable cache keys and cleaner scrapes.
+    const trackingParams = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'igsh', 'ig_rid', 'fbclid'];
+    const clean = new URL(parsed.toString());
+    trackingParams.forEach((p) => clean.searchParams.delete(p));
+
+    // Short-URL hosts that 301/302-redirect to the canonical page.
+    const needsResolve =
+      parsed.hostname === 'vm.tiktok.com' ||
+      parsed.hostname === 'vt.tiktok.com' ||
+      (parsed.hostname.endsWith('tiktok.com') && parsed.pathname.startsWith('/t/')) ||
+      parsed.hostname === 'youtu.be';
+
+    if (!needsResolve) return clean.toString();
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    try {
+      const response = await fetch(clean.toString(), {
+        method: 'HEAD',
+        redirect: 'follow',
+        signal: controller.signal,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)' },
+      });
+      return response.url || clean.toString();
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  } catch {
+    return sourceUrl;
   }
 }
 
