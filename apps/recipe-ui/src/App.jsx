@@ -1374,8 +1374,8 @@ function App() {
         setNewRecipeErrors({});
         setNewRecipePrefillInfo({ matched: false, hasIngredients: false, hasSteps: false });
         setSourceParseState({ status: 'idle', message: '' });
-        setIsAddDialogOpen(true);
         setAddRecipeSource('share-extension');
+        setIsAddDialogOpen(true);
       },
       onFriendRequests: () => {
         setCurrentView('friend-requests');
@@ -3886,6 +3886,7 @@ function App() {
       setNewRecipeErrors({});
       setNewRecipePrefillInfo({ matched: false, hasIngredients: false, hasSteps: false });
       setIsAddDialogOpen(false);
+      setAddRecipeSource(null);
       setSnackbarState({
         open: true,
         message,
