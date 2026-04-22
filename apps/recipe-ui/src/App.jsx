@@ -3887,6 +3887,16 @@ function App() {
 
     if (Object.keys(errors).length > 0) {
       setNewRecipeErrors(errors);
+      // The share-extension layout renders no URL/title fields, so
+      // field-level errors are invisible. Surface them via snackbar so
+      // the user isn't stuck tapping Save with no feedback.
+      if (addRecipeSource === 'share-extension') {
+        setSnackbarState({
+          open: true,
+          message: errors.sourceUrl || errors.title || 'Unable to save recipe.',
+          severity: 'error',
+        });
+      }
       return;
     }
 

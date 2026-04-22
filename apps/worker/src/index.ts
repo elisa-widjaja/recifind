@@ -1826,6 +1826,16 @@ async function handleParseRecipe(request: Request) {
     throw new HttpError(400, 'sourceUrl must use http or https');
   }
 
+  // Resolve iOS short URLs (vm.tiktok.com/xxx, youtu.be/xxx) to their
+  // canonical form so oEmbed + og scraping work the same as when a user
+  // pastes a full URL on web.
+  const resolved = await resolveSourceUrl(parsedUrl.toString());
+  try {
+    parsedUrl = new URL(resolved);
+  } catch {
+    // Fall back to the original parsedUrl if resolution produced something bad.
+  }
+
   // For TikTok URLs, use oEmbed API to get the title since direct HTML returns generic "TikTok - Make Your Day"
   if (parsedUrl.hostname.includes('tiktok.com')) {
     try {
