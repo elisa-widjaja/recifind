@@ -4053,12 +4053,11 @@ async function fetchOembedCaption(
   try {
     const parsed = new URL(sourceUrl);
     let oembedUrl: string | null = null;
-    let normalizedUrl = sourceUrl;
 
     if (parsed.hostname.includes('tiktok.com')) {
       oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(sourceUrl)}`;
     } else if (parsed.hostname.includes('instagram.com')) {
-      normalizedUrl = sourceUrl.split('?')[0].replace(/\/?$/, '/');
+      const normalizedUrl = sourceUrl.split('?')[0].replace(/\/?$/, '/');
       oembedUrl = `https://www.instagram.com/oembed/?omitscript=true&url=${encodeURIComponent(normalizedUrl)}`;
     } else if (parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be')) {
       oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(sourceUrl)}&format=json`;
@@ -4080,7 +4079,8 @@ async function fetchOembedCaption(
                                            parsed.hostname.includes('instagram.com') ? 'Instagram creator' :
                                            'YouTube creator');
     return `Recipe by ${author}:\n\n${caption}`;
-  } catch {
+  } catch (err) {
+    console.log('[enrich]', { strategy: 'oembed-caption', url: sourceUrl, outcome: 'error', error: String(err) });
     return null;
   }
 }
