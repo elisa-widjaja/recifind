@@ -909,6 +909,15 @@ function getAvatarColor(id) {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
+function getHomeGreetingMessage(date = new Date()) {
+  const hour = date.getHours();
+  if (hour >= 5 && hour < 11)  return "good morning — what's cooking today?";
+  if (hour >= 11 && hour < 14) return 'lunch is calling.';
+  if (hour >= 14 && hour < 17) return 'planning something for tonight?';
+  if (hour >= 17 && hour < 21) return "what's for dinner?";
+  return 'craving a midnight snack?';
+}
+
 
 function App() {
   // Use window width directly for reliable mobile detection
@@ -4311,19 +4320,45 @@ function App() {
               <Box
                 component="button"
                 onClick={() => {
+                  setCurrentView('home');
+                  setMobileFilterDrawerOpen(false);
+                }}
+                sx={(theme) => ({
+                  display: 'flex', alignItems: 'center', width: '100%',
+                  mt: 1, px: 0, py: 1.25, gap: 1.5, border: 'none', bgcolor: 'transparent',
+                  cursor: 'pointer', fontFamily: 'inherit',
+                  color: currentView === 'home' ? 'text.primary' : 'text.secondary',
+                  borderRadius: 1,
+                  '&:hover': { color: 'text.primary' },
+                })}
+              >
+                <Box sx={{ width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:22,height:22}}>
+                    <path d="M3 10.5C3 9.67 3.37 8.88 4.01 8.35L10.01 3.35C11.16 2.39 12.84 2.39 13.99 3.35L19.99 8.35C20.63 8.88 21 9.67 21 10.5V19C21 20.1 20.1 21 19 21H5C3.9 21 3 20.1 3 19V10.5Z"/>
+                    <path d="M9 21V14H15V21"/>
+                  </svg>
+                </Box>
+                <Typography variant="body2" fontWeight={currentView === 'home' ? 600 : 500} sx={{ flex: 1, textAlign: 'left' }}>Home</Typography>
+              </Box>
+              <Box
+                component="button"
+                onClick={() => {
                   setCurrentView('recipes');
                   setMobileFilterDrawerOpen(false);
                 }}
                 sx={(theme) => ({
                   display: 'flex', alignItems: 'center', width: '100%',
-                  mt: 1, px: 0, py: 0.75, gap: 1, border: 'none', bgcolor: 'transparent',
-                  cursor: 'pointer', fontFamily: 'inherit', color: 'text.secondary',
+                  px: 0, py: 1.25, gap: 1.5, border: 'none', bgcolor: 'transparent',
+                  cursor: 'pointer', fontFamily: 'inherit',
+                  color: currentView === 'recipes' ? 'text.primary' : 'text.secondary',
                   borderRadius: 1,
                   '&:hover': { color: 'text.primary' },
                 })}
               >
-                <Typography sx={{ fontSize: 18, lineHeight: 1 }}>🍳</Typography>
-                <Typography variant="body2" fontWeight={600} sx={{ flex: 1, textAlign: 'left' }}>Recipes</Typography>
+                <Box sx={{ width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 20, lineHeight: 1 }}>
+                  🍳
+                </Box>
+                <Typography variant="body2" fontWeight={currentView === 'recipes' ? 600 : 500} sx={{ flex: 1, textAlign: 'left' }}>Recipes</Typography>
                 <Typography variant="body2">{recipes.length}</Typography>
               </Box>
             </Box>
@@ -4598,6 +4633,35 @@ function App() {
           <Stack spacing={1.5}>
             {currentView === 'home' && session && (
               <>
+                <Box>
+                  <Typography
+                    sx={{
+                      fontFamily: "'Fraunces', Georgia, serif",
+                      fontWeight: 600,
+                      fontSize: '26px',
+                      lineHeight: 1.2,
+                      letterSpacing: '-0.01em',
+                      color: 'text.primary',
+                    }}
+                  >
+                    <Box component="span" sx={{ mr: '8px', fontSize: '20px' }} aria-hidden>👋</Box>
+                    {(userProfile?.displayName || session.user?.email?.split('@')[0] || 'there').split(' ')[0]}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      fontFamily: "'Fraunces', Georgia, serif",
+                      fontStyle: 'italic',
+                      fontWeight: 400,
+                      fontSize: '20px',
+                      color: 'text.secondary',
+                      mt: '4px',
+                      lineHeight: 1.25,
+                    }}
+                  >
+                    {getHomeGreetingMessage()}
+                  </Typography>
+                </Box>
+                <Box sx={{ height: '8px', flexShrink: 0 }} aria-hidden />
                 <StatsTiles
                   recipeCount={recipes.length}
                   friendCount={friendsLoaded ? friends.length : null}

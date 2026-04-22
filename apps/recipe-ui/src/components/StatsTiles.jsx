@@ -4,7 +4,6 @@ export default function StatsTiles({ recipeCount, friendCount, onAddRecipe, onVi
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
 
-  const recipesEmpty = recipeCount === 0;
   const friendsEmpty = friendCount === 0;
   const friendDisplay = friendCount === null ? '--' : friendCount;
 
@@ -64,7 +63,7 @@ export default function StatsTiles({ recipeCount, friendCount, onAddRecipe, onVi
           {recipeCount}
         </Typography>
         <Typography sx={{ fontSize: 12, color: t1.sub, flex: 1 }}>
-          {recipesEmpty ? "You don't have any saved recipes yet" : 'Saved recipes'}
+          Saved recipes
         </Typography>
         {/* Actions pinned to bottom */}
         <Stack spacing={0} sx={{ mt: 'auto' }}>

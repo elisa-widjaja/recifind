@@ -226,9 +226,13 @@ export default function RecipesPage({
           </Button>
         </Box>
 
-        {totalRecipes === 0 && (
+        {totalRecipes === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
             You haven&rsquo;t saved any recipes yet
+          </Typography>
+        ) : (
+          <Typography variant="caption" color="text.secondary">
+            {filteredRecipes.length === 1 ? '1 result' : `${filteredRecipes.length} results`}
           </Typography>
         )}
 
