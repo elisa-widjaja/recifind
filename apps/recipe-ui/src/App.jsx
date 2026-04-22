@@ -1016,6 +1016,7 @@ function App() {
   const [activeRecipeDraft, setActiveRecipeDraft] = useState(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [addRecipeSource, setAddRecipeSource] = useState(null); // 'share-extension' | 'manual' | null
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
   const [isFirstRecipe, setIsFirstRecipe] = useState(false);
   const [newRecipeForm, setNewRecipeForm] = useState(() => ({ ...NEW_RECIPE_TEMPLATE }));
   const [newRecipeErrors, setNewRecipeErrors] = useState({});
@@ -1121,6 +1122,14 @@ function App() {
       events.forEach(e => window.removeEventListener(e, onActivity));
     };
   }, [feedbackEligible]);
+
+  useEffect(() => {
+    if (!isAddDialogOpen) setImageLoadFailed(false);
+  }, [isAddDialogOpen]);
+
+  useEffect(() => {
+    setImageLoadFailed(false);
+  }, [newRecipeForm.imageUrl]);
 
   const handleSubmitFeedback = async () => {
     if (!feedbackFrequency) return;
@@ -4109,6 +4118,12 @@ function App() {
   };
   // === [/S04] ===
 
+  const useIosShareLayout = isMobile && addRecipeSource === 'share-extension';
+  const hasTitle = Boolean(newRecipeForm.title && newRecipeForm.title.trim());
+  const hasImage = Boolean(newRecipeForm.imageUrl && newRecipeForm.imageUrl.trim());
+  const shareLayoutIsLoading = useIosShareLayout && !hasTitle && sourceParseState.status === 'loading';
+  const shareLayoutIsError = useIosShareLayout && !hasTitle && sourceParseState.status === 'error';
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -5477,52 +5492,143 @@ function App() {
             <Typography variant="h6" sx={{ fontWeight: 600 }}>{isFirstRecipe ? 'Add your first recipe' : 'Add recipe'}</Typography>
           </Box>
           {/* Fields */}
-          <Box sx={{ px: 3, pt: 1, pb: 1, display: 'flex', flexDirection: 'column', gap: 2, position: 'relative' }}>
-            <TextField
-              label="Source URL"
-              value={newRecipeForm.sourceUrl}
-              onChange={handleNewRecipeChange('sourceUrl')}
-              required
-              fullWidth
-              placeholder="https://example.com/recipe"
-              error={Boolean(newRecipeErrors.sourceUrl)}
-              helperText={
-                newRecipeErrors.sourceUrl ||
-                (isFirstRecipe ? 'Paste an Instagram, TikTok or YouTube link' : 'Link to the original recipe or video.')
-              }
-            />
-            <TextField
-              label="Title"
-              value={newRecipeForm.title}
-              onChange={handleNewRecipeChange('title')}
-              required
-              fullWidth
-              error={Boolean(newRecipeErrors.title)}
-              helperText={newRecipeErrors.title}
-            />
-            {sourceParseState.status === 'loading' && (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
-                <CircularProgress size={20} />
-                <Typography variant="body2" color="text.secondary">
-                  {sourceParseState.message || 'Parsing recipe details...'}
-                </Typography>
+          {useIosShareLayout ? (
+            <Box sx={{ px: 3, pt: 1, pb: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {/* Preview row: thumbnail + title */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                {/* Thumbnail */}
+                {shareLayoutIsLoading ? (
+                  <Skeleton variant="rectangular" width={96} height={96} sx={{ borderRadius: '8px', flexShrink: 0 }} />
+                ) : hasImage && !imageLoadFailed ? (
+                  <Box
+                    component="img"
+                    src={newRecipeForm.imageUrl}
+                    alt={newRecipeForm.title || 'Recipe thumbnail'}
+                    onError={() => setImageLoadFailed(true)}
+                    sx={{ width: 96, height: 96, borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }}
+                  />
+                ) : (
+                  <Box
+                    sx={{
+                      width: 96, height: 96, borderRadius: '8px', flexShrink: 0,
+                      bgcolor: darkMode ? 'rgba(255,255,255,0.08)' : 'grey.200',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 32,
+                    }}
+                    aria-hidden="true"
+                  >
+                    🍳
+                  </Box>
+                )}
+                {/* Title + Edit link */}
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  {shareLayoutIsLoading ? (
+                    <>
+                      <Skeleton variant="text" width="90%" height={24} />
+                      <Skeleton variant="text" width="60%" height={20} />
+                    </>
+                  ) : (
+                    <>
+                      <Typography
+                        variant="subtitle1"
+                        sx={{
+                          fontWeight: 600,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          wordBreak: 'break-word',
+                        }}
+                      >
+                        {hasTitle ? newRecipeForm.title : 'Untitled recipe'}
+                      </Typography>
+                      {/* Edit link — wiring added in Task 3 */}
+                      <Typography
+                        component="button"
+                        type="button"
+                        onClick={() => {}}
+                        sx={{
+                          background: 'none', border: 'none', p: 0, mt: 0.5, cursor: 'pointer',
+                          color: 'primary.main', fontSize: '0.8rem',
+                          '&:hover': { textDecoration: 'underline' },
+                        }}
+                      >
+                        Edit
+                      </Typography>
+                    </>
+                  )}
+                </Box>
               </Box>
-            )}
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={Boolean(newRecipeForm.sharedWithFriends)}
-                  onChange={(e) => setNewRecipeForm((prev) => ({ ...prev, sharedWithFriends: e.target.checked }))}
-                  color="primary"
-                />
-              }
-              label="Make it public"
-              sx={{ ml: 'calc(-4px - 2px)', mt: 1 }}
-            />
-          </Box>
+              {shareLayoutIsError && (
+                <Typography variant="caption" color="error">
+                  Couldn't fetch recipe details. Edit title to save.
+                </Typography>
+              )}
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={Boolean(newRecipeForm.sharedWithFriends)}
+                    onChange={(e) => setNewRecipeForm((prev) => ({ ...prev, sharedWithFriends: e.target.checked }))}
+                    color="primary"
+                  />
+                }
+                label="Make it public"
+                sx={{ ml: 'calc(-4px - 2px)', mt: 1 }}
+              />
+            </Box>
+          ) : (
+            <Box sx={{ px: 3, pt: 1, pb: 1, display: 'flex', flexDirection: 'column', gap: 2, position: 'relative' }}>
+              <TextField
+                label="Source URL"
+                value={newRecipeForm.sourceUrl}
+                onChange={handleNewRecipeChange('sourceUrl')}
+                required
+                fullWidth
+                placeholder="https://example.com/recipe"
+                error={Boolean(newRecipeErrors.sourceUrl)}
+                helperText={
+                  newRecipeErrors.sourceUrl ||
+                  (isFirstRecipe ? 'Paste an Instagram, TikTok or YouTube link' : 'Link to the original recipe or video.')
+                }
+              />
+              <TextField
+                label="Title"
+                value={newRecipeForm.title}
+                onChange={handleNewRecipeChange('title')}
+                required
+                fullWidth
+                error={Boolean(newRecipeErrors.title)}
+                helperText={newRecipeErrors.title}
+              />
+              {sourceParseState.status === 'loading' && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
+                  <CircularProgress size={20} />
+                  <Typography variant="body2" color="text.secondary">
+                    {sourceParseState.message || 'Parsing recipe details...'}
+                  </Typography>
+                </Box>
+              )}
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={Boolean(newRecipeForm.sharedWithFriends)}
+                    onChange={(e) => setNewRecipeForm((prev) => ({ ...prev, sharedWithFriends: e.target.checked }))}
+                    color="primary"
+                  />
+                }
+                label="Make it public"
+                sx={{ ml: 'calc(-4px - 2px)', mt: 1 }}
+              />
+            </Box>
+          )}
           {/* Actions */}
           <Box sx={{ px: 3, pb: 2, pt: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-            <Button type="submit" variant="contained" sx={{ px: 4, width: '100%', maxWidth: 280 }}>
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={shareLayoutIsLoading}
+              sx={{ px: 4, width: '100%', maxWidth: 280 }}
+            >
               Save recipe
             </Button>
             <Typography
