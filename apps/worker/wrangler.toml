@@ -44,3 +44,41 @@ SUPABASE_STORAGE_BUCKET = "recipe-previews"
 
 [triggers]
 crons = ["0 * * * *"]
+
+# Dev environment — deployed worker on api-dev.recifriend.com.
+# Shares the same D1/KV as prod (matches prior `wrangler dev --remote` behavior).
+# Deploy with: cd apps/worker && npx wrangler deploy --env dev
+[env.dev]
+name = "recipes-worker-dev"
+workers_dev = false
+routes = [
+  { pattern = "api-dev.recifriend.com/*", zone_name = "recifriend.com" }
+]
+
+[env.dev.observability]
+enabled = true
+
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "recipes-db"
+database_id = "b02df58e-38fa-4c26-896a-5323bcc9d35d"
+migrations_dir = "migrations"
+
+[[env.dev.kv_namespaces]]
+binding = "AI_PICKS_CACHE"
+id = "d5c0419e6a2e4b5aadc271a376a73b01"
+
+[[env.dev.kv_namespaces]]
+binding = "KV_RATE"
+id = "9d046018460a42ec803ac41f77b5cd10"
+
+[env.dev.vars]
+AUTH_ISSUER = "https://jpjuaaxwfpemecbwwthk.supabase.co/auth/v1"
+AUTH_AUDIENCE = "authenticated"
+AUTH_JWKS_URL = "https://jpjuaaxwfpemecbwwthk.supabase.co/auth/v1/.well-known/jwks.json"
+SUPABASE_URL = "https://jpjuaaxwfpemecbwwthk.supabase.co"
+SUPABASE_STORAGE_BUCKET = "recipe-previews"
+
+# No cron on dev — prevents duplicate hourly runs.
+[env.dev.triggers]
+crons = []
