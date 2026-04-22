@@ -111,6 +111,7 @@ import { shareRecipe } from './lib/shareRecipe';
 import { Capacitor } from '@capacitor/core';
 import { Browser } from '@capacitor/browser';
 import { App as CapacitorApp } from '@capacitor/app';
+import { Preferences } from '@capacitor/preferences';
 import { createDispatcher } from './lib/deepLinkDispatch';
 // === [/S09] ===
 // === [S11] Push client ===
@@ -1422,8 +1423,10 @@ function App() {
   }, [dispatchDeepLink]);
 
   // Handle cold-start deep link (app was killed, opened via link).
-  // getLaunchUrl() persists across calls — guard with a ref so the URL
-  // fires at most once per app session.
+  // getLaunchUrl() persists at the native level across app launches — iOS
+  // keeps returning the last-used deep link URL on every cold start, so
+  // de-dupe across sessions via Preferences. Also guard within a session
+  // with a ref so a re-render can't re-fire the dispatch.
   const launchUrlDispatchedRef = useRef(false);
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -1431,7 +1434,11 @@ function App() {
     launchUrlDispatchedRef.current = true;
     (async () => {
       const launch = await CapacitorApp.getLaunchUrl();
-      if (launch?.url) dispatchDeepLink(launch.url);
+      if (!launch?.url) return;
+      const { value: lastConsumed } = await Preferences.get({ key: 'lastConsumedLaunchUrl' });
+      if (lastConsumed === launch.url) return;
+      await Preferences.set({ key: 'lastConsumedLaunchUrl', value: launch.url });
+      dispatchDeepLink(launch.url);
     })();
   }, [dispatchDeepLink]);
   // === [/S09] ===
