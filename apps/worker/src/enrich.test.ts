@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRawRecipeText, fetchOembedCaption } from './index';
+import { fetchRawRecipeText, fetchOembedCaption, captionExtract } from './index';
+import type { Env } from './index';
 
 describe('fetchRawRecipeText', () => {
   afterEach(() => {
@@ -156,5 +157,103 @@ describe('fetchOembedCaption', () => {
       { fetchImpl: mockFetch }
     );
     expect(result).toBeNull();
+  });
+});
+
+describe('captionExtract', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const fakeEnv = {} as Env;
+  const baseDeps = {
+    getAccessToken: async () => 'fake-token',
+    getServiceAccount: async () => ({
+      client_email: 'svc@example.com',
+      private_key: 'fake-key',
+      token_uri: 'https://oauth2.googleapis.com/token',
+      project_id: 'proj-123'
+    })
+  };
+
+  it('returns empty result when caption fetch returns null', async () => {
+    const deps = {
+      ...baseDeps,
+      fetchOembedCaption: async () => null,
+      fetchImpl: vi.fn() as unknown as typeof fetch,
+    };
+    const result = await captionExtract(fakeEnv, 'https://example.com/recipe', 'Pasta', deps);
+    expect(result.ingredients).toEqual([]);
+    expect(result.steps).toEqual([]);
+    expect(deps.fetchImpl).not.toHaveBeenCalled(); // no Gemini call
+  });
+
+  it('returns empty result when caption is shorter than 50 chars', async () => {
+    const deps = {
+      ...baseDeps,
+      fetchOembedCaption: async () => 'too short',
+      fetchImpl: vi.fn() as unknown as typeof fetch,
+    };
+    const result = await captionExtract(fakeEnv, 'https://tiktok.com/x', 'Pasta', deps);
+    expect(result.ingredients).toEqual([]);
+    expect(deps.fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('passes caption to Gemini and returns parsed result', async () => {
+    const longCaption = 'Recipe by chef_jane:\n\nBest pasta ever. Ingredients:\n- 1 cup flour\n- 2 eggs\n\nInstructions:\n1. Mix flour and eggs\n2. Knead for 5 min';
+    const mockFetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: JSON.stringify({
+          ingredients: ['1 cup flour', '2 eggs'],
+          steps: ['Mix flour and eggs', 'Knead for 5 min'],
+          mealTypes: [],
+          durationMinutes: null,
+          notes: '',
+          title: 'Best pasta ever'
+        }) }] } }]
+      })
+    })) as unknown as typeof fetch;
+
+    const deps = {
+      ...baseDeps,
+      fetchOembedCaption: async () => longCaption,
+      fetchImpl: mockFetch,
+    };
+    const result = await captionExtract(fakeEnv, 'https://tiktok.com/@chef/video/1', 'Pasta', deps);
+    expect(result.ingredients).toEqual(['1 cup flour', '2 eggs']);
+    expect(result.steps).toEqual(['Mix flour and eggs', 'Knead for 5 min']);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    // Prompt should explicitly ask for extract-only, not inference
+    const parsedBody = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    const promptText = parsedBody.contents[0].parts[0].text;
+    expect(promptText).toContain('Extract ONLY what is explicitly present');
+    expect(promptText).toContain(longCaption);
+  });
+
+  it('returns empty result when Gemini returns empty arrays', async () => {
+    const longCaption = 'Recipe by chef_jane:\n\nLove this pasta so good yum yum. Tried it last weekend.';
+    const mockFetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: JSON.stringify({
+          ingredients: [],
+          steps: [],
+          mealTypes: [],
+          durationMinutes: null,
+          notes: '',
+          title: ''
+        }) }] } }]
+      })
+    })) as unknown as typeof fetch;
+
+    const deps = {
+      ...baseDeps,
+      fetchOembedCaption: async () => longCaption,
+      fetchImpl: mockFetch,
+    };
+    const result = await captionExtract(fakeEnv, 'https://tiktok.com/x', 'Pasta', deps);
+    expect(result.ingredients).toEqual([]);
+    expect(result.steps).toEqual([]);
   });
 });

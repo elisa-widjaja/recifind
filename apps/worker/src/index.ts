@@ -4086,6 +4086,105 @@ async function fetchOembedCaption(
   }
 }
 
+// Enrichment result shape shared by all strategy functions. When a strategy
+// cannot extract, it returns this object with empty arrays — the orchestrator
+// treats empty ingredients+steps as the fall-through signal.
+type EnrichmentResult = {
+  title: string;
+  imageUrl: string;
+  mealTypes: string[];
+  ingredients: string[];
+  steps: string[];
+  durationMinutes: number | null;
+  notes: string;
+};
+
+const EMPTY_ENRICHMENT: EnrichmentResult = {
+  title: '',
+  imageUrl: '',
+  mealTypes: [],
+  ingredients: [],
+  steps: [],
+  durationMinutes: null,
+  notes: '',
+};
+
+function buildExtractOnlyPrompt(captionText: string): string {
+  return `You are extracting a recipe from a social-media caption. Extract ONLY what is explicitly present. DO NOT invent ingredients, quantities, or steps.
+
+Rules:
+- If the caption lists ingredients (bullet points, numbered, or comma-separated after "Ingredients:"), extract each one verbatim.
+- If the caption describes steps (numbered, "Step 1:", "Method:", etc.), extract each step verbatim. Preserve the creator's voice and phrasing.
+- Minor normalization is OK: "tbs" -> "tbsp", "1c" -> "1 cup".
+- If the caption does NOT contain explicit ingredients OR explicit steps, return empty arrays. DO NOT guess from the title or general culinary knowledge.
+
+Return JSON matching this schema:
+{ "ingredients": [], "steps": [], "mealTypes": [], "durationMinutes": null, "notes": "", "title": "" }
+
+Caption:
+${captionText}`;
+}
+
+function parsedToEnrichmentResult(parsed: any): EnrichmentResult {
+  return {
+    title: typeof parsed?.title === 'string' ? parsed.title.trim() : '',
+    imageUrl: typeof parsed?.imageUrl === 'string' ? parsed.imageUrl.trim() : '',
+    mealTypes: Array.isArray(parsed?.mealTypes) ? sanitizeStringArray(parsed.mealTypes) : [],
+    ingredients: Array.isArray(parsed?.ingredients) ? sanitizeStringArray(parsed.ingredients) : [],
+    steps: Array.isArray(parsed?.steps) ? sanitizeStringArray(parsed.steps) : [],
+    durationMinutes:
+      typeof parsed?.durationMinutes === 'number' && Number.isFinite(parsed.durationMinutes)
+        ? Math.max(0, Math.round(parsed.durationMinutes))
+        : null,
+    notes: typeof parsed?.notes === 'string' ? parsed.notes.trim() : '',
+  };
+}
+
+type CaptionExtractDeps = {
+  fetchOembedCaption?: typeof fetchOembedCaption;
+  fetchImpl?: typeof fetch;
+  getAccessToken?: (env: Env) => Promise<string>;
+  getServiceAccount?: (env: Env) => Promise<GeminiServiceAccount>;
+};
+
+async function captionExtract(
+  env: Env,
+  sourceUrl: string,
+  _title: string,
+  deps: CaptionExtractDeps = {}
+): Promise<EnrichmentResult> {
+  const startedAt = Date.now();
+  const captionFetcher = deps.fetchOembedCaption ?? fetchOembedCaption;
+  let caption: string | null = null;
+  try {
+    caption = await captionFetcher(sourceUrl, { fetchImpl: deps.fetchImpl });
+  } catch (err) {
+    console.log('[enrich]', { strategy: 'caption-extract', url: sourceUrl, outcome: 'error', duration_ms: Date.now() - startedAt, error: String(err) });
+    return EMPTY_ENRICHMENT;
+  }
+
+  if (!caption || caption.length < 50) {
+    console.log('[enrich]', { strategy: 'caption-extract', url: sourceUrl, captionLength: caption?.length ?? 0, outcome: 'empty', duration_ms: Date.now() - startedAt });
+    return EMPTY_ENRICHMENT;
+  }
+
+  try {
+    const completion = await callGemini(env, buildExtractOnlyPrompt(caption), {
+      fetchImpl: deps.fetchImpl,
+      getAccessToken: deps.getAccessToken,
+      getServiceAccount: deps.getServiceAccount,
+    });
+    const parsed = parseGeminiRecipeJson(completion);
+    const result = parsed ? parsedToEnrichmentResult(parsed) : EMPTY_ENRICHMENT;
+    const isEmpty = result.ingredients.length === 0 && result.steps.length === 0;
+    console.log('[enrich]', { strategy: 'caption-extract', url: sourceUrl, captionLength: caption.length, outcome: isEmpty ? 'empty' : 'extracted', duration_ms: Date.now() - startedAt });
+    return result;
+  } catch (err) {
+    console.log('[enrich]', { strategy: 'caption-extract', url: sourceUrl, captionLength: caption.length, outcome: 'error', duration_ms: Date.now() - startedAt, error: String(err) });
+    return EMPTY_ENRICHMENT;
+  }
+}
+
 async function fetchRawRecipeText(sourceUrl: string | undefined) {
   if (!sourceUrl) {
     return null;
@@ -4551,4 +4650,5 @@ export {
   buildGeminiPrompt,
   parseGeminiRecipeJson,
   fetchOembedCaption,
+  captionExtract,
 };
