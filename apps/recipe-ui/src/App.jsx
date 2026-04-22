@@ -1678,6 +1678,15 @@ function App() {
   };
 
   const handleOpenEditorPickRecipe = (recipe) => {
+    // When the user's own recipe surfaces in home-feed sections (e.g., a
+    // friend recently shared it back, or it matches trending criteria),
+    // open it with the owner three-dot menu rather than the share/save
+    // template. Only recipes owned by someone else should be treated as
+    // shared.
+    if (recipe?.userId && session?.user?.id && recipe.userId === session.user.id) {
+      handleOpenRecipeDetails(recipe);
+      return;
+    }
     const safe = {
       ...recipe,
       ingredients: Array.isArray(recipe.ingredients) ? recipe.ingredients : [],
