@@ -2607,6 +2607,11 @@ function App() {
     if (!recipe) {
       return;
     }
+    // Reset shared-recipe flags so an own recipe opened right after a shared
+    // recipe (e.g., closing a friend's recipe and tapping one of mine) renders
+    // with the owner-layout three-dot menu, not the share/save template.
+    setIsSharedRecipeView(false);
+    setSharedRecipeOwnerId(null);
     setActiveRecipe(recipe);
     setIsEditMode(false);
     trackEvent('view_recipe', { recipe_title: recipe.title });
