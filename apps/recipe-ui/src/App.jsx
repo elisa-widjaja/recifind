@@ -1017,6 +1017,8 @@ function App() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [addRecipeSource, setAddRecipeSource] = useState(null); // 'share-extension' | 'manual' | null
   const [imageLoadFailed, setImageLoadFailed] = useState(false);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const titlePreEditRef = useRef('');
   const [isFirstRecipe, setIsFirstRecipe] = useState(false);
   const [newRecipeForm, setNewRecipeForm] = useState(() => ({ ...NEW_RECIPE_TEMPLATE }));
   const [newRecipeErrors, setNewRecipeErrors] = useState({});
@@ -1124,7 +1126,10 @@ function App() {
   }, [feedbackEligible]);
 
   useEffect(() => {
-    if (!isAddDialogOpen) setImageLoadFailed(false);
+    if (!isAddDialogOpen) {
+      setImageLoadFailed(false);
+      setIsEditingTitle(false);
+    }
   }, [isAddDialogOpen]);
 
   useEffect(() => {
@@ -5511,7 +5516,7 @@ function App() {
                   <Box
                     sx={{
                       width: 96, height: 96, borderRadius: '8px', flexShrink: 0,
-                      bgcolor: darkMode ? 'rgba(255,255,255,0.08)' : 'grey.200',
+                      bgcolor: 'action.hover',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontSize: 32,
                     }}
@@ -5529,32 +5534,66 @@ function App() {
                     </>
                   ) : (
                     <>
-                      <Typography
-                        variant="subtitle1"
-                        sx={{
-                          fontWeight: 600,
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                          wordBreak: 'break-word',
-                        }}
-                      >
-                        {hasTitle ? newRecipeForm.title : 'Untitled recipe'}
-                      </Typography>
-                      {/* Edit link — wiring added in Task 3 */}
-                      <Typography
-                        component="button"
-                        type="button"
-                        onClick={() => {}}
-                        sx={{
-                          background: 'none', border: 'none', p: 0, mt: 0.5, cursor: 'pointer',
-                          color: 'primary.main', fontSize: '0.8rem',
-                          '&:hover': { textDecoration: 'underline' },
-                        }}
-                      >
-                        Edit
-                      </Typography>
+                      {isEditingTitle ? (
+                        <TextField
+                          value={newRecipeForm.title}
+                          onChange={(e) => setNewRecipeForm((prev) => ({ ...prev, title: e.target.value }))}
+                          onBlur={() => {
+                            setNewRecipeForm((prev) => ({
+                              ...prev,
+                              title: (prev.title || '').trim() || 'Untitled recipe',
+                            }));
+                            setIsEditingTitle(false);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              e.currentTarget.blur();
+                            } else if (e.key === 'Escape') {
+                              e.preventDefault();
+                              setNewRecipeForm((prev) => ({ ...prev, title: titlePreEditRef.current }));
+                              setIsEditingTitle(false);
+                            }
+                          }}
+                          autoFocus
+                          size="small"
+                          fullWidth
+                          inputProps={{ 'aria-label': 'Recipe title' }}
+                          onFocus={(e) => e.target.select()}
+                        />
+                      ) : (
+                        <>
+                          <Typography
+                            variant="subtitle1"
+                            sx={{
+                              fontWeight: 600,
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                              wordBreak: 'break-word',
+                            }}
+                          >
+                            {hasTitle ? newRecipeForm.title : 'Untitled recipe'}
+                          </Typography>
+                          <Typography
+                            component="button"
+                            type="button"
+                            variant="caption"
+                            onClick={() => {
+                              titlePreEditRef.current = newRecipeForm.title || '';
+                              setIsEditingTitle(true);
+                            }}
+                            sx={{
+                              background: 'none', border: 'none', p: 0, mt: 0.5, cursor: 'pointer',
+                              color: 'primary.main',
+                              '&:hover': { textDecoration: 'underline' },
+                            }}
+                          >
+                            Edit
+                          </Typography>
+                        </>
+                      )}
                     </>
                   )}
                 </Box>
