@@ -3849,7 +3849,12 @@ function App() {
 
     const errors = {};
 
-    const title = newRecipeForm.title.trim();
+    // Share-extension layout hides the title error helper; substitute a default
+    // so the drawer never silently no-ops on a whitespace-only title.
+    const trimmedTitle = newRecipeForm.title.trim();
+    const title = addRecipeSource === 'share-extension' && !trimmedTitle
+      ? 'Untitled recipe'
+      : trimmedTitle;
     if (!title) {
       errors.title = 'Title is required.';
     }
