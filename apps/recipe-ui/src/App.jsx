@@ -1015,6 +1015,7 @@ function App() {
   const [activeRecipe, setActiveRecipe] = useState(null);
   const [activeRecipeDraft, setActiveRecipeDraft] = useState(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [addRecipeSource, setAddRecipeSource] = useState(null); // 'share-extension' | 'manual' | null
   const [isFirstRecipe, setIsFirstRecipe] = useState(false);
   const [newRecipeForm, setNewRecipeForm] = useState(() => ({ ...NEW_RECIPE_TEMPLATE }));
   const [newRecipeErrors, setNewRecipeErrors] = useState({});
@@ -1374,6 +1375,7 @@ function App() {
         setNewRecipePrefillInfo({ matched: false, hasIngredients: false, hasSteps: false });
         setSourceParseState({ status: 'idle', message: '' });
         setIsAddDialogOpen(true);
+        setAddRecipeSource('share-extension');
       },
       onFriendRequests: () => {
         setCurrentView('friend-requests');
@@ -2408,6 +2410,7 @@ function App() {
     setNewRecipeErrors({});
     setNewRecipePrefillInfo({ matched: false, hasIngredients: false, hasSteps: false });
     setSourceParseState({ status: 'idle', message: '' });
+    setAddRecipeSource('manual');
     setIsAddDialogOpen(true);
   }, [isAuthChecked]);
 
@@ -3444,12 +3447,14 @@ function App() {
     setNewRecipeErrors({});
     setNewRecipePrefillInfo({ matched: false, hasIngredients: false, hasSteps: false });
     setSourceParseState({ status: 'idle', message: '' });
+    setAddRecipeSource('manual');
     setIsAddDialogOpen(true);
   };
 
   const closeAddDialog = () => {
     setIsAddDialogOpen(false);
     setIsFirstRecipe(false);
+    setAddRecipeSource(null);
   };
 
   const handleNewRecipeChange = (field) => (event) => {
