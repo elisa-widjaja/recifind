@@ -101,6 +101,7 @@ import FriendSections from './components/FriendSections';
 import StatsTiles from './components/StatsTiles';
 import RecipeListCard from './components/RecipeListCard';
 import RecipesPage from './RecipesPage';
+import SuggestionsShelf from './components/SuggestionsShelf';
 // === [S04] Friend picker wiring ===
 import { FriendPicker } from './components/FriendPicker';
 import { ShareSheet } from './components/ShareSheet';
@@ -911,7 +912,7 @@ function getAvatarColor(id) {
 
 function getHomeGreetingMessage(date = new Date()) {
   const hour = date.getHours();
-  if (hour >= 5 && hour < 11)  return "good morning — what's cooking today?";
+  if (hour >= 5 && hour < 11)  return "good morning, what's cooking today?";
   if (hour >= 11 && hour < 14) return 'lunch is calling.';
   if (hour >= 14 && hour < 17) return 'planning something for tonight?';
   if (hour >= 17 && hour < 21) return "what's for dinner?";
@@ -4120,7 +4121,7 @@ function App() {
             variant="h6"
             component="div"
             onClick={() => setCurrentView('home')}
-            sx={{ flexGrow: 1, fontWeight: 700, cursor: 'pointer', userSelect: 'none' }}
+            sx={{ flexGrow: 1, fontWeight: 600, fontSize: '14px', cursor: 'pointer', userSelect: 'none' }}
           >
             ReciFriend
           </Typography>
@@ -4644,7 +4645,6 @@ function App() {
                       color: 'text.primary',
                     }}
                   >
-                    <Box component="span" sx={{ mr: '8px', fontSize: '20px' }} aria-hidden>👋</Box>
                     {(userProfile?.displayName || session.user?.email?.split('@')[0] || 'there').split(' ')[0]}
                   </Typography>
                   <Typography
@@ -4652,7 +4652,7 @@ function App() {
                       fontFamily: "'Fraunces', Georgia, serif",
                       fontStyle: 'italic',
                       fontWeight: 400,
-                      fontSize: '20px',
+                      fontSize: '18px',
                       color: 'text.secondary',
                       mt: '4px',
                       lineHeight: 1.25,
@@ -5808,7 +5808,7 @@ function App() {
             )
           ) : isAddFriendOpen ? (
             <Box sx={{ pt: 2 }}>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 3, textAlign: 'center' }}>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, textAlign: 'center' }}>
                 Share a link with friends to connect
               </Typography>
 
@@ -5910,19 +5910,8 @@ function App() {
                     ))}
                   </Box>
 
-                  {openInviteLink && (
-                    <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                      <Button
-                        size="small"
-                        variant="text"
-                        color="inherit"
-                        sx={{ opacity: 0.5, fontSize: '0.75rem' }}
-                        onClick={() => setOpenInviteRegenerateOpen(true)}
-                      >
-                        Generate new link
-                      </Button>
-                    </Box>
-                  )}
+                  <Box sx={{ mt: 5, mb: 5, borderTop: 1, borderColor: 'divider' }} />
+                  <SuggestionsShelf accessToken={accessToken} variant="compact" />
                 </>
               )}
             </Box>

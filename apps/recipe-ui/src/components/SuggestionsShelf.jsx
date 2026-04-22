@@ -30,17 +30,64 @@ function initialOf(name) {
   return trimmed ? trimmed[0].toUpperCase() : '?';
 }
 
+const FEED_STYLE = {
+  gap: 1.5,
+  cardSize: 150,
+  cardHeight: 175,
+  cardRadius: 3,
+  cardPadding: '16px 10px 20px',
+  closeTop: 4,
+  closeRight: 4,
+  closeIcon: 16,
+  avatarSize: 48,
+  avatarFont: 20,
+  nameFont: 14,
+  nameMt: '8px',
+  reasonFont: 11,
+  reasonMt: '6px',
+  buttonWidth: '80%',
+  buttonPy: '8px',
+  buttonPx: '12px',
+  buttonFont: 12,
+  headerJustify: 'space-between',
+  bleedMr: { xs: -2, sm: -3, md: -4 },
+};
+
+const COMPACT_STYLE = {
+  gap: 1,
+  cardSize: 128,
+  cardHeight: 152,
+  cardRadius: 2.5,
+  cardPadding: '12px 8px 14px',
+  closeTop: 2,
+  closeRight: 2,
+  closeIcon: 14,
+  avatarSize: 40,
+  avatarFont: 17,
+  nameFont: 13,
+  nameMt: '6px',
+  reasonFont: 10.5,
+  reasonMt: '4px',
+  buttonWidth: '88%',
+  buttonPy: '6px',
+  buttonPx: '10px',
+  buttonFont: 11,
+  headerJustify: 'center',
+  bleedMr: -2,
+};
+
 /**
  * Self-contained "Friends you may know" shelf.
  * Props:
  *   accessToken: string (required for live fetch + add-friend POST)
  *   onOpenFriends?: () => void — if provided, renders "See all"
- *   variant?: 'feed' | 'compact' — reserved; only 'feed' is used today
+ *   variant?: 'feed' | 'compact' — 'feed' for home feed, 'compact' for drawer
  *   suggestions?: Array — test-only override; skips the fetch when provided
  */
 export default function SuggestionsShelf({ accessToken, onOpenFriends, variant = 'feed', suggestions: suggestionsProp }) {
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
+  const v = variant === 'compact' ? COMPACT_STYLE : FEED_STYLE;
   const [suggestions, setSuggestions] = useState(suggestionsProp || []);
   const [loading, setLoading] = useState(suggestionsProp === undefined);
   const [requestedIds, setRequestedIds] = useState(() => new Set());
@@ -106,7 +153,7 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+      <Box sx={{ display: 'flex', justifyContent: v.headerJustify, alignItems: 'center', mb: 2 }}>
         <Typography sx={{ fontWeight: 700, fontSize: 13, color: 'text.primary' }}>
           Friends You May Know
         </Typography>
@@ -139,11 +186,10 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
       <Box
         sx={{
           display: 'flex',
-          gap: 1.5,
+          gap: v.gap,
           overflowX: 'auto',
           pb: 0.5,
-          WebkitMaskImage: 'linear-gradient(to right, black 85%, transparent 100%)',
-          maskImage: 'linear-gradient(to right, black 85%, transparent 100%)',
+          mr: v.bleedMr,
           '&::-webkit-scrollbar': { display: 'none' },
         }}
       >
@@ -154,18 +200,18 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
               key={s.userId}
               sx={{
                 position: 'relative',
-                minWidth: 150,
-                maxWidth: 150,
-                height: 175,
-                bgcolor: 'background.paper',
+                minWidth: v.cardSize,
+                maxWidth: v.cardSize,
+                height: v.cardHeight,
+                bgcolor: dark ? 'transparent' : 'background.paper',
                 border: '1px solid',
-                borderColor: 'divider',
-                borderRadius: 3,
-                p: '16px 10px 20px',
+                borderColor: dark ? 'rgba(255,255,255,0.08)' : 'divider',
+                borderRadius: v.cardRadius,
+                p: v.cardPadding,
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                boxShadow: dark ? 'none' : '0 1px 3px rgba(0,0,0,0.06)',
                 flexShrink: 0,
               }}
             >
@@ -175,24 +221,24 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
                 onClick={() => handleDismiss(s.userId)}
                 sx={{
                   position: 'absolute',
-                  top: 4,
-                  right: 4,
+                  top: v.closeTop,
+                  right: v.closeRight,
                   color: 'text.secondary',
                   p: 0.25,
                 }}
               >
-                <CloseIcon sx={{ fontSize: 16 }} />
+                <CloseIcon sx={{ fontSize: v.closeIcon }} />
               </IconButton>
               <Box
                 sx={{
-                  width: 48,
-                  height: 48,
+                  width: v.avatarSize,
+                  height: v.avatarSize,
                   borderRadius: '50%',
                   background: gradientFor(s.userId),
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: 20,
+                  fontSize: v.avatarFont,
                   fontWeight: 700,
                   color: '#fff',
                   flexShrink: 0,
@@ -203,9 +249,9 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
               <Typography
                 sx={{
                   fontWeight: 600,
-                  fontSize: 14,
+                  fontSize: v.nameFont,
                   textAlign: 'center',
-                  mt: '8px',
+                  mt: v.nameMt,
                   lineHeight: 1.2,
                   width: '100%',
                   whiteSpace: 'nowrap',
@@ -217,8 +263,8 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
               </Typography>
               <Typography
                 sx={{
-                  mt: '6px',
-                  fontSize: 11,
+                  mt: v.reasonMt,
+                  fontSize: v.reasonFont,
                   color: 'text.secondary',
                   textAlign: 'center',
                   lineHeight: 1.3,
@@ -237,14 +283,15 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
                 sx={{
                   mt: 'auto',
                   flexShrink: 0,
-                  width: '80%',
+                  width: v.buttonWidth,
                   background: 'transparent',
                   color: dark ? '#34d399' : '#059669',
-                  border: '1px solid #10b981',
+                  border: '1px solid',
+                  borderColor: dark ? 'rgba(52,211,153,0.5)' : '#10b981',
                   borderRadius: '999px',
-                  py: '8px',
-                  px: '12px',
-                  fontSize: 12,
+                  py: v.buttonPy,
+                  px: v.buttonPx,
+                  fontSize: v.buttonFont,
                   fontWeight: 700,
                   fontFamily: 'inherit',
                   lineHeight: 1,

@@ -35,7 +35,7 @@ function SectionLabel({ emoji, label, inline = false }) {
     </Typography>
   );
   if (inline) return el;
-  return <Box sx={{ mb: 1 }}>{el}</Box>;
+  return <Box sx={{ mb: '10px' }}>{el}</Box>;
 }
 
 
@@ -454,7 +454,7 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare 
     <Container maxWidth="sm" disableGutters>
       <Box sx={{ px: { xs: 2, sm: 3 }, pb: 6 }}>
 
-        <Stack spacing={3} sx={{ pt: '20px' }}>
+        <Stack sx={{ gap: '32px', pt: '20px' }}>
 
           {/* ── Why Join Recifind ── */}
           <Box ref={whyJoinRef}>

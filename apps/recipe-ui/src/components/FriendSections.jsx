@@ -208,7 +208,7 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
         </Box>
       )}
 
-      <SuggestionsShelf accessToken={accessToken} onOpenFriends={onOpenFriends} />
+      <SuggestionsShelf accessToken={accessToken} />
 
       {hasEditorsPick && (
         <Box>
@@ -335,7 +335,7 @@ function FriendRequestDialog({ item, busy, onAccept, onDecline, onClose }) {
 }
 
 function SectionLabel({ children }) {
-  return <Typography fontWeight={700} fontSize={13} sx={{ color: 'text.primary', mb: 1 }}>{children}</Typography>;
+  return <Typography fontWeight={700} fontSize={13} sx={{ color: 'text.primary', mb: '10px' }}>{children}</Typography>;
 }
 
 // ── Cook with Friends ──
