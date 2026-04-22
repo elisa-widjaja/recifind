@@ -4038,6 +4038,53 @@ async function resolveSourceUrl(sourceUrl: string): Promise<string> {
   }
 }
 
+type FetchOembedCaptionDeps = {
+  fetchImpl?: typeof fetch;
+};
+
+// Returns the oEmbed "title" field (which is usually the post caption on social
+// platforms), formatted as "Recipe by <author>: <caption>". Returns null for
+// hosts without an oEmbed endpoint we know about, or when the fetch fails.
+async function fetchOembedCaption(
+  sourceUrl: string,
+  deps: FetchOembedCaptionDeps = {}
+): Promise<string | null> {
+  const { fetchImpl = fetch } = deps;
+  try {
+    const parsed = new URL(sourceUrl);
+    let oembedUrl: string | null = null;
+    let normalizedUrl = sourceUrl;
+
+    if (parsed.hostname.includes('tiktok.com')) {
+      oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(sourceUrl)}`;
+    } else if (parsed.hostname.includes('instagram.com')) {
+      normalizedUrl = sourceUrl.split('?')[0].replace(/\/?$/, '/');
+      oembedUrl = `https://www.instagram.com/oembed/?omitscript=true&url=${encodeURIComponent(normalizedUrl)}`;
+    } else if (parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be')) {
+      oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(sourceUrl)}&format=json`;
+    }
+
+    if (!oembedUrl) return null;
+
+    const response = await fetchImpl(oembedUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)',
+        'Accept': 'application/json'
+      }
+    });
+    if (!response.ok) return null;
+    const payload = (await response.json()) as { title?: string; author_name?: string };
+    const caption = (payload.title || '').trim();
+    if (!caption) return null;
+    const author = payload.author_name || (parsed.hostname.includes('tiktok.com') ? 'TikTok creator' :
+                                           parsed.hostname.includes('instagram.com') ? 'Instagram creator' :
+                                           'YouTube creator');
+    return `Recipe by ${author}:\n\n${caption}`;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchRawRecipeText(sourceUrl: string | undefined) {
   if (!sourceUrl) {
     return null;
@@ -4495,5 +4542,6 @@ export {
   getGeminiServiceAccount,
   fetchRawRecipeText,
   buildGeminiPrompt,
-  parseGeminiRecipeJson
+  parseGeminiRecipeJson,
+  fetchOembedCaption,
 };

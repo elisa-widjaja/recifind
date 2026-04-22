@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRawRecipeText } from './index';
+import { fetchRawRecipeText, fetchOembedCaption } from './index';
 
 describe('fetchRawRecipeText', () => {
   afterEach(() => {
@@ -121,6 +121,40 @@ describe('fetchRawRecipeText', () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, text: async () => '' })) as unknown as typeof fetch);
 
     const result = await fetchRawRecipeText('https://www.youtube.com/watch?v=xyz');
+    expect(result).toBeNull();
+  });
+});
+
+describe('fetchOembedCaption', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns null for non-social hosts', async () => {
+    const result = await fetchOembedCaption('https://example.com/recipe');
+    expect(result).toBeNull();
+  });
+
+  it('returns the caption for a TikTok URL via oEmbed', async () => {
+    const mockFetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ title: 'Best pasta recipe ever', author_name: 'chef_jane' })
+    })) as unknown as typeof fetch;
+    const result = await fetchOembedCaption(
+      'https://www.tiktok.com/@chef_jane/video/12345',
+      { fetchImpl: mockFetch }
+    );
+    expect(result).toBe('Recipe by chef_jane:\n\nBest pasta recipe ever');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(String(mockFetch.mock.calls[0][0])).toContain('tiktok.com/oembed');
+  });
+
+  it('returns null when oEmbed returns a non-OK response', async () => {
+    const mockFetch = vi.fn(async () => ({ ok: false, json: async () => ({}) })) as unknown as typeof fetch;
+    const result = await fetchOembedCaption(
+      'https://www.tiktok.com/@chef_jane/video/12345',
+      { fetchImpl: mockFetch }
+    );
     expect(result).toBeNull();
   });
 });
