@@ -60,4 +60,42 @@ describe('callGemini', () => {
     });
     expect(JSON.parse(result)).toEqual({ title: 'Test' });
   });
+
+  it('includes a fileData part when videoUrl option is provided', async () => {
+    const prompt = 'extract recipe from video';
+    const mockFetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        candidates: [
+          {
+            content: { parts: [{ text: '{"ingredients":[]}' }] }
+          }
+        ]
+      })
+    })) as unknown as typeof fetch;
+
+    await callGemini(
+      {} as Env,
+      prompt,
+      {
+        fetchImpl: mockFetch,
+        getAccessToken: async () => 'fake-token',
+        getServiceAccount: async () => ({
+          client_email: 'svc@example.com',
+          private_key: 'fake-key',
+          token_uri: 'https://oauth2.googleapis.com/token',
+          project_id: 'proj-123'
+        }),
+        videoUrl: 'https://www.youtube.com/watch?v=abc123',
+      }
+    );
+
+    const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const parsedBody = JSON.parse((options as RequestInit).body as string);
+    expect(parsedBody.contents[0].parts).toHaveLength(2);
+    expect(parsedBody.contents[0].parts[0]).toEqual({
+      fileData: { fileUri: 'https://www.youtube.com/watch?v=abc123', mimeType: 'video/*' }
+    });
+    expect(parsedBody.contents[0].parts[1]).toEqual({ text: prompt });
+  });
 });

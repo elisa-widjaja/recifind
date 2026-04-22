@@ -138,6 +138,7 @@ interface CallGeminiDeps {
   fetchImpl?: typeof fetch;
   getAccessToken?: (env: Env) => Promise<string>;
   getServiceAccount?: (env: Env) => Promise<GeminiServiceAccount>;
+  videoUrl?: string;
 }
 
 interface RecipeCollectionMeta {
@@ -4359,7 +4360,8 @@ async function callGemini(env: Env, prompt: string, deps: CallGeminiDeps = {}) {
   const {
     fetchImpl = fetch,
     getAccessToken = getGeminiAccessToken,
-    getServiceAccount = getGeminiServiceAccount
+    getServiceAccount = getGeminiServiceAccount,
+    videoUrl
   } = deps;
   const token = await getAccessToken(env);
   const serviceAccount = await getServiceAccount(env);
@@ -4376,7 +4378,12 @@ async function callGemini(env: Env, prompt: string, deps: CallGeminiDeps = {}) {
         contents: [
           {
             role: 'user',
-            parts: [{ text: prompt }]
+            parts: videoUrl
+              ? [
+                  { fileData: { fileUri: videoUrl, mimeType: 'video/*' } },
+                  { text: prompt }
+                ]
+              : [{ text: prompt }]
           }
         ],
         generationConfig: {
