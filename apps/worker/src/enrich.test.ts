@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference } from './index';
+import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, runEnrichmentChain } from './index';
 import type { Env } from './index';
 
 describe('fetchRawRecipeText', () => {
@@ -416,5 +416,60 @@ describe('textInference', () => {
     const promptText = parsedBody.contents[0].parts[0].text;
     // This is the inference-allowing prompt (existing buildGeminiPrompt text)
     expect(promptText).toContain('culinary expert');
+  });
+});
+
+describe('runEnrichmentChain', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const EMPTY_EXPECTED = {
+    title: '', imageUrl: '', mealTypes: [], ingredients: [], steps: [], durationMinutes: null, notes: ''
+  };
+
+  it('returns caption-extract result and skips subsequent strategies when caption yields ingredients', async () => {
+    const captionStrat = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['flour'], steps: ['mix'] }));
+    const videoStrat = vi.fn(async () => EMPTY_EXPECTED);
+    const textStrat = vi.fn(async () => EMPTY_EXPECTED);
+    const { result, winningStrategy } = await runEnrichmentChain(
+      {} as Env,
+      'https://tiktok.com/x',
+      'Pasta',
+      { captionExtract: captionStrat, youtubeVideo: videoStrat, textInference: textStrat }
+    );
+    expect(result.ingredients).toEqual(['flour']);
+    expect(winningStrategy).toBe('caption-extract');
+    expect(videoStrat).not.toHaveBeenCalled();
+    expect(textStrat).not.toHaveBeenCalled();
+  });
+
+  it('falls through caption → video → text when each returns empty', async () => {
+    const captionStrat = vi.fn(async () => EMPTY_EXPECTED);
+    const videoStrat = vi.fn(async () => EMPTY_EXPECTED);
+    const textStrat = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['inferred'], steps: ['step'] }));
+    const { result, winningStrategy } = await runEnrichmentChain(
+      {} as Env,
+      'https://example.com/x',
+      'Recipe',
+      { captionExtract: captionStrat, youtubeVideo: videoStrat, textInference: textStrat }
+    );
+    expect(result.ingredients).toEqual(['inferred']);
+    expect(winningStrategy).toBe('text-inference');
+    expect(captionStrat).toHaveBeenCalledTimes(1);
+    expect(videoStrat).toHaveBeenCalledTimes(1);
+    expect(textStrat).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns winningStrategy=null when all three strategies return empty', async () => {
+    const empty = async () => EMPTY_EXPECTED;
+    const { result, winningStrategy } = await runEnrichmentChain(
+      {} as Env,
+      'https://example.com/x',
+      '',
+      { captionExtract: empty, youtubeVideo: empty, textInference: empty }
+    );
+    expect(result.ingredients).toEqual([]);
+    expect(winningStrategy).toBeNull();
   });
 });

@@ -1895,65 +1895,40 @@ async function handleEnrichRecipe(request: Request, env: Env) {
     throw new HttpError(503, 'Enrichment service is not configured');
   }
 
-  // The iOS Share Extension hands us short URLs (vm.tiktok.com/xxx) that
-  // r.jina.ai can't always expand. Resolve to the canonical URL once, then
-  // hand that to both fetch paths.
+  // Resolve short URLs once up front so every strategy sees the canonical form.
   const resolvedUrl = await resolveSourceUrl(sourceUrl);
 
-  // Fetch content and og:image in parallel
-  const [rawText, ogImage] = await Promise.all([
-    fetchRawRecipeText(resolvedUrl),
-    fetchOgImage(resolvedUrl)
-  ]);
+  const startedAt = Date.now();
+  // og:image fetch runs in parallel with the strategy chain — it is never blocked by
+  // (and never blocks) strategy fall-through.
+  const ogImagePromise = fetchOgImage(resolvedUrl);
 
-  // If we couldn't scrape the page but have a title, let Gemini use its culinary knowledge
-  const textForGemini = rawText || (title ? `Recipe: ${title}` : null);
-  if (!textForGemini) {
-    throw new HttpError(502, 'Failed to fetch content from source URL. Please keep trying.');
-  }
+  const { result, winningStrategy } = await runEnrichmentChain(env, resolvedUrl, title, {
+    captionExtract,
+    youtubeVideo,
+    textInference,
+  });
+  const ogImage = await ogImagePromise;
 
-  const recipe: Recipe = {
-    id: 'enrich-preview',
-    userId: 'preview',
-    title: title || '',
-    sourceUrl,
-    imageUrl: '',
-    imagePath: null,
-    mealTypes: [],
-    ingredients: [],
-    steps: [],
-    durationMinutes: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    notes: '',
-    previewImage: null
-  };
-
-  const prompt = buildGeminiPrompt(recipe, textForGemini);
-  const completion = await callGemini(env, prompt);
-  const parsed = parseGeminiRecipeJson(completion);
-
-  if (!parsed) {
-    console.error('Failed to parse Gemini response:', completion.slice(0, 500));
-    throw new HttpError(502, `Failed to parse enrichment response. Gemini returned: ${completion.slice(0, 200)}`);
-  }
-
-  // Prioritize og:image from direct fetch, fallback to Gemini's parsed imageUrl
-  const imageUrl = ogImage || (typeof parsed.imageUrl === 'string' ? parsed.imageUrl.trim() : '');
+  console.log('[enrich]', {
+    url: resolvedUrl,
+    winningStrategy: winningStrategy ?? 'none',
+    total_duration_ms: Date.now() - startedAt,
+    ingredients_count: result.ingredients.length,
+    steps_count: result.steps.length,
+  });
 
   return json({
     enriched: {
-      title: typeof parsed.title === 'string' ? parsed.title.trim() : title,
-      sourceUrl,
-      imageUrl,
-      mealTypes: Array.isArray(parsed.mealTypes) ? sanitizeStringArray(parsed.mealTypes) : [],
-      ingredients: Array.isArray(parsed.ingredients) ? sanitizeStringArray(parsed.ingredients) : [],
-      steps: Array.isArray(parsed.steps) ? sanitizeStringArray(parsed.steps) : [],
-      durationMinutes: typeof parsed.durationMinutes === 'number' && Number.isFinite(parsed.durationMinutes)
-        ? Math.max(0, Math.round(parsed.durationMinutes))
-        : null,
-      notes: typeof parsed.notes === 'string' ? parsed.notes.trim() : ''
-    }
+      title: result.title || title,
+      sourceUrl, // original input, not resolvedUrl — preserves today's behavior
+      imageUrl: ogImage || result.imageUrl || '',
+      mealTypes: result.mealTypes,
+      ingredients: result.ingredients,
+      steps: result.steps,
+      durationMinutes: result.durationMinutes,
+      notes: result.notes,
+    },
   });
 }
 
@@ -4325,6 +4300,32 @@ async function textInference(
   }
 }
 
+type ChainStrategies = {
+  captionExtract: (env: Env, url: string, title: string) => Promise<EnrichmentResult>;
+  youtubeVideo: (env: Env, url: string, title: string) => Promise<EnrichmentResult>;
+  textInference: (env: Env, url: string, title: string) => Promise<EnrichmentResult>;
+};
+
+async function runEnrichmentChain(
+  env: Env,
+  resolvedUrl: string,
+  title: string,
+  strategies: ChainStrategies
+): Promise<{ result: EnrichmentResult; winningStrategy: 'caption-extract' | 'youtube-video' | 'text-inference' | null }> {
+  const isEmpty = (r: EnrichmentResult) => r.ingredients.length === 0 && r.steps.length === 0;
+
+  let result = await strategies.captionExtract(env, resolvedUrl, title);
+  if (!isEmpty(result)) return { result, winningStrategy: 'caption-extract' };
+
+  result = await strategies.youtubeVideo(env, resolvedUrl, title);
+  if (!isEmpty(result)) return { result, winningStrategy: 'youtube-video' };
+
+  result = await strategies.textInference(env, resolvedUrl, title);
+  if (!isEmpty(result)) return { result, winningStrategy: 'text-inference' };
+
+  return { result, winningStrategy: null };
+}
+
 async function fetchRawRecipeText(sourceUrl: string | undefined) {
   if (!sourceUrl) {
     return null;
@@ -4793,4 +4794,5 @@ export {
   captionExtract,
   youtubeVideo,
   textInference,
+  runEnrichmentChain,
 };
