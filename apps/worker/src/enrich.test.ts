@@ -394,12 +394,12 @@ describe('textInference', () => {
     expect(deps.fetchImpl).not.toHaveBeenCalled();
   });
 
-  it('calls Gemini with culinary-expert prompt when raw text is available', async () => {
+  it('calls Gemini with extract-only prompt first and returns result when extract succeeds', async () => {
     const mockFetch = vi.fn(async () => ({
       ok: true,
       json: async () => ({
         candidates: [{ content: { parts: [{ text: JSON.stringify({
-          ingredients: ['inferred1'], steps: ['inferred step'], mealTypes: [], durationMinutes: null, notes: '', title: ''
+          ingredients: ['verbatim 1'], steps: ['verbatim step'], mealTypes: [], durationMinutes: null, notes: '', title: ''
         }) }] } }]
       })
     })) as unknown as typeof fetch;
@@ -408,14 +408,47 @@ describe('textInference', () => {
       fakeEnv,
       'https://example.com/recipe',
       'Pasta',
-      { ...baseDeps, fetchRawRecipeText: async () => 'some rendered HTML text about pasta', fetchImpl: mockFetch }
+      { ...baseDeps, fetchRawRecipeText: async () => 'Ingredients:\n- 1 cup flour\n\nInstructions:\n1. Mix.', fetchImpl: mockFetch }
     );
-    expect(result.ingredients).toEqual(['inferred1']);
+    expect(result.ingredients).toEqual(['verbatim 1']);
 
+    // Only one Gemini call (extract pass won).
+    expect(mockFetch).toHaveBeenCalledTimes(1);
     const parsedBody = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
     const promptText = parsedBody.contents[0].parts[0].text;
-    // This is the inference-allowing prompt (existing buildGeminiPrompt text)
-    expect(promptText).toContain('culinary expert');
+    expect(promptText).toContain('Extract ONLY what is explicitly present');
+  });
+
+  it('falls back to inference prompt when extract returns empty', async () => {
+    // First Gemini call returns empty arrays; second returns inferred content.
+    let callIndex = 0;
+    const mockFetch = vi.fn(async () => {
+      const responseText = callIndex === 0
+        ? JSON.stringify({ ingredients: [], steps: [], mealTypes: [], durationMinutes: null, notes: '', title: '' })
+        : JSON.stringify({ ingredients: ['inferred'], steps: ['inferred step'], mealTypes: [], durationMinutes: null, notes: '', title: '' });
+      callIndex++;
+      return {
+        ok: true,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: responseText }] } }] })
+      };
+    }) as unknown as typeof fetch;
+
+    const result = await textInference(
+      fakeEnv,
+      'https://example.com/recipe',
+      'Pasta',
+      { ...baseDeps, fetchRawRecipeText: async () => 'some weak text with no clear recipe structure', fetchImpl: mockFetch }
+    );
+    expect(result.ingredients).toEqual(['inferred']);
+
+    // Two Gemini calls: extract first, then infer.
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+
+    const firstBody = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    expect(firstBody.contents[0].parts[0].text).toContain('Extract ONLY what is explicitly present');
+
+    const secondBody = JSON.parse((mockFetch.mock.calls[1][1] as RequestInit).body as string);
+    expect(secondBody.contents[0].parts[0].text).toContain('culinary expert');
   });
 });
 

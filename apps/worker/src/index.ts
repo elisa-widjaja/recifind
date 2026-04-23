@@ -4284,16 +4284,31 @@ async function textInference(
   };
 
   try {
-    const completion = await callGemini(env, buildGeminiPrompt(recipeForPrompt, textForGemini), {
+    // Pass 1: strict extract-only (verbatim if the text contains a recipe).
+    const extractCompletion = await callGemini(env, buildExtractOnlyPrompt(textForGemini), {
       fetchImpl: deps.fetchImpl,
       getAccessToken: deps.getAccessToken,
       getServiceAccount: deps.getServiceAccount,
     });
-    const parsed = parseGeminiRecipeJson(completion);
-    const result = parsed ? parsedToEnrichmentResult(parsed) : EMPTY_ENRICHMENT;
-    const isEmpty = result.ingredients.length === 0 && result.steps.length === 0;
-    console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText?.length ?? 0, outcome: isEmpty ? 'empty' : 'extracted', duration_ms: Date.now() - startedAt });
-    return result;
+    const extractParsed = parseGeminiRecipeJson(extractCompletion);
+    const extractResult = extractParsed ? parsedToEnrichmentResult(extractParsed) : EMPTY_ENRICHMENT;
+    const extractIsEmpty = extractResult.ingredients.length === 0 && extractResult.steps.length === 0;
+    if (!extractIsEmpty) {
+      console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText?.length ?? 0, pass: 'extract', outcome: 'extracted', duration_ms: Date.now() - startedAt });
+      return extractResult;
+    }
+
+    // Pass 2: fall back to the inference-allowing prompt when extract came up empty.
+    const inferCompletion = await callGemini(env, buildGeminiPrompt(recipeForPrompt, textForGemini), {
+      fetchImpl: deps.fetchImpl,
+      getAccessToken: deps.getAccessToken,
+      getServiceAccount: deps.getServiceAccount,
+    });
+    const inferParsed = parseGeminiRecipeJson(inferCompletion);
+    const inferResult = inferParsed ? parsedToEnrichmentResult(inferParsed) : EMPTY_ENRICHMENT;
+    const inferIsEmpty = inferResult.ingredients.length === 0 && inferResult.steps.length === 0;
+    console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText?.length ?? 0, pass: 'infer', outcome: inferIsEmpty ? 'empty' : 'extracted', duration_ms: Date.now() - startedAt });
+    return inferResult;
   } catch (err) {
     console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText?.length ?? 0, outcome: 'error', duration_ms: Date.now() - startedAt, error: String(err) });
     return EMPTY_ENRICHMENT;
