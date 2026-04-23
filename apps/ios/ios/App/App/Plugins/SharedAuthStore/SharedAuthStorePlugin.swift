@@ -14,7 +14,12 @@ import Security
 
 private let keychainService = "com.recifriend.app.auth"
 private let keychainAccount = "supabase-jwt"
-private let keychainAccessGroup = "com.recifriend.app.shared"
+// Must match both targets' keychain-access-groups entitlement, which uses
+// $(AppIdentifierPrefix) — expanded at build time to "<TEAM_ID>." + suffix.
+// iOS does NOT auto-prepend the team prefix in SecItem queries — the full
+// access group string must be provided here so the main app and the share
+// extension read/write the same keychain bucket.
+private let keychainAccessGroup = "7C6PMUN99K.com.recifriend.app.shared"
 
 @objc(SharedAuthStorePlugin)
 public class SharedAuthStorePlugin: CAPPlugin {

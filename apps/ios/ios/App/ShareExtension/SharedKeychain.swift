@@ -13,7 +13,10 @@ enum SharedKeychainError: Error {
 enum SharedKeychain {
     private static let service = "com.recifriend.app.auth"
     private static let account = "supabase-jwt"
-    private static let accessGroup = "com.recifriend.app.shared"
+    // Must include the Team ID prefix at runtime — iOS does not auto-prepend.
+    // Matches the keychain-access-groups entitlement's $(AppIdentifierPrefix)
+    // expansion used by both App and ShareExtension targets.
+    private static let accessGroup = "7C6PMUN99K.com.recifriend.app.shared"
 
     static func readJwt() throws -> String {
         let query: [String: Any] = [
