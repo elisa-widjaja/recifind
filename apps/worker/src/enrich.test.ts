@@ -450,6 +450,20 @@ describe('textInference', () => {
     const secondBody = JSON.parse((mockFetch.mock.calls[1][1] as RequestInit).body as string);
     expect(secondBody.contents[0].parts[0].text).toContain('culinary expert');
   });
+
+  it('short-circuits without calling Gemini when raw text is an HTTP 429 error page', async () => {
+    const mockFetch = vi.fn() as unknown as typeof fetch;
+    const errorText = 'Title: www.instagram.com\n\nURL Source: https://www.instagram.com/reel/xyz/\n\nWarning: Target URL returned error 429: Too Many Requests\n\nMarkdown Content:\n## This page isn\u2019t working\n\nHTTP ERROR 429';
+    const result = await textInference(
+      fakeEnv,
+      'https://www.instagram.com/reel/xyz/',
+      'Pasta',
+      { ...baseDeps, fetchRawRecipeText: async () => errorText, fetchImpl: mockFetch }
+    );
+    expect(result.ingredients).toEqual([]);
+    expect(result.steps).toEqual([]);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
 });
 
 describe('runEnrichmentChain', () => {

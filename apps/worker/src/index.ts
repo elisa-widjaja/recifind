@@ -4085,18 +4085,20 @@ const EMPTY_ENRICHMENT: EnrichmentResult = {
 };
 
 function buildExtractOnlyPrompt(captionText: string): string {
-  return `You are extracting a recipe from a social-media caption. Extract ONLY what is explicitly present. DO NOT invent ingredients, quantities, or steps.
+  return `You are extracting a recipe from a social-media post or rendered web page. Extract ONLY what is explicitly present. DO NOT invent ingredients, quantities, or steps. DO NOT guess from the title or general culinary knowledge.
 
 Rules:
-- If the caption lists ingredients (bullet points, numbered, or comma-separated after "Ingredients:"), extract each one verbatim.
-- If the caption describes steps (numbered, "Step 1:", "Method:", etc.), extract each step verbatim. Preserve the creator's voice and phrasing.
-- Minor normalization is OK: "tbs" -> "tbsp", "1c" -> "1 cup".
-- If the caption does NOT contain explicit ingredients OR explicit steps, return empty arrays. DO NOT guess from the title or general culinary knowledge.
+- An ingredient list is any sequence of items, each with a quantity (e.g., "2 cups flour", "1 tbsp olive oil", "1 can sardines"), introduced by a header such as "Ingredients:", "Ingredients", "You'll need:", "What you need:", "For the <component>", "For the sauce", "Zutaten", "Ingredientes", or similar heading in any language. Also recognize implicit lists: a contiguous block of bulleted or hyphenated items each beginning with a quantity counts as an ingredient list. Extract each ingredient verbatim.
+- A step/instruction list is any sequence of cooking or preparation actions, introduced by a header like "Instructions:", "Steps:", "Method:", "Directions:", "Preparation:", "Zubereitung", "Preparación", or similar heading in any language. Also recognize implicit step lists: numbered items (1., 2., 3.) or emoji-numbered items (1️⃣, 2️⃣, 3️⃣) that describe cooking actions. Extract each step verbatim, preserving the creator's voice.
+- A recipe may have multiple ingredient sub-lists (e.g., "For the dough", "For the topping"). Merge them into a single ingredients array in the order they appear.
+- Minor normalization is OK: "tbs" -> "tbsp", "1c" -> "1 cup". Preserve the language of the original text — do NOT translate.
+- If the text does NOT contain at least one quantified ingredient item AND at least one step/action, return empty arrays. Do not extract partial recipes (e.g., ingredients without steps = empty).
+- Short marketing blurbs, hashtag dumps, navigation/chrome text, and error pages (like "HTTP ERROR 429") are NOT recipes — return empty arrays.
 
 Return JSON matching this schema:
 { "ingredients": [], "steps": [], "mealTypes": [], "durationMinutes": null, "notes": "", "title": "" }
 
-Caption:
+Text:
 ${captionText}`;
 }
 
@@ -4262,6 +4264,14 @@ async function textInference(
   const textForGemini = rawText || (title ? `Recipe: ${title}` : null);
   if (!textForGemini) {
     console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: 0, outcome: 'empty', duration_ms: Date.now() - startedAt });
+    return EMPTY_ENRICHMENT;
+  }
+
+  // Short-circuit when r.jina.ai returned an error page rather than real content.
+  // Typical rate-limit response: ~300 bytes with "HTTP ERROR 429" or similar.
+  // Feeding this to Gemini causes hallucinated "plausible but fake" recipes.
+  if (rawText && rawText.length < 500 && /HTTP ERROR \d{3}|Too Many Requests|Target URL returned error/i.test(rawText)) {
+    console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText.length, outcome: 'empty', reason: 'fetch-error', duration_ms: Date.now() - startedAt });
     return EMPTY_ENRICHMENT;
   }
 
