@@ -446,15 +446,7 @@ export default {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');
         }
-        const result = await handleCreateRecipe(request, env, ctx, user);
-        // Notify admin of user activity
-        ctx.waitUntil(sendEmailNotification(
-          env,
-          'elisa.widjaja@gmail.com',
-          `Recipe saved by ${user.email}`,
-          `<div style="font-family:sans-serif;padding:24px;"><strong>${user.email}</strong> saved a recipe: <strong>${(await result.clone().json() as { recipe: { title: string } }).recipe.title}</strong></div>`
-        ));
-        return result;
+        return await handleCreateRecipe(request, env, ctx, user);
       }
 
       if (url.pathname === '/recipes/enrich' && request.method === 'POST') {
@@ -1743,6 +1735,8 @@ async function handleGetSharedRecipe(request: Request, env: Env, token: string) 
   }));
 }
 
+const DEDUP_WINDOW_MS = 60_000;
+
 async function handleCreateRecipe(
   request: Request,
   env: Env,
@@ -1756,7 +1750,7 @@ async function handleCreateRecipe(
   // inserted within the last 60s. Prevents duplicates from iOS extension retries
   // and accidental double-taps on Save.
   if (recipe.sourceUrl) {
-    const sixtySecondsAgo = new Date(Date.now() - 60_000).toISOString();
+    const sixtySecondsAgo = new Date(Date.now() - DEDUP_WINDOW_MS).toISOString();
     const dupe = await env.DB.prepare(
       `SELECT id, created_at FROM recipes WHERE user_id = ? AND source_url = ? AND created_at >= ? ORDER BY created_at DESC LIMIT 1`
     ).bind(user.userId, recipe.sourceUrl, sixtySecondsAgo).first() as { id: string; created_at: string } | null;
@@ -1812,6 +1806,14 @@ async function handleCreateRecipe(
     }
     // === [/S05] ===
   }
+
+  // Notify admin of user activity — fires only on genuine new inserts, not dedup hits
+  ctx.waitUntil(sendEmailNotification(
+    env,
+    'elisa.widjaja@gmail.com',
+    `Recipe saved by ${user.email}`,
+    `<div style="font-family:sans-serif;padding:24px;"><strong>${user.email}</strong> saved a recipe: <strong>${recipe.title}</strong></div>`
+  ));
 
   return json({ recipe }, 201);
 }
