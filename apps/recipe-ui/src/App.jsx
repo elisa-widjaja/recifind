@@ -2383,6 +2383,26 @@ function App() {
     syncRecipesFromApi();
   }, [isRemoteEnabled, isAuthChecked, syncRecipesFromApi]);
 
+  // Refetch recipes when the app returns to the foreground — the share
+  // extension may have saved a new recipe while we were backgrounded.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let listenerHandle;
+    let cancelled = false;
+    CapacitorApp.addListener('appStateChange', (state) => {
+      if (state.isActive && session?.user?.id) {
+        syncRecipesFromApi({ forceUpdate: true }).catch(() => { /* best-effort refresh */ });
+      }
+    }).then((handle) => {
+      if (cancelled) { handle.remove(); return; }
+      listenerHandle = handle;
+    });
+    return () => {
+      cancelled = true;
+      listenerHandle?.remove();
+    };
+  }, [session?.user?.id, syncRecipesFromApi]);
+
   useEffect(() => {
     setVisibleCount(RESULTS_PAGE_SIZE);
   }, [selectedMealType, normalizedIngredientsKey, recipes]);
