@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo } from './index';
+import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference } from './index';
 import type { Env } from './index';
 
 describe('fetchRawRecipeText', () => {
@@ -363,5 +363,58 @@ describe('youtubeVideo', () => {
     );
     expect(result.ingredients).toEqual([]);
     expect(result.steps).toEqual([]);
+  });
+});
+
+describe('textInference', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const fakeEnv = {} as Env;
+  const baseDeps = {
+    getAccessToken: async () => 'fake-token',
+    getServiceAccount: async () => ({
+      client_email: 'svc@example.com',
+      private_key: 'fake-key',
+      token_uri: 'https://oauth2.googleapis.com/token',
+      project_id: 'proj-123'
+    })
+  };
+
+  it('returns empty when raw text fetch returns null and title is empty', async () => {
+    const deps = {
+      ...baseDeps,
+      fetchRawRecipeText: async () => null,
+      fetchImpl: vi.fn() as unknown as typeof fetch,
+    };
+    const result = await textInference(fakeEnv, 'https://example.com/x', '', deps);
+    expect(result.ingredients).toEqual([]);
+    expect(result.steps).toEqual([]);
+    expect(deps.fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('calls Gemini with culinary-expert prompt when raw text is available', async () => {
+    const mockFetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: JSON.stringify({
+          ingredients: ['inferred1'], steps: ['inferred step'], mealTypes: [], durationMinutes: null, notes: '', title: ''
+        }) }] } }]
+      })
+    })) as unknown as typeof fetch;
+
+    const result = await textInference(
+      fakeEnv,
+      'https://example.com/recipe',
+      'Pasta',
+      { ...baseDeps, fetchRawRecipeText: async () => 'some rendered HTML text about pasta', fetchImpl: mockFetch }
+    );
+    expect(result.ingredients).toEqual(['inferred1']);
+
+    const parsedBody = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    const promptText = parsedBody.contents[0].parts[0].text;
+    // This is the inference-allowing prompt (existing buildGeminiPrompt text)
+    expect(promptText).toContain('culinary expert');
   });
 });

@@ -4261,6 +4261,70 @@ async function youtubeVideo(
   }
 }
 
+type TextInferenceDeps = {
+  fetchRawRecipeText?: typeof fetchRawRecipeText;
+  fetchImpl?: typeof fetch;
+  getAccessToken?: (env: Env) => Promise<string>;
+  getServiceAccount?: (env: Env) => Promise<GeminiServiceAccount>;
+};
+
+async function textInference(
+  env: Env,
+  sourceUrl: string,
+  title: string,
+  deps: TextInferenceDeps = {}
+): Promise<EnrichmentResult> {
+  const startedAt = Date.now();
+  const fetcher = deps.fetchRawRecipeText ?? fetchRawRecipeText;
+  let rawText: string | null = null;
+  try {
+    rawText = await fetcher(sourceUrl);
+  } catch (err) {
+    console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, outcome: 'error', duration_ms: Date.now() - startedAt, error: String(err) });
+    return EMPTY_ENRICHMENT;
+  }
+
+  const textForGemini = rawText || (title ? `Recipe: ${title}` : null);
+  if (!textForGemini) {
+    console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: 0, outcome: 'empty', duration_ms: Date.now() - startedAt });
+    return EMPTY_ENRICHMENT;
+  }
+
+  // Reuse the existing "culinary expert" prompt (allows inference on weak text).
+  const recipeForPrompt: Recipe = {
+    id: 'enrich-preview',
+    userId: 'preview',
+    title: title || '',
+    sourceUrl,
+    imageUrl: '',
+    imagePath: null,
+    mealTypes: [],
+    ingredients: [],
+    steps: [],
+    durationMinutes: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    notes: '',
+    previewImage: null,
+  };
+
+  try {
+    const completion = await callGemini(env, buildGeminiPrompt(recipeForPrompt, textForGemini), {
+      fetchImpl: deps.fetchImpl,
+      getAccessToken: deps.getAccessToken,
+      getServiceAccount: deps.getServiceAccount,
+    });
+    const parsed = parseGeminiRecipeJson(completion);
+    const result = parsed ? parsedToEnrichmentResult(parsed) : EMPTY_ENRICHMENT;
+    const isEmpty = result.ingredients.length === 0 && result.steps.length === 0;
+    console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText?.length ?? 0, outcome: isEmpty ? 'empty' : 'extracted', duration_ms: Date.now() - startedAt });
+    return result;
+  } catch (err) {
+    console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText?.length ?? 0, outcome: 'error', duration_ms: Date.now() - startedAt, error: String(err) });
+    return EMPTY_ENRICHMENT;
+  }
+}
+
 async function fetchRawRecipeText(sourceUrl: string | undefined) {
   if (!sourceUrl) {
     return null;
@@ -4728,4 +4792,5 @@ export {
   fetchOembedCaption,
   captionExtract,
   youtubeVideo,
+  textInference,
 };
