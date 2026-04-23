@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRawRecipeText, fetchOembedCaption, captionExtract } from './index';
+import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo } from './index';
 import type { Env } from './index';
 
 describe('fetchRawRecipeText', () => {
@@ -253,6 +253,114 @@ describe('captionExtract', () => {
       fetchImpl: mockFetch,
     };
     const result = await captionExtract(fakeEnv, 'https://tiktok.com/x', 'Pasta', deps);
+    expect(result.ingredients).toEqual([]);
+    expect(result.steps).toEqual([]);
+  });
+});
+
+describe('youtubeVideo', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const fakeEnv = {} as Env;
+  const baseDeps = {
+    getAccessToken: async () => 'fake-token',
+    getServiceAccount: async () => ({
+      client_email: 'svc@example.com',
+      private_key: 'fake-key',
+      token_uri: 'https://oauth2.googleapis.com/token',
+      project_id: 'proj-123'
+    })
+  };
+
+  it('returns empty without a Gemini call for non-YouTube URLs', async () => {
+    const mockFetch = vi.fn() as unknown as typeof fetch;
+    const result = await youtubeVideo(fakeEnv, 'https://www.tiktok.com/@x/video/1', 'Pasta', { ...baseDeps, fetchImpl: mockFetch });
+    expect(result.ingredients).toEqual([]);
+    expect(result.steps).toEqual([]);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('sends a multi-part Gemini request with the YouTube URL and returns parsed result', async () => {
+    const mockFetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: JSON.stringify({
+          ingredients: ['pasta', 'olive oil'],
+          steps: ['Boil water', 'Cook pasta'],
+          mealTypes: ['dinner'],
+          durationMinutes: 15,
+          notes: '',
+          title: 'Video pasta'
+        }) }] } }]
+      })
+    })) as unknown as typeof fetch;
+
+    const result = await youtubeVideo(
+      fakeEnv,
+      'https://www.youtube.com/watch?v=abc123',
+      'Pasta',
+      { ...baseDeps, fetchImpl: mockFetch }
+    );
+    expect(result.ingredients).toEqual(['pasta', 'olive oil']);
+    expect(result.steps).toEqual(['Boil water', 'Cook pasta']);
+
+    const parsedBody = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    expect(parsedBody.contents[0].parts).toHaveLength(2);
+    expect(parsedBody.contents[0].parts[0]).toEqual({
+      fileData: { fileUri: 'https://www.youtube.com/watch?v=abc123', mimeType: 'video/*' }
+    });
+  });
+
+  it('accepts youtu.be, youtube.com/shorts, and m.youtube.com hosts', async () => {
+    const mockFetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: JSON.stringify({
+          ingredients: ['x'], steps: ['y'], mealTypes: [], durationMinutes: null, notes: '', title: ''
+        }) }] } }]
+      })
+    })) as unknown as typeof fetch;
+
+    for (const url of [
+      'https://youtu.be/abc',
+      'https://www.youtube.com/shorts/xyz',
+      'https://m.youtube.com/watch?v=mno',
+    ]) {
+      const result = await youtubeVideo(fakeEnv, url, '', { ...baseDeps, fetchImpl: mockFetch });
+      expect(result.ingredients).toEqual(['x']);
+    }
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('returns empty when Gemini throws', async () => {
+    const mockFetch = vi.fn(async () => { throw new Error('network fail'); }) as unknown as typeof fetch;
+    const result = await youtubeVideo(
+      fakeEnv,
+      'https://www.youtube.com/watch?v=abc',
+      '',
+      { ...baseDeps, fetchImpl: mockFetch }
+    );
+    expect(result.ingredients).toEqual([]);
+    expect(result.steps).toEqual([]);
+  });
+
+  it('returns empty when the Gemini call exceeds the timeout', async () => {
+    // Resolve fetch after 100ms, but give the strategy only a 10ms timeout.
+    const mockFetch = vi.fn(
+      async () => new Promise((r) => setTimeout(() => r({
+        ok: true,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: '{}' }] } }] })
+      }), 100))
+    ) as unknown as typeof fetch;
+
+    const result = await youtubeVideo(
+      fakeEnv,
+      'https://www.youtube.com/watch?v=abc',
+      '',
+      { ...baseDeps, fetchImpl: mockFetch, timeoutMs: 10 }
+    );
     expect(result.ingredients).toEqual([]);
     expect(result.steps).toEqual([]);
   });

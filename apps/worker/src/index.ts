@@ -4185,6 +4185,82 @@ async function captionExtract(
   }
 }
 
+const YOUTUBE_HOSTS = new Set(['www.youtube.com', 'youtube.com', 'youtu.be', 'm.youtube.com']);
+
+function buildVideoExtractOnlyPrompt(): string {
+  return `You are watching a cooking video. Extract the ingredients the chef shows or says, and the steps they follow.
+
+Rules:
+- Extract only what is demonstrated or spoken in the video.
+- Preserve the chef's voice and phrasing for step descriptions.
+- Minor normalization of units and spelling is allowed.
+- If the video has no explicit ingredient list or steps (e.g., it is not a cooking video, or no recipe is demonstrated), return empty arrays. DO NOT invent ingredients.
+
+Return JSON matching this schema:
+{ "ingredients": [], "steps": [], "mealTypes": [], "durationMinutes": null, "notes": "", "title": "" }`;
+}
+
+type YoutubeVideoDeps = {
+  fetchImpl?: typeof fetch;
+  getAccessToken?: (env: Env) => Promise<string>;
+  getServiceAccount?: (env: Env) => Promise<GeminiServiceAccount>;
+  timeoutMs?: number;
+};
+
+async function youtubeVideo(
+  env: Env,
+  sourceUrl: string,
+  _title: string,
+  deps: YoutubeVideoDeps = {}
+): Promise<EnrichmentResult> {
+  const startedAt = Date.now();
+  const timeoutMs = deps.timeoutMs ?? 30_000;
+  let host: string;
+  try {
+    host = new URL(sourceUrl).hostname;
+  } catch {
+    return EMPTY_ENRICHMENT;
+  }
+  if (!YOUTUBE_HOSTS.has(host)) {
+    return EMPTY_ENRICHMENT;
+  }
+
+  // Race the Gemini call against a timeout so a stalled video call doesn't
+  // block the orchestrator from falling through to text-inference.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), timeoutMs);
+  });
+
+  try {
+    const raced = await Promise.race([
+      callGemini(env, buildVideoExtractOnlyPrompt(), {
+        fetchImpl: deps.fetchImpl,
+        getAccessToken: deps.getAccessToken,
+        getServiceAccount: deps.getServiceAccount,
+        videoUrl: sourceUrl,
+      }),
+      timeoutPromise,
+    ]);
+
+    if (raced === 'timeout') {
+      console.log('[enrich]', { strategy: 'youtube-video', url: sourceUrl, outcome: 'timeout', duration_ms: Date.now() - startedAt });
+      return EMPTY_ENRICHMENT;
+    }
+
+    const parsed = parseGeminiRecipeJson(raced);
+    const result = parsed ? parsedToEnrichmentResult(parsed) : EMPTY_ENRICHMENT;
+    const isEmpty = result.ingredients.length === 0 && result.steps.length === 0;
+    console.log('[enrich]', { strategy: 'youtube-video', url: sourceUrl, outcome: isEmpty ? 'empty' : 'extracted', duration_ms: Date.now() - startedAt });
+    return result;
+  } catch (err) {
+    console.log('[enrich]', { strategy: 'youtube-video', url: sourceUrl, outcome: 'error', duration_ms: Date.now() - startedAt, error: String(err) });
+    return EMPTY_ENRICHMENT;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function fetchRawRecipeText(sourceUrl: string | undefined) {
   if (!sourceUrl) {
     return null;
@@ -4651,4 +4727,5 @@ export {
   parseGeminiRecipeJson,
   fetchOembedCaption,
   captionExtract,
+  youtubeVideo,
 };
