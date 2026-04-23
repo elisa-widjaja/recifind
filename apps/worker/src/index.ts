@@ -4374,6 +4374,51 @@ async function runEnrichmentChain(
   return { result, winningStrategy: null };
 }
 
+export async function enrichAfterSave(
+  env: Env,
+  recipeId: string,
+  sourceUrl: string,
+  title: string
+): Promise<void> {
+  if (!sourceUrl || !env.GEMINI_SERVICE_ACCOUNT_B64) return;
+
+  const resolvedUrl = await resolveSourceUrl(sourceUrl);
+  const startedAt = Date.now();
+
+  const { result, winningStrategy } = await runEnrichmentChain(env, resolvedUrl, title, {
+    captionExtract,
+    youtubeVideo,
+    textInference,
+  });
+
+  console.log('[enrichAfterSave]', {
+    recipeId,
+    url: resolvedUrl,
+    winningStrategy: winningStrategy ?? 'none',
+    duration_ms: Date.now() - startedAt,
+    ingredients_count: result.ingredients.length,
+    steps_count: result.steps.length,
+  });
+
+  // B1: silent — if nothing was found, leave the row alone so the user sees
+  // their title-only recipe and can hand-fill later.
+  if (result.ingredients.length === 0 && result.steps.length === 0) return;
+
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `UPDATE recipes
+     SET ingredients = ?, steps = ?, meal_types = ?, duration_minutes = ?, updated_at = ?
+     WHERE id = ?`
+  ).bind(
+    JSON.stringify(result.ingredients),
+    JSON.stringify(result.steps),
+    JSON.stringify(result.mealTypes),
+    result.durationMinutes,
+    now,
+    recipeId
+  ).run();
+}
+
 async function fetchRawRecipeText(sourceUrl: string | undefined) {
   if (!sourceUrl) {
     return null;

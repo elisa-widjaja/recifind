@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { handleCreateRecipe } from './index';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { handleCreateRecipe, enrichAfterSave } from './index';
 import type { Env } from './index';
 
 function makeMockDb(options: {
@@ -127,5 +127,106 @@ describe('handleCreateRecipe dedup', () => {
     const res = await handleCreateRecipe(req, env, ctx, user as any);
     expect(res.status).toBe(201);
     expect(runCalls.some(c => c.sql.includes('INSERT INTO recipes'))).toBe(true);
+  });
+});
+
+// Valid base64-encoded fake service account JSON (satisfies atob + JSON.parse in getGeminiServiceAccount).
+// crypto.subtle ops (importKey, sign) are stubbed per-test so no real RSA key is needed.
+const FAKE_SA_B64 = btoa(JSON.stringify({
+  client_email: 'svc@test.com',
+  private_key: '-----BEGIN PRIVATE KEY-----\nZmFrZQ==\n-----END PRIVATE KEY-----',
+  token_uri: 'https://oauth2.googleapis.com/token',
+  project_id: 'test-proj',
+}));
+
+describe('enrichAfterSave', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('updates the D1 row when the chain returns ingredients', async () => {
+    const runCalls: Array<{ sql: string; binds: any[] }> = [];
+    const db = {
+      prepare: (sql: string) => ({
+        bind: (...binds: any[]) => ({
+          run: async () => { runCalls.push({ sql, binds }); return { success: true }; }
+        })
+      })
+    };
+    const env = {
+      DB: db as unknown as D1Database,
+      GEMINI_SERVICE_ACCOUNT_B64: FAKE_SA_B64,
+    } as Env;
+
+    // Stub crypto.subtle so the RSA key import + JWT signing don't fail on the fake key.
+    const fakeKey = {} as CryptoKey;
+    vi.spyOn(crypto.subtle, 'importKey').mockResolvedValue(fakeKey);
+    vi.spyOn(crypto.subtle, 'sign').mockResolvedValue(new ArrayBuffer(32));
+
+    // Stub chain via fetch — captionExtract path returns a verbatim-parseable caption.
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('r.jina.ai')) {
+        return {
+          ok: true,
+          text: async () => 'Ingredients: 1 cup flour, 2 eggs\nSteps: 1. Mix. 2. Bake.',
+        } as Response;
+      }
+      // Gemini access token + inference
+      if (url.includes('oauth2.googleapis.com')) {
+        return { ok: true, json: async () => ({ access_token: 'fake' }) } as Response;
+      }
+      if (url.includes('generativelanguage.googleapis.com') || url.includes('aiplatform.googleapis.com')) {
+        return {
+          ok: true,
+          json: async () => ({
+            candidates: [{ content: { parts: [{ text: JSON.stringify({
+              title: 'Pancake',
+              ingredients: ['1 cup flour', '2 eggs'],
+              steps: ['Mix', 'Bake'],
+              mealTypes: ['breakfast'],
+              durationMinutes: 15,
+              notes: '',
+              imageUrl: '',
+            }) }] } }],
+          }),
+        } as Response;
+      }
+      return { ok: false, text: async () => '' } as Response;
+    }) as typeof fetch);
+
+    await enrichAfterSave(env, 'recipe-123', 'https://example.com/pancake', 'Pancake');
+
+    const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
+    expect(update).toBeDefined();
+    expect(update!.binds).toContain('recipe-123');
+    // ingredients JSON is one of the binds
+    expect(update!.binds.some(b => typeof b === 'string' && b.includes('flour'))).toBe(true);
+  });
+
+  it('leaves the row unchanged when every strategy returns empty', async () => {
+    const runCalls: Array<{ sql: string; binds: any[] }> = [];
+    const db = {
+      prepare: (sql: string) => ({
+        bind: (...binds: any[]) => ({
+          run: async () => { runCalls.push({ sql, binds }); return { success: true }; }
+        })
+      })
+    };
+    const env = {
+      DB: db as unknown as D1Database,
+      GEMINI_SERVICE_ACCOUNT_B64: 'fake-b64',
+    } as Env;
+
+    // r.jina.ai returns an error page → strategies all short-circuit to empty.
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      text: async () => '<html>HTTP ERROR 429 Too Many Requests</html>',
+    })) as typeof fetch);
+
+    await enrichAfterSave(env, 'recipe-456', 'https://instagram.com/reel/abc', 'Mystery');
+
+    const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
+    expect(update).toBeUndefined();
   });
 });
