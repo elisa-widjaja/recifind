@@ -4405,15 +4405,18 @@ export async function enrichAfterSave(
   if (result.ingredients.length === 0 && result.steps.length === 0) return;
 
   const now = new Date().toISOString();
+  // image_url is intentionally NOT updated here — /recipes/parse sets it during
+  // the initial save and Gemini's inferred image is often worse than the og:image.
   await env.DB.prepare(
     `UPDATE recipes
-     SET ingredients = ?, steps = ?, meal_types = ?, duration_minutes = ?, updated_at = ?
+     SET ingredients = ?, steps = ?, meal_types = ?, duration_minutes = ?, notes = ?, updated_at = ?
      WHERE id = ?`
   ).bind(
     JSON.stringify(result.ingredients),
     JSON.stringify(result.steps),
     JSON.stringify(result.mealTypes),
     result.durationMinutes,
+    result.notes || '',
     now,
     recipeId
   ).run();
