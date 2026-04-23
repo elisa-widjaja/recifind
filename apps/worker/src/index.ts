@@ -446,7 +446,7 @@ export default {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');
         }
-        const result = await handleCreateRecipe(request, env, user);
+        const result = await handleCreateRecipe(request, env, ctx, user);
         // Notify admin of user activity
         ctx.waitUntil(sendEmailNotification(
           env,
@@ -1743,9 +1743,30 @@ async function handleGetSharedRecipe(request: Request, env: Env, token: string) 
   }));
 }
 
-async function handleCreateRecipe(request: Request, env: Env, user: AuthenticatedUser) {
+async function handleCreateRecipe(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  user: AuthenticatedUser
+) {
   const body = await readJsonBody(request);
   const { recipe, previewImagePayload } = normalizeRecipePayload(body, user.userId);
+
+  // Rapid-reshare dedup: return the existing recipe if (user_id, source_url) was
+  // inserted within the last 60s. Prevents duplicates from iOS extension retries
+  // and accidental double-taps on Save.
+  if (recipe.sourceUrl) {
+    const sixtySecondsAgo = new Date(Date.now() - 60_000).toISOString();
+    const dupe = await env.DB.prepare(
+      `SELECT id, created_at FROM recipes WHERE user_id = ? AND source_url = ? AND created_at >= ? ORDER BY created_at DESC LIMIT 1`
+    ).bind(user.userId, recipe.sourceUrl, sixtySecondsAgo).first() as { id: string; created_at: string } | null;
+
+    if (dupe) {
+      const existing = await loadRecipe(env, user.userId, dupe.id);
+      return json({ recipe: existing }, 200);
+    }
+  }
+
   const preview = await persistPreviewImage(previewImagePayload, env, user.userId, recipe.id);
   if (preview) {
     recipe.previewImage = preview;
@@ -4820,4 +4841,5 @@ export {
   youtubeVideo,
   textInference,
   runEnrichmentChain,
+  handleCreateRecipe,
 };
