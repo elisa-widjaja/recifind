@@ -1,0 +1,96 @@
+import Foundation
+import Capacitor
+import Security
+
+// Stores the Supabase JWT in the shared iOS Keychain so the share extension
+// can read it without re-implementing auth. Access group must match both
+// targets' keychain-access-groups entitlement.
+//
+// Error codes (returned via call.reject):
+//   - "no-session": getJwt found no stored token
+//   - "keychain-write-failed": setJwt SecItemAdd/Update returned non-zero OSStatus
+//   - "keychain-read-failed": getJwt SecItemCopyMatching returned non-errSecSuccess other than errSecItemNotFound
+//   - "keychain-delete-failed": clearJwt SecItemDelete returned non-zero OSStatus other than errSecItemNotFound
+
+private let keychainService = "com.recifriend.app.auth"
+private let keychainAccount = "supabase-jwt"
+private let keychainAccessGroup = "com.recifriend.app.shared"
+
+@objc(SharedAuthStorePlugin)
+public class SharedAuthStorePlugin: CAPPlugin {
+
+    @objc func setJwt(_ call: CAPPluginCall) {
+        guard let token = call.getString("token"), !token.isEmpty else {
+            call.reject("token is required")
+            return
+        }
+        guard let data = token.data(using: .utf8) else {
+            call.reject("token is not UTF-8")
+            return
+        }
+
+        let base: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+            kSecAttrAccessGroup as String: keychainAccessGroup,
+        ]
+
+        // Delete any existing record first — simpler than an add-or-update dance.
+        SecItemDelete(base as CFDictionary)
+
+        var add = base
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+
+        let status = SecItemAdd(add as CFDictionary, nil)
+        if status == errSecSuccess {
+            call.resolve()
+        } else {
+            call.reject("keychain-write-failed (OSStatus \(status))")
+        }
+    }
+
+    @objc func getJwt(_ call: CAPPluginCall) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+            kSecAttrAccessGroup as String: keychainAccessGroup,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+
+        if status == errSecItemNotFound {
+            call.reject("no-session")
+            return
+        }
+        if status != errSecSuccess {
+            call.reject("keychain-read-failed (OSStatus \(status))")
+            return
+        }
+        guard let data = item as? Data, let token = String(data: data, encoding: .utf8) else {
+            call.reject("keychain-read-failed (corrupt data)")
+            return
+        }
+        call.resolve(["token": token])
+    }
+
+    @objc func clearJwt(_ call: CAPPluginCall) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+            kSecAttrAccessGroup as String: keychainAccessGroup,
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        if status == errSecSuccess || status == errSecItemNotFound {
+            call.resolve()
+        } else {
+            call.reject("keychain-delete-failed (OSStatus \(status))")
+        }
+    }
+}
