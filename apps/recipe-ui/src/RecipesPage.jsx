@@ -313,7 +313,7 @@ export default function RecipesPage({
             mx: 'auto'
           }}
         >
-          {displayedRecipes.map(renderRecipeCard)}
+          {displayedRecipes.map((recipe) => renderRecipeCard(recipe))}
         </Box>
       )}
       <Box ref={sentinelRef} sx={{ height: 1 }} />
