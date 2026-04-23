@@ -15,7 +15,9 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
+		809DD91872B45D7A9206A8F5 /* SharedAuthStorePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13E74A975FCFE9BDD89EA618 /* SharedAuthStorePlugin.swift */; };
 		A084ECDBA7D38E1E42DFC39D /* Pods_App.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AF277DCFFFF123FFC6DF26C7 /* Pods_App.framework */; };
+		F68F380F6BE83DE07DB6095E /* SharedAuthStorePlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = 8E42D8D36C338E24CC717CE2 /* SharedAuthStorePlugin.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -43,6 +45,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		13E74A975FCFE9BDD89EA618 /* SharedAuthStorePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SharedAuthStorePlugin.swift; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
 		4C2C03CA2F94A43C00D55BD7 /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
@@ -53,6 +56,7 @@
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
+		8E42D8D36C338E24CC717CE2 /* SharedAuthStorePlugin.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = SharedAuthStorePlugin.m; sourceTree = "<group>"; };
 		A1B2C3D4E5F6A7B8C9D0E1F2 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		AF277DCFFFF123FFC6DF26C7 /* Pods_App.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_App.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		AF51FD2D460BCFE21FA515B2 /* Pods-App.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-App.release.xcconfig"; path = "Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig"; sourceTree = "<group>"; };
@@ -61,7 +65,17 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		4C2C03CB2F94A43C00D55BD7 /* ShareExtension */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = ShareExtension; sourceTree = "<group>"; };
+		4C2C03CB2F94A43C00D55BD7 /* ShareExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = ShareExtension;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -124,8 +138,19 @@
 				B2C3D4E5F6A7B8C9D0E1F2A3 /* PrivacyInfo.xcprivacy */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
+				EEF4A004BB488D7DE1021898 /* Plugins */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		5417372F63B79013773DADFF /* SharedAuthStore */ = {
+			isa = PBXGroup;
+			children = (
+				13E74A975FCFE9BDD89EA618 /* SharedAuthStorePlugin.swift */,
+				8E42D8D36C338E24CC717CE2 /* SharedAuthStorePlugin.m */,
+			);
+			name = SharedAuthStore;
+			path = SharedAuthStore;
 			sourceTree = "<group>";
 		};
 		7F8756D8B27F46E3366F6CEA /* Pods */ = {
@@ -135,6 +160,15 @@
 				AF51FD2D460BCFE21FA515B2 /* Pods-App.release.xcconfig */,
 			);
 			name = Pods;
+			sourceTree = "<group>";
+		};
+		EEF4A004BB488D7DE1021898 /* Plugins */ = {
+			isa = PBXGroup;
+			children = (
+				5417372F63B79013773DADFF /* SharedAuthStore */,
+			);
+			name = Plugins;
+			path = Plugins;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -156,8 +190,6 @@
 				4C2C03CB2F94A43C00D55BD7 /* ShareExtension */,
 			);
 			name = ShareExtension;
-			packageProductDependencies = (
-			);
 			productName = ShareExtension;
 			productReference = 4C2C03CA2F94A43C00D55BD7 /* ShareExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -211,8 +243,6 @@
 				Base,
 			);
 			mainGroup = 504EC2FB1FED79650016851F;
-			packageReferences = (
-			);
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -295,6 +325,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
+				809DD91872B45D7A9206A8F5 /* SharedAuthStorePlugin.swift in Sources */,
+				F68F380F6BE83DE07DB6095E /* SharedAuthStorePlugin.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
