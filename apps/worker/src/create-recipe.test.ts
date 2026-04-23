@@ -230,3 +230,48 @@ describe('enrichAfterSave', () => {
     expect(update).toBeUndefined();
   });
 });
+
+describe('handleCreateRecipe fires ctx.waitUntil(enrichAfterSave)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('calls ctx.waitUntil exactly once with a promise', async () => {
+    const { db } = makeMockDb({ existingRecipe: null });
+    const waitUntil = vi.fn();
+    const env = { DB: db as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'fake' } as Env;
+    const ctx = { waitUntil } as unknown as ExecutionContext;
+    const user = { userId: 'u1', email: 'a@b.c' };
+
+    // Stub fetch to return 500s so enrichAfterSave short-circuits fast (no UPDATE fires).
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, text: async () => '' })));
+
+    const req = new Request('https://worker/recipes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Bread', sourceUrl: 'https://example.com/bread', ingredients: [], steps: [] }),
+    });
+
+    await handleCreateRecipe(req, env, ctx, user as any);
+    // waitUntil is called twice: once for admin email notification, once for enrichAfterSave.
+    // The enrichAfterSave call is the last one and must be a Promise.
+    expect(waitUntil).toHaveBeenCalledTimes(2);
+    expect(waitUntil.mock.calls[1][0]).toBeInstanceOf(Promise);
+  });
+
+  it('does NOT fire ctx.waitUntil when dedup returns existing row', async () => {
+    const existing = { id: 'r-dupe', created_at: new Date().toISOString() };
+    const { db } = makeMockDb({ existingRecipe: existing });
+    const waitUntil = vi.fn();
+    const env = { DB: db as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'fake' } as Env;
+    const ctx = { waitUntil } as unknown as ExecutionContext;
+    const user = { userId: 'u1', email: 'a@b.c' };
+
+    const req = new Request('https://worker/recipes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Bread', sourceUrl: 'https://example.com/bread' }),
+    });
+
+    await handleCreateRecipe(req, env, ctx, user as any);
+    expect(waitUntil).not.toHaveBeenCalled();
+  });
+});
