@@ -1,75 +1,65 @@
 import UIKit
+import SwiftUI
 import UniformTypeIdentifiers
-import MobileCoreServices
 
-// Share extension: grab the first URL from the shared payload and hand it to
-// the main app via `recifriend://add-recipe?url=…`. The VC has no UI — iOS
-// typically transitions from the share sheet directly to the main app before
-// any extension-owned frames render, so adding a custom splash here just
-// introduced a visible flash without reducing latency.
-//
-// The key optimization vs. the original: the original iterated every
-// attachment on every input item, entered a DispatchGroup for each, and
-// waited for ALL loadItem calls to complete before acting. On a typical
-// Instagram/TikTok share with a URL + a video attachment, that meant
-// waiting for the slow video provider before the app opened, even though
-// the URL was the first item resolved. This version stops at the first
-// URL-type provider, acts on its result immediately, skips the rest, and
-// only falls back to plain-text extraction if no URL-type provider exists.
-// A `hasDispatched` flag makes re-entry safe.
-class ShareViewController: UIViewController {
-    private var hasDispatched = false
+// Share extension host. Extracts the first URL from the share payload (fast
+// path from the previous version), fetches a preview from the worker, and
+// renders a SwiftUI form with thumbnail + editable title + Save. On Save,
+// POSTs to /recipes with the JWT from shared Keychain. Any failure path
+// falls back to deep-linking `recifriend://add-recipe?url=<raw>` to the main
+// app's existing drawer flow (A2 fallback).
+final class ShareViewController: UIViewController {
+    private var hostingController: UIHostingController<ShareFormView>?
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        extractURLAndOpenApp()
+        view.backgroundColor = .systemBackground
+        extractFirstURL { [weak self] url in
+            guard let self = self else { return }
+            if let url = url {
+                DispatchQueue.main.async { self.presentForm(for: url) }
+            } else {
+                DispatchQueue.main.async { self.completeWithError("No URL found") }
+            }
+        }
     }
 
-    private func extractURLAndOpenApp() {
-        guard let items = extensionContext?.inputItems as? [NSExtensionItem] else {
-            completeWithError("No items"); return
-        }
+    // MARK: - URL extraction (first-URL-wins, unchanged from previous fast path)
 
-        // Fast path: first URL-type provider wins.
+    private func extractFirstURL(completion: @escaping (URL?) -> Void) {
+        guard let items = extensionContext?.inputItems as? [NSExtensionItem] else {
+            completion(nil); return
+        }
         for item in items {
             guard let attachments = item.attachments else { continue }
             for provider in attachments where provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
-                provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { [weak self] data, _ in
-                    guard let self = self, !self.hasDispatched else { return }
-                    if let url = data as? URL {
-                        self.hasDispatched = true
-                        DispatchQueue.main.async { self.openMainApp(with: url) }
-                    } else {
-                        self.tryPlainTextFallback(items: items)
-                    }
+                provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { data, _ in
+                    if let url = data as? URL { completion(url); return }
+                    self.tryPlainTextFallback(items: items, completion: completion)
                 }
                 return
             }
         }
-
-        tryPlainTextFallback(items: items)
+        tryPlainTextFallback(items: items, completion: completion)
     }
 
-    private func tryPlainTextFallback(items: [NSExtensionItem]) {
+    private func tryPlainTextFallback(items: [NSExtensionItem], completion: @escaping (URL?) -> Void) {
         for item in items {
             guard let attachments = item.attachments else { continue }
             for provider in attachments where provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
-                provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { [weak self] data, _ in
-                    guard let self = self, !self.hasDispatched else { return }
-                    if let text = data as? String, let url = self.extractFirstHTTPURL(from: text) {
-                        self.hasDispatched = true
-                        DispatchQueue.main.async { self.openMainApp(with: url) }
-                    } else {
-                        DispatchQueue.main.async { self.completeWithError("No URL found") }
+                provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { data, _ in
+                    if let text = data as? String, let url = Self.extractFirstHTTPURL(from: text) {
+                        completion(url); return
                     }
+                    completion(nil)
                 }
                 return
             }
         }
-        DispatchQueue.main.async { self.completeWithError("No URL found") }
+        completion(nil)
     }
 
-    private func extractFirstHTTPURL(from text: String) -> URL? {
+    private static func extractFirstHTTPURL(from text: String) -> URL? {
         let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
         let range = NSRange(text.startIndex..., in: text)
         guard let match = detector?.firstMatch(in: text, options: [], range: range),
@@ -78,22 +68,64 @@ class ShareViewController: UIViewController {
         return url
     }
 
-    private func openMainApp(with sharedURL: URL) {
+    // MARK: - Form presentation
+
+    private func presentForm(for sourceURL: URL) {
+        let viewModel = ShareFormViewModel(sourceURL: sourceURL, onFinish: { [weak self] outcome in
+            DispatchQueue.main.async { self?.finish(with: outcome, sourceURL: sourceURL) }
+        })
+        let root = ShareFormView(viewModel: viewModel)
+        let host = UIHostingController(rootView: root)
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+        addChild(host)
+        view.addSubview(host.view)
+        NSLayoutConstraint.activate([
+            host.view.topAnchor.constraint(equalTo: view.topAnchor),
+            host.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            host.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            host.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        ])
+        host.didMove(toParent: self)
+        hostingController = host
+    }
+
+    // MARK: - Finish / fallback
+
+    enum Outcome {
+        case saved(recipeId: String)
+        case cancelled
+        case fallback  // A2: open main-app drawer via deep link
+    }
+
+    private func finish(with outcome: Outcome, sourceURL: URL) {
+        switch outcome {
+        case .saved:
+            self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+        case .cancelled:
+            self.extensionContext?.cancelRequest(withError: NSError(
+                domain: "com.recifriend.share", code: 0,
+                userInfo: [NSLocalizedDescriptionKey: "Cancelled"]
+            ))
+        case .fallback:
+            openDeepLink(for: sourceURL)
+            self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+        }
+    }
+
+    private func openDeepLink(for sourceURL: URL) {
         var components = URLComponents()
         components.scheme = "recifriend"
         components.host = "add-recipe"
-        components.queryItems = [URLQueryItem(name: "url", value: sharedURL.absoluteString)]
-        guard let deepLink = components.url else { completeWithError("Bad URL"); return }
-
+        components.queryItems = [URLQueryItem(name: "url", value: sourceURL.absoluteString)]
+        guard let deepLink = components.url else { return }
         var responder: UIResponder? = self
         while responder != nil {
             if let application = responder as? UIApplication {
                 application.open(deepLink, options: [:], completionHandler: nil)
-                break
+                return
             }
             responder = responder?.next
         }
-        self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
     }
 
     private func completeWithError(_ message: String) {
