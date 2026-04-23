@@ -2,7 +2,24 @@ import UIKit
 import UniformTypeIdentifiers
 import MobileCoreServices
 
+// Share extension: grab the first URL from the shared payload and hand it to
+// the main app via `recifriend://add-recipe?url=…`. The VC has no UI — iOS
+// typically transitions from the share sheet directly to the main app before
+// any extension-owned frames render, so adding a custom splash here just
+// introduced a visible flash without reducing latency.
+//
+// The key optimization vs. the original: the original iterated every
+// attachment on every input item, entered a DispatchGroup for each, and
+// waited for ALL loadItem calls to complete before acting. On a typical
+// Instagram/TikTok share with a URL + a video attachment, that meant
+// waiting for the slow video provider before the app opened, even though
+// the URL was the first item resolved. This version stops at the first
+// URL-type provider, acts on its result immediately, skips the rest, and
+// only falls back to plain-text extraction if no URL-type provider exists.
+// A `hasDispatched` flag makes re-entry safe.
 class ShareViewController: UIViewController {
+    private var hasDispatched = false
+
     override func viewDidLoad() {
         super.viewDidLoad()
         extractURLAndOpenApp()
@@ -12,33 +29,44 @@ class ShareViewController: UIViewController {
         guard let items = extensionContext?.inputItems as? [NSExtensionItem] else {
             completeWithError("No items"); return
         }
-        let group = DispatchGroup()
-        var foundURL: URL?
+
+        // Fast path: first URL-type provider wins.
         for item in items {
             guard let attachments = item.attachments else { continue }
-            for provider in attachments {
-                if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
-                    group.enter()
-                    provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { data, _ in
-                        if let url = data as? URL, foundURL == nil { foundURL = url }
-                        group.leave()
-                    }
-                } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
-                    group.enter()
-                    provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { data, _ in
-                        if let text = data as? String, foundURL == nil, let extracted = self.extractFirstHTTPURL(from: text) {
-                            foundURL = extracted
-                        }
-                        group.leave()
+            for provider in attachments where provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
+                provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { [weak self] data, _ in
+                    guard let self = self, !self.hasDispatched else { return }
+                    if let url = data as? URL {
+                        self.hasDispatched = true
+                        DispatchQueue.main.async { self.openMainApp(with: url) }
+                    } else {
+                        self.tryPlainTextFallback(items: items)
                     }
                 }
+                return
             }
         }
-        group.notify(queue: .main) { [weak self] in
-            guard let self = self else { return }
-            guard let url = foundURL else { self.completeWithError("No URL found"); return }
-            self.openMainApp(with: url)
+
+        tryPlainTextFallback(items: items)
+    }
+
+    private func tryPlainTextFallback(items: [NSExtensionItem]) {
+        for item in items {
+            guard let attachments = item.attachments else { continue }
+            for provider in attachments where provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+                provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { [weak self] data, _ in
+                    guard let self = self, !self.hasDispatched else { return }
+                    if let text = data as? String, let url = self.extractFirstHTTPURL(from: text) {
+                        self.hasDispatched = true
+                        DispatchQueue.main.async { self.openMainApp(with: url) }
+                    } else {
+                        DispatchQueue.main.async { self.completeWithError("No URL found") }
+                    }
+                }
+                return
+            }
         }
+        DispatchQueue.main.async { self.completeWithError("No URL found") }
     }
 
     private func extractFirstHTTPURL(from text: String) -> URL? {
