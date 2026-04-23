@@ -1815,9 +1815,11 @@ async function handleCreateRecipe(
     `<div style="font-family:sans-serif;padding:24px;"><strong>${user.email}</strong> saved a recipe: <strong>${recipe.title}</strong></div>`
   ));
 
-  // Kick off enrichment asynchronously — response returns in ~300ms,
-  // enrichment runs up to 30s in the background. B1: silent on failure.
-  if (recipe.sourceUrl && (recipe.ingredients.length === 0 || recipe.steps.length === 0)) {
+  // Kick off enrichment asynchronously — response returns in ~300ms, enrichment
+  // runs up to 30s in the background. B1: silent on failure. Gated with AND so
+  // web-drawer saves that already carry partial data aren't overwritten by a
+  // re-enrichment pass. Symmetric with enrichAfterSave's internal empty check.
+  if (recipe.sourceUrl && recipe.ingredients.length === 0 && recipe.steps.length === 0) {
     ctx.waitUntil(
       enrichAfterSave(env, recipe.id, recipe.sourceUrl, recipe.title)
         .catch(err => console.error('[enrichAfterSave] failed', { recipeId: recipe.id, err: String(err) }))

@@ -232,17 +232,22 @@ describe('enrichAfterSave', () => {
 });
 
 describe('handleCreateRecipe fires ctx.waitUntil(enrichAfterSave)', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
-  it('calls ctx.waitUntil exactly once with a promise', async () => {
+  it('schedules enrichAfterSave via ctx.waitUntil on new save', async () => {
     const { db } = makeMockDb({ existingRecipe: null });
-    const waitUntil = vi.fn();
+    const pending: Array<Promise<any>> = [];
+    const waitUntil = vi.fn((p: Promise<any>) => { pending.push(p); });
     const env = { DB: db as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'fake' } as Env;
     const ctx = { waitUntil } as unknown as ExecutionContext;
     const user = { userId: 'u1', email: 'a@b.c' };
 
-    // Stub fetch to return 500s so enrichAfterSave short-circuits fast (no UPDATE fires).
+    // Stub fetch so enrichAfterSave's chain returns empty fast (no UPDATE fires).
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, text: async () => '' })));
+    // Capture [enrichAfterSave] log to witness that the enrichment code path actually ran —
+    // positional assertions on mock.calls[i][0] are too weak (would pass if only admin
+    // email was waitUntil'd).
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     const req = new Request('https://worker/recipes', {
       method: 'POST',
@@ -251,10 +256,16 @@ describe('handleCreateRecipe fires ctx.waitUntil(enrichAfterSave)', () => {
     });
 
     await handleCreateRecipe(req, env, ctx, user as any);
-    // waitUntil is called twice: once for admin email notification, once for enrichAfterSave.
-    // The enrichAfterSave call is the last one and must be a Promise.
-    expect(waitUntil).toHaveBeenCalledTimes(2);
-    expect(waitUntil.mock.calls[1][0]).toBeInstanceOf(Promise);
+    // Drain background work so assertions below reflect what actually ran.
+    await Promise.allSettled(pending);
+
+    expect(waitUntil).toHaveBeenCalled();
+    // Every waitUntil argument must be a Promise (protects against raw-value misuse).
+    waitUntil.mock.calls.forEach(([arg]) => expect(arg).toBeInstanceOf(Promise));
+    // Witness: enrichAfterSave ran and logged its structured line.
+    const enrichLog = logSpy.mock.calls.find(([tag]) => tag === '[enrichAfterSave]');
+    expect(enrichLog).toBeDefined();
+    expect(enrichLog![1]).toMatchObject({ winningStrategy: 'none', ingredients_count: 0, steps_count: 0 });
   });
 
   it('does NOT fire ctx.waitUntil when dedup returns existing row', async () => {
