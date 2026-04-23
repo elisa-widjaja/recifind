@@ -107,8 +107,8 @@ describe('handleCreateRecipe dedup', () => {
     expect(runCalls.find(c => c.sql.includes('INSERT INTO recipes'))).toBeUndefined();
     // Dedup branch must NOT insert notifications
     expect(runCalls.find(c => c.sql.includes('INSERT INTO notifications'))).toBeUndefined();
-    // Dedup branch must NOT run any UPDATE (updateCollectionMeta)
-    expect(runCalls.find(c => c.sql.includes('UPDATE'))).toBeUndefined();
+    // Dedup branch must NOT bump collection_meta (updateCollectionMeta emits INSERT OR REPLACE)
+    expect(runCalls.find(c => c.sql.includes('collection_meta'))).toBeUndefined();
   });
 
   it('inserts new recipe when no duplicate exists within 60s window', async () => {
