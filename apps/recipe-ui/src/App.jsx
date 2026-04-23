@@ -118,6 +118,9 @@ import { createDispatcher } from './lib/deepLinkDispatch';
 import { ensureRegistered, getCurrentApnsToken, onNotificationTap, hasPromptedForPermission } from './lib/pushClient';
 import { NotificationSoftPrompt } from './components/NotificationSoftPrompt';
 // === [/S11] ===
+// === [S12] Shared Keychain JWT ===
+import { SharedAuthStore } from './native/SharedAuthStore';
+// === [/S12] ===
 import { formatDuration } from './utils/videoEmbed';
 import recipesData from '../recipes.json';
 import recipesFromPdfData from '../recipes_from_pdf.json';
@@ -1336,6 +1339,16 @@ function App() {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
+
+      // Mirror the Supabase access token into shared iOS Keychain so the
+      // share extension can save recipes natively without the main app.
+      // Any event delivering a non-null session updates it (INITIAL_SESSION
+      // on cold launch, SIGNED_IN on new login, TOKEN_REFRESHED on refresh,
+      // USER_UPDATED after profile changes).
+      if (session?.access_token) {
+        SharedAuthStore.setJwt(session.access_token);
+      }
+
       if (event === 'SIGNED_IN') {
         setCurrentView('home');
         setIsAuthDialogOpen(false);  // close sign-in dialog (e.g. after native OAuth returns)
@@ -1344,6 +1357,7 @@ function App() {
       }
       if (event === 'SIGNED_OUT') {
         setCurrentView('home');
+        SharedAuthStore.clearJwt();
       }
       if (window.gtag) {
         window.gtag('config', 'G-W2LEPNDMF0', { user_id: session?.user?.id ?? undefined });
