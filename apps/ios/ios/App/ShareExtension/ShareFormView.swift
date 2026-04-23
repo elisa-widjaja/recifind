@@ -44,8 +44,11 @@ final class ShareFormViewModel: ObservableObject {
             let jwt: String
             do {
                 jwt = try SharedKeychain.readJwt()
+            } catch let err as SharedKeychainError {
+                await self.surfaceAndFallback(reason: "keychain \(err)")
+                return
             } catch {
-                await MainActor.run { self.onFinish(.fallback) }
+                await self.surfaceAndFallback(reason: "keychain unknown: \(error)")
                 return
             }
 
@@ -60,11 +63,23 @@ final class ShareFormViewModel: ObservableObject {
             } catch WorkerClientError.unauthenticated {
                 // Token expired — purge it so next share doesn't loop on 401.
                 SharedKeychain.clearJwt()
-                await MainActor.run { self.onFinish(.fallback) }
+                await self.surfaceAndFallback(reason: "worker 401 (jwt expired)")
+            } catch let err as WorkerClientError {
+                await self.surfaceAndFallback(reason: "worker \(err)")
             } catch {
-                await MainActor.run { self.onFinish(.fallback) }
+                await self.surfaceAndFallback(reason: "net \(error)")
             }
         }
+    }
+
+    @MainActor
+    private func surfaceAndFallback(reason: String) async {
+        // Diagnostic path: show the reason on-screen for ~2.5s, then fall back
+        // to the main app. Lets user/dev see whether it was a keychain miss,
+        // a 401, or a network error without attaching to Xcode console.
+        self.errorMessage = "Falling back to app: \(reason)"
+        try? await Task.sleep(nanoseconds: 2_500_000_000)
+        self.onFinish(.fallback)
     }
 
     func cancel() {

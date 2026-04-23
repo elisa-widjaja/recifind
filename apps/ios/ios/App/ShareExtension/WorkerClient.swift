@@ -27,7 +27,10 @@ enum WorkerClient {
     /// Fetches og:title + og:image preview. 2s timeout per spec.
     static func parseRecipe(sourceUrl: String) async throws -> ParsePreview {
         let url = apiBase.appendingPathComponent("recipes/parse")
-        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 2.0)
+        // 4s (not 2s): each share invocation spawns a fresh extension process
+        // with a cold TLS connection to api.recifriend.com. 2s was hitting
+        // intermittent timeouts on second-and-later shares.
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 4.0)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["sourceUrl": sourceUrl])
