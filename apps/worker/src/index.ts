@@ -414,7 +414,11 @@ export default {
       }
 
       const isImageRequest = /^\/images\/[^/]+$/.test(url.pathname);
-      const requiresAuth = !isImageRequest;
+      // /recipes/parse is intentionally unauthenticated so the iOS share
+      // extension can fetch a preview before the user has signed in. Only
+      // returns og/oEmbed title+image — no user-specific data.
+      const isPublicParse = url.pathname === '/recipes/parse' && request.method === 'POST';
+      const requiresAuth = !isImageRequest && !isPublicParse;
 
       const user = requiresAuth ? await authenticateRequest(request, env) : await authenticateRequestOptional(request, env);
 
@@ -457,9 +461,9 @@ export default {
       }
 
       if (url.pathname === '/recipes/parse' && request.method === 'POST') {
-        if (!user) {
-          throw new HttpError(401, 'Missing Authorization header');
-        }
+        // Public: parse takes only a sourceUrl and returns og/oEmbed title+image.
+        // No user-specific data written or read. Needed so the iOS share extension
+        // can fetch a preview before the user has signed in on this device.
         return await handleParseRecipe(request);
       }
 
