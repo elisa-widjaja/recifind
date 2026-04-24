@@ -1482,10 +1482,18 @@ function App() {
       setIsAddDialogOpen(true);
       clearPendingShare();
       setPendingShare(null);
-    } else {
-      openAuthDialog({ reason: `Sign in to save "${pendingShare.title}"` });
+    } else if (isAuthChecked) {
+      openAuthDialog({
+        reason: pendingShare.title
+          ? `Sign in to save "${pendingShare.title}"`
+          : 'Sign in to save your recipe',
+      });
     }
-  }, [pendingShare, session]); // eslint-disable-line react-hooks/exhaustive-deps
+  // openAuthDialog is re-created every render (not wrapped in useCallback)
+  // but only calls stable setters, so omitting it from deps is safe. The
+  // effect closure is always fresh via the listed deps.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingShare, session, isAuthChecked]);
 
   // Register appUrlOpen listener exactly once. Never re-subscribe — every
   // re-subscription flushes Capacitor's retained `appUrlOpen` event again
@@ -2118,6 +2126,7 @@ function App() {
       if (error) throw error;
 
       setIsAuthDialogOpen(false);
+      setAuthDialogReason(null);
       setAuthEmail('');
       setSnackbarState({
         open: true,
@@ -2874,6 +2883,7 @@ function App() {
       }, accessToken).then(() => {
         trackEvent('accept_friend_request');
         setIsAuthDialogOpen(false);
+        setAuthDialogReason(null);
         setSnackbarState({ open: true, message: 'Friend request accepted!', severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
         fetchFriendRequests();
         fetchFriends();
@@ -2894,6 +2904,7 @@ function App() {
         .then((res) => {
           console.log('[INVITE DEBUG] accept-invite SUCCESS, res:', res);
           setIsAuthDialogOpen(false);
+          setAuthDialogReason(null);
           const name = res?.inviterName;
           setTimeout(() => {
             console.log('[INVITE DEBUG] showing snackbar (accept-invite path), name:', name);
@@ -2913,6 +2924,7 @@ function App() {
               console.log('[INVITE DEBUG] check-invites fallback, connected:', res?.connected);
               if (res?.connected?.length > 0) {
                 setIsAuthDialogOpen(false);
+                setAuthDialogReason(null);
                 setTimeout(() => {
                   console.log('[INVITE DEBUG] showing snackbar (check-invites fallback path)');
                   setSnackbarState({ open: true, message: `You're now connected with ${res.connected.join(', ')}`, severity: 'success', duration: 8000, anchorOrigin: { vertical: 'top', horizontal: 'center' } });
@@ -2935,12 +2947,14 @@ function App() {
     if (pendingOpenInviteToken) {
       sessionStorage.removeItem('pending_open_invite');
       setIsAuthDialogOpen(false);
+      setAuthDialogReason(null);
       callRecipesApi('/friends/accept-open-invite', {
         method: 'POST',
         body: JSON.stringify({ token: pendingOpenInviteToken })
       }, accessToken)
         .then((result) => {
           setIsAuthDialogOpen(false);
+          setAuthDialogReason(null);
           if (result?.message === 'Connected!') {
             const name = result?.inviterName;
             setSnackbarState({
@@ -3004,6 +3018,7 @@ function App() {
                 return next;
               });
               setIsAuthDialogOpen(false);
+              setAuthDialogReason(null);
               setSnackbarState({
                 open: true,
                 message: `"${recipe.title}" saved to your recipes!`,
