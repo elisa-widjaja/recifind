@@ -1205,6 +1205,10 @@ function App() {
   // Auth state
   const [session, setSession] = useState(null);
   const [isAuthChecked, setIsAuthChecked] = useState(false);
+  // TEMPORARY: surface SharedAuthStore activity so we can verify the JWT is
+  // actually being mirrored into the shared Keychain on device. Remove once
+  // the native-save share flow is proven working end-to-end.
+  const [sharedAuthDebug, setSharedAuthDebug] = useState(null);
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(
     () => !!(
       sessionStorage.getItem('pending_open_invite') ||
@@ -1331,6 +1335,11 @@ function App() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setIsAuthChecked(true);
+      // Mirror on initial restore too — onAuthStateChange sometimes doesn't
+      // fire INITIAL_SESSION depending on Supabase version / storage state.
+      if (session?.access_token) {
+        SharedAuthStore.setJwt(session.access_token);
+      }
       if (window.gtag && session?.user?.id) {
         window.gtag('config', 'G-W2LEPNDMF0', { user_id: session.user.id });
       }
@@ -1365,6 +1374,16 @@ function App() {
     });
 
     return () => subscription.unsubscribe();
+  }, []);
+
+  // TEMPORARY: keep SharedAuthStore diagnostics in React state so the debug
+  // banner renders up-to-date info. Remove when share flow is verified.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    setSharedAuthDebug(SharedAuthStore.getDiagnostics());
+    return SharedAuthStore.subscribe(() => {
+      setSharedAuthDebug(SharedAuthStore.getDiagnostics());
+    });
   }, []);
 
   // === [S09] Capacitor auth — deep-link dispatcher (hoisted so Story 11 can reference it) ===
@@ -4202,6 +4221,11 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
+      {sharedAuthDebug && (
+        <Box sx={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999, bgcolor: sharedAuthDebug.lastAttempt?.ok ? 'success.light' : 'warning.light', color: 'common.black', fontSize: 11, p: 0.5, fontFamily: 'monospace', paddingTop: 'env(safe-area-inset-top)', textAlign: 'center' }}>
+          SharedAuth · native={String(sharedAuthDebug.isNative)} · plugin={String(sharedAuthDebug.pluginHasSetJwt)} · {sharedAuthDebug.lastAttempt ? `${sharedAuthDebug.lastAttempt.action}: ${sharedAuthDebug.lastAttempt.ok ? 'OK' : 'FAIL'} — ${sharedAuthDebug.lastAttempt.detail}` : 'no attempts yet'}
+        </Box>
+      )}
       <AppBar position="static" color="inherit" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider', paddingTop: 'env(safe-area-inset-top)' }}>
         <Toolbar sx={{ display: 'flex', alignItems: 'center', gap: 2, minHeight: { xs: '50px', sm: 'calc(64px - 16px)' } }}>
           <IconButton
