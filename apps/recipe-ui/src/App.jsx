@@ -1056,6 +1056,7 @@ function App() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [recipeMenuAnchor, setRecipeMenuAnchor] = useState(null);
   const [isInferredCaveatOpen, setIsInferredCaveatOpen] = useState(false);
+  const [isReEnriching, setIsReEnriching] = useState(false);
   const [isStickyStuck, setIsStickyStuck] = useState(false);
   const scrollHandlerRef = useRef(null);
   const dialogContentRef = useCallback((node) => {
@@ -2772,6 +2773,7 @@ function App() {
 
   useEffect(() => {
     setIsInferredCaveatOpen(false);
+    setIsReEnriching(false);
   }, [activeRecipe?.id]);
 
   // Handle URL parameters to open recipe modal on page load
@@ -3343,6 +3345,43 @@ function App() {
       setIsActiveRecipeEnhancing(false);
     }
   }, [activeRecipeDraft, isRemoteEnabled]);
+
+  const handleReEnrichActiveRecipe = useCallback(async ({ silent = false, onDone } = {}) => {
+    if (!activeRecipe?.id || !isRemoteEnabled) {
+      onDone?.({ ok: false, reason: 'no-recipe' });
+      return;
+    }
+    setIsReEnriching(true);
+    try {
+      const response = await callRecipesApi(
+        `/recipes/${encodeURIComponent(activeRecipe.id)}/re-enrich`,
+        { method: 'POST' },
+        accessToken
+      );
+      const refreshed = normalizeRecipeFromApi(response?.recipe);
+      if (refreshed) {
+        setRecipes((prev) => prev.map((r) => (r.id === refreshed.id ? refreshed : r)));
+        setActiveRecipe(refreshed);
+        setActiveRecipeDraft({
+          ...refreshed,
+          ingredients: Array.isArray(refreshed.ingredients) ? [...refreshed.ingredients] : [],
+          steps: Array.isArray(refreshed.steps) ? [...refreshed.steps] : [],
+        });
+      }
+      onDone?.({ ok: true, recipe: refreshed });
+    } catch (err) {
+      if (!silent) {
+        setSnackbarState({
+          open: true,
+          message: "Couldn't refresh recipe. Try again later.",
+          severity: 'error',
+        });
+      }
+      onDone?.({ ok: false, reason: 'error' });
+    } finally {
+      setIsReEnriching(false);
+    }
+  }, [activeRecipe?.id, isRemoteEnabled, accessToken, setRecipes]);
 
   const handleEnhanceNewRecipe = async () => {
     trackEvent('autofill_click', { context: 'new_recipe' });
@@ -5329,11 +5368,49 @@ function App() {
                       <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                         Ingredients
                       </Typography>
-                      {activeRecipeView.ingredients.map((item, i) => (
-                        <Typography key={i} variant="body1" sx={{ mb: 1 }}>
-                          {item}
-                        </Typography>
-                      ))}
+                      {(() => {
+                        const ingredientsLen = (activeRecipeView.ingredients || []).length;
+                        const stepsLen = (activeRecipeView.steps || []).length;
+                        const showEmptyState =
+                          !activeRecipeView.provenance &&
+                          ingredientsLen === 0 &&
+                          stepsLen === 0 &&
+                          Boolean(activeRecipeView.sourceUrl);
+                        if (showEmptyState) {
+                          return (
+                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                              We couldn't read this recipe.{' '}
+                              <Typography
+                                component="button"
+                                onClick={isReEnriching ? undefined : () => handleReEnrichActiveRecipe({ silent: false })}
+                                sx={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 0.25,
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: isReEnriching ? 'default' : 'pointer',
+                                  color: isReEnriching ? 'text.disabled' : 'primary.main',
+                                  fontSize: 'inherit',
+                                  fontWeight: 500,
+                                  p: 0,
+                                  verticalAlign: 'baseline',
+                                  '&:hover': isReEnriching ? {} : { textDecoration: 'underline' },
+                                }}
+                              >
+                                {isReEnriching ? <CircularProgress size={14} sx={{ mr: 0.5 }} /> : <AutoAwesomeIcon sx={{ fontSize: 14, mr: 0.25 }} />}
+                                Enhance with AI
+                              </Typography>
+                              {' '}or refer to the source.
+                            </Typography>
+                          );
+                        }
+                        return (activeRecipeView.ingredients || []).map((item, i) => (
+                          <Typography key={i} variant="body1" sx={{ mb: 1 }}>
+                            {item}
+                          </Typography>
+                        ));
+                      })()}
                     </>
                   )}
                 </Box>
