@@ -386,15 +386,16 @@ describe('textInference', () => {
     })
   };
 
-  it('returns empty when raw text fetch returns null and title is empty', async () => {
+  it('returns empty (no Gemini call) when raw text is null, regardless of title', async () => {
     const deps = {
       ...baseDeps,
       fetchRawRecipeText: async () => null,
       fetchImpl: vi.fn() as unknown as typeof fetch,
     };
-    const result = await textInference(fakeEnv, 'https://example.com/x', '', deps);
+    const result = await textInference(fakeEnv, 'https://example.com/x', 'Cucumber sandwiches', deps);
     expect(result.ingredients).toEqual([]);
     expect(result.steps).toEqual([]);
+    expect(result.provenance).toBeNull();
     expect(deps.fetchImpl).not.toHaveBeenCalled();
   });
 
@@ -412,7 +413,7 @@ describe('textInference', () => {
       fakeEnv,
       'https://example.com/recipe',
       'Pasta',
-      { ...baseDeps, fetchRawRecipeText: async () => 'Ingredients:\n- 1 cup flour\n\nInstructions:\n1. Mix.', fetchImpl: mockFetch }
+      { ...baseDeps, fetchRawRecipeText: async () => 'Ingredients:\n- 1 cup flour\n\nInstructions:\n1. Mix.'.padEnd(600, ' '), fetchImpl: mockFetch }
     );
     expect(result.ingredients).toEqual(['verbatim 1']);
 
@@ -441,7 +442,7 @@ describe('textInference', () => {
       fakeEnv,
       'https://example.com/recipe',
       'Pasta',
-      { ...baseDeps, fetchRawRecipeText: async () => 'some weak text with no clear recipe structure', fetchImpl: mockFetch }
+      { ...baseDeps, fetchRawRecipeText: async () => 'A long food blog post that rambles about family memories and cooking traditions without ever laying out an explicit ingredient list or numbered steps.'.padEnd(600, ' '), fetchImpl: mockFetch }
     );
     expect(result.ingredients).toEqual(['inferred']);
 
@@ -467,6 +468,95 @@ describe('textInference', () => {
     expect(result.ingredients).toEqual([]);
     expect(result.steps).toEqual([]);
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('skips both Gemini passes and returns null provenance when rawText is null', async () => {
+    const mockFetch = vi.fn() as unknown as typeof fetch;
+    const result = await textInference(
+      fakeEnv,
+      'https://www.instagram.com/reel/xyz/',
+      'Cucumber tea sandwiches',
+      { ...baseDeps, fetchRawRecipeText: async () => null, fetchImpl: mockFetch }
+    );
+    expect(result.ingredients).toEqual([]);
+    expect(result.steps).toEqual([]);
+    expect(result.provenance).toBeNull();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('skips both passes when rawText is under 500 chars and not error-page-shaped', async () => {
+    const mockFetch = vi.fn() as unknown as typeof fetch;
+    const result = await textInference(
+      fakeEnv,
+      'https://example.com/x',
+      'Pasta',
+      { ...baseDeps, fetchRawRecipeText: async () => 'short body text', fetchImpl: mockFetch }
+    );
+    expect(result.provenance).toBeNull();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('tags pass-1 success as provenance=extracted', async () => {
+    const longText = 'Ingredients:\n- 1 cup flour\n- 2 eggs\n\nInstructions:\n1. Mix flour and eggs.\n'.padEnd(600, ' ');
+    const mockFetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: JSON.stringify({
+          ingredients: ['1 cup flour', '2 eggs'], steps: ['Mix flour and eggs.'], mealTypes: [], durationMinutes: null, notes: '', title: ''
+        }) }] } }]
+      })
+    })) as unknown as typeof fetch;
+
+    const result = await textInference(
+      fakeEnv,
+      'https://example.com/recipe',
+      'Pasta',
+      { ...baseDeps, fetchRawRecipeText: async () => longText, fetchImpl: mockFetch }
+    );
+    expect(result.ingredients).toEqual(['1 cup flour', '2 eggs']);
+    expect(result.provenance).toBe('extracted');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('tags pass-2 success as provenance=inferred when pass-1 returns empty', async () => {
+    const longText = 'A food blog post with lots of words but no explicit ingredient list or steps.'.padEnd(600, ' ');
+    let call = 0;
+    const mockFetch = vi.fn(async () => {
+      const text = call++ === 0
+        ? JSON.stringify({ ingredients: [], steps: [], mealTypes: [], durationMinutes: null, notes: '', title: '' })
+        : JSON.stringify({ ingredients: ['inferred'], steps: ['step'], mealTypes: [], durationMinutes: null, notes: '', title: '' });
+      return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text }] } }] }) };
+    }) as unknown as typeof fetch;
+
+    const result = await textInference(
+      fakeEnv,
+      'https://example.com/blog',
+      'Pasta',
+      { ...baseDeps, fetchRawRecipeText: async () => longText, fetchImpl: mockFetch }
+    );
+    expect(result.ingredients).toEqual(['inferred']);
+    expect(result.provenance).toBe('inferred');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns null provenance when both passes return empty', async () => {
+    const longText = 'Very generic food blog text with no actual recipe data anywhere.'.padEnd(600, ' ');
+    const mockFetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: JSON.stringify({ ingredients: [], steps: [], mealTypes: [], durationMinutes: null, notes: '', title: '' }) }] } }]
+      })
+    })) as unknown as typeof fetch;
+
+    const result = await textInference(
+      fakeEnv,
+      'https://example.com/x',
+      'Pasta',
+      { ...baseDeps, fetchRawRecipeText: async () => longText, fetchImpl: mockFetch }
+    );
+    expect(result.ingredients).toEqual([]);
+    expect(result.provenance).toBeNull();
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 });
 

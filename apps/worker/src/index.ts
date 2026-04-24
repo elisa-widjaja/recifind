@@ -4304,21 +4304,23 @@ async function textInference(
     return EMPTY_ENRICHMENT;
   }
 
-  const textForGemini = rawText || (title ? `Recipe: ${title}` : null);
-  if (!textForGemini) {
-    console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: 0, outcome: 'empty', duration_ms: Date.now() - startedAt });
+  // Hallucination gate: textInference makes any Gemini call only when the
+  // source text is substantive. Title-only fallback has been removed — if
+  // rawText is null we treat it as "nothing to work with" and return empty.
+  if (!rawText) {
+    console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: 0, outcome: 'empty', reason: 'no-raw-text', duration_ms: Date.now() - startedAt });
     return EMPTY_ENRICHMENT;
   }
-
-  // Short-circuit when r.jina.ai returned an error page rather than real content.
-  // Typical rate-limit response: ~300 bytes with "HTTP ERROR 429" or similar.
-  // Feeding this to Gemini causes hallucinated "plausible but fake" recipes.
-  if (rawText && rawText.length < 500 && /HTTP ERROR \d{3}|Too Many Requests|Target URL returned error/i.test(rawText)) {
+  if (rawText.length < 500) {
+    console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText.length, outcome: 'empty', reason: 'too-short', duration_ms: Date.now() - startedAt });
+    return EMPTY_ENRICHMENT;
+  }
+  if (/HTTP ERROR \d{3}|Too Many Requests|Target URL returned error/i.test(rawText)) {
     console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText.length, outcome: 'empty', reason: 'fetch-error', duration_ms: Date.now() - startedAt });
     return EMPTY_ENRICHMENT;
   }
 
-  // Reuse the existing "culinary expert" prompt (allows inference on weak text).
+  // Build the Recipe shape required by buildGeminiPrompt (pass 2).
   const recipeForPrompt: Recipe = {
     id: 'enrich-preview',
     userId: 'preview',
@@ -4338,32 +4340,34 @@ async function textInference(
 
   try {
     // Pass 1: strict extract-only (verbatim if the text contains a recipe).
-    const extractCompletion = await callGemini(env, buildExtractOnlyPrompt(textForGemini), {
+    const extractCompletion = await callGemini(env, buildExtractOnlyPrompt(rawText), {
       fetchImpl: deps.fetchImpl,
       getAccessToken: deps.getAccessToken,
       getServiceAccount: deps.getServiceAccount,
     });
     const extractParsed = parseGeminiRecipeJson(extractCompletion);
-    const extractResult = extractParsed ? parsedToEnrichmentResult(extractParsed) : EMPTY_ENRICHMENT;
-    const extractIsEmpty = extractResult.ingredients.length === 0 && extractResult.steps.length === 0;
+    const extractBase = extractParsed ? parsedToEnrichmentResult(extractParsed) : EMPTY_ENRICHMENT;
+    const extractIsEmpty = extractBase.ingredients.length === 0 && extractBase.steps.length === 0;
     if (!extractIsEmpty) {
-      console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText?.length ?? 0, pass: 'extract', outcome: 'extracted', duration_ms: Date.now() - startedAt });
-      return extractResult;
+      console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText.length, pass: 'extract', outcome: 'extracted', duration_ms: Date.now() - startedAt });
+      return { ...extractBase, provenance: 'extracted' };
     }
 
-    // Pass 2: fall back to the inference-allowing prompt when extract came up empty.
-    const inferCompletion = await callGemini(env, buildGeminiPrompt(recipeForPrompt, textForGemini), {
+    // Pass 2: inference-allowing prompt runs only when the gate passed AND pass-1 was empty.
+    const inferCompletion = await callGemini(env, buildGeminiPrompt(recipeForPrompt, rawText), {
       fetchImpl: deps.fetchImpl,
       getAccessToken: deps.getAccessToken,
       getServiceAccount: deps.getServiceAccount,
     });
     const inferParsed = parseGeminiRecipeJson(inferCompletion);
-    const inferResult = inferParsed ? parsedToEnrichmentResult(inferParsed) : EMPTY_ENRICHMENT;
-    const inferIsEmpty = inferResult.ingredients.length === 0 && inferResult.steps.length === 0;
-    console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText?.length ?? 0, pass: 'infer', outcome: inferIsEmpty ? 'empty' : 'extracted', duration_ms: Date.now() - startedAt });
-    return inferResult;
+    const inferBase = inferParsed ? parsedToEnrichmentResult(inferParsed) : EMPTY_ENRICHMENT;
+    const inferIsEmpty = inferBase.ingredients.length === 0 && inferBase.steps.length === 0;
+    console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText.length, pass: 'infer', outcome: inferIsEmpty ? 'empty' : 'inferred', duration_ms: Date.now() - startedAt });
+    return inferIsEmpty
+      ? EMPTY_ENRICHMENT
+      : { ...inferBase, provenance: 'inferred' };
   } catch (err) {
-    console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText?.length ?? 0, outcome: 'error', duration_ms: Date.now() - startedAt, error: String(err) });
+    console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText.length, outcome: 'error', duration_ms: Date.now() - startedAt, error: String(err) });
     return EMPTY_ENRICHMENT;
   }
 }
