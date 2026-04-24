@@ -2790,21 +2790,10 @@ function App() {
     setIsReEnriching(false);
   }, [activeRecipe?.id]);
 
-  useEffect(() => {
-    if (!activeRecipe) return;
-    const r = activeRecipe;
-    if (silentRetryAttempted.has(r.id)) return;
-    const ingredientsLen = Array.isArray(r.ingredients) ? r.ingredients.length : 0;
-    const stepsLen = Array.isArray(r.steps) ? r.steps.length : 0;
-    const isEmpty = ingredientsLen === 0 && stepsLen === 0;
-    const hasSource = Boolean(r.sourceUrl);
-    const provenanceIsNull = !r.provenance;
-    const createdAtMs = r.createdAt ? new Date(r.createdAt).getTime() : 0;
-    const withinWindow = Number.isFinite(createdAtMs) && (Date.now() - createdAtMs) < 24 * 60 * 60 * 1000;
-    if (!provenanceIsNull || !isEmpty || !hasSource || !withinWindow) return;
-    silentRetryAttempted.add(r.id);
-    handleReEnrichActiveRecipe({ silent: true });
-  }, [activeRecipe?.id, handleReEnrichActiveRecipe]);
+  // NOTE: the silent-retry useEffect that depends on handleReEnrichActiveRecipe
+  // lives AFTER that callback is declared (further down the component). Placing
+  // it here caused a TDZ crash — see docs/superpowers/learnings/2026-04-23-…
+  // for the same pattern.
 
   // Handle URL parameters to open recipe modal on page load
   useEffect(() => {
@@ -3412,6 +3401,25 @@ function App() {
       setIsReEnriching(false);
     }
   }, [activeRecipe?.id, isRemoteEnabled, accessToken, setRecipes]);
+
+  // Silent retry on open: see note earlier in the file where the reset effect
+  // lives. This effect MUST be declared after handleReEnrichActiveRecipe to
+  // avoid a TDZ crash on initial render.
+  useEffect(() => {
+    if (!activeRecipe) return;
+    const r = activeRecipe;
+    if (silentRetryAttempted.has(r.id)) return;
+    const ingredientsLen = Array.isArray(r.ingredients) ? r.ingredients.length : 0;
+    const stepsLen = Array.isArray(r.steps) ? r.steps.length : 0;
+    const isEmpty = ingredientsLen === 0 && stepsLen === 0;
+    const hasSource = Boolean(r.sourceUrl);
+    const provenanceIsNull = !r.provenance;
+    const createdAtMs = r.createdAt ? new Date(r.createdAt).getTime() : 0;
+    const withinWindow = Number.isFinite(createdAtMs) && (Date.now() - createdAtMs) < 24 * 60 * 60 * 1000;
+    if (!provenanceIsNull || !isEmpty || !hasSource || !withinWindow) return;
+    silentRetryAttempted.add(r.id);
+    handleReEnrichActiveRecipe({ silent: true });
+  }, [activeRecipe?.id, handleReEnrichActiveRecipe]);
 
   const handleEnhanceNewRecipe = async () => {
     trackEvent('autofill_click', { context: 'new_recipe' });
