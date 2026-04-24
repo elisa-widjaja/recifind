@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { handleCreateRecipe, enrichAfterSave } from './index';
+import { handleCreateRecipe, enrichAfterSave, handleUpdateRecipe } from './index';
 import type { Env } from './index';
 
 function makeMockDb(options: {
@@ -325,5 +325,73 @@ describe('handleCreateRecipe provenance', () => {
     expect(insert).toBeDefined();
     expect(insert!.binds).not.toContain('inferred');
     expect(insert!.binds).not.toContain('extracted');
+  });
+});
+
+describe('handleUpdateRecipe provenance', () => {
+  function makeUpdateMockDb(existing: { provenance: string | null; ingredients: string[]; steps: string[]; notes: string; title: string }) {
+    const runCalls: Array<{ sql: string; binds: any[] }> = [];
+    const fullRow = {
+      id: 'recipe-1',
+      user_id: 'user-abc',
+      title: existing.title,
+      source_url: 'https://example.com/x',
+      image_url: '',
+      image_path: null,
+      meal_types: JSON.stringify([]),
+      ingredients: JSON.stringify(existing.ingredients),
+      steps: JSON.stringify(existing.steps),
+      duration_minutes: null,
+      notes: existing.notes,
+      preview_image: null,
+      shared_with_friends: 1,
+      provenance: existing.provenance,
+      created_at: '2026-04-24T00:00:00.000Z',
+      updated_at: '2026-04-24T00:00:00.000Z',
+    };
+    const db = {
+      prepare: (sql: string) => ({
+        bind: (...binds: any[]) => ({
+          first: async () => (sql.includes('FROM recipes') ? fullRow : null),
+          run: async () => { runCalls.push({ sql, binds: [...binds] }); return { success: true }; },
+        }),
+      }),
+    };
+    return { db, runCalls };
+  }
+
+  it('sets provenance=null when ingredients are edited', async () => {
+    const { db, runCalls } = makeUpdateMockDb({
+      provenance: 'inferred', ingredients: ['old'], steps: ['old step'], notes: '', title: 'Pasta'
+    });
+    const env = { DB: db as unknown as D1Database } as Env;
+    const user = { userId: 'user-abc', email: 'a@b.c' };
+    const req = new Request('https://worker/recipes/recipe-1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Pasta', ingredients: ['new ingredient'] }),
+    });
+    await handleUpdateRecipe(req, env, user as any, 'recipe-1');
+    const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
+    expect(update).toBeDefined();
+    expect(update!.binds).toContain(null);
+    expect(update!.binds).not.toContain('inferred');
+  });
+
+  it('leaves provenance untouched when only title changes', async () => {
+    const { db, runCalls } = makeUpdateMockDb({
+      provenance: 'inferred', ingredients: ['keep'], steps: ['keep'], notes: 'notes', title: 'Pasta'
+    });
+    const env = { DB: db as unknown as D1Database } as Env;
+    const user = { userId: 'user-abc', email: 'a@b.c' };
+    const req = new Request('https://worker/recipes/recipe-1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Renamed' }),
+    });
+    await handleUpdateRecipe(req, env, user as any, 'recipe-1');
+    const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
+    expect(update).toBeDefined();
+    expect(update!.binds).toContain('inferred');
   });
 });

@@ -1999,19 +1999,28 @@ async function handleUpdateRecipe(request: Request, env: Env, user: Authenticate
     }
   }
 
+  // Clear provenance when the user has manually touched enrichment-owned
+  // fields. The chip should disappear once the content is user-owned.
+  const contentEdited = 'ingredients' in body || 'steps' in body || 'notes' in body;
+  const effectiveProvenance = contentEdited ? null : (existing.provenance ?? null);
+
   await env.DB.prepare(
-    `UPDATE recipes SET title = ?, source_url = ?, image_url = ?, image_path = ?, meal_types = ?, ingredients = ?, steps = ?, duration_minutes = ?, notes = ?, preview_image = ?, shared_with_friends = ?, updated_at = ?
+    `UPDATE recipes SET title = ?, source_url = ?, image_url = ?, image_path = ?, meal_types = ?, ingredients = ?, steps = ?, duration_minutes = ?, notes = ?, preview_image = ?, shared_with_friends = ?, provenance = ?, updated_at = ?
      WHERE user_id = ? AND id = ?`
   ).bind(
     recipe.title, recipe.sourceUrl, recipe.imageUrl, recipe.imagePath ?? null,
     JSON.stringify(recipe.mealTypes), JSON.stringify(recipe.ingredients), JSON.stringify(recipe.steps),
     recipe.durationMinutes, recipe.notes || '',
     recipe.previewImage ? JSON.stringify(recipe.previewImage) : null,
-    recipe.sharedWithFriends ? 1 : 0, recipe.updatedAt,
+    recipe.sharedWithFriends ? 1 : 0,
+    effectiveProvenance,
+    recipe.updatedAt,
     user.userId, recipe.id
   ).run();
   await updateCollectionMeta(env, user.userId, { countDelta: 0 });
-  return json({ recipe });
+
+  const updated: Recipe = { ...recipe, provenance: effectiveProvenance };
+  return json({ recipe: updated });
 }
 
 async function handleDeleteRecipe(env: Env, user: AuthenticatedUser, recipeId: string) {
@@ -4944,4 +4953,5 @@ export {
   textInference,
   runEnrichmentChain,
   handleCreateRecipe,
+  handleUpdateRecipe,
 };
