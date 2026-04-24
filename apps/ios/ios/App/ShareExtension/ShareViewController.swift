@@ -126,9 +126,12 @@ final class ShareViewController: UIViewController {
     }
 
     private func openRecipeInApp(recipeId: String) {
-        // recifriend://recipes/<id> is handled by the main app's deepLinkDispatch
-        // (see apps/shared/deepLink.ts recipe_detail pattern).
-        guard let url = URL(string: "recifriend://recipes/\(recipeId)") else { return }
+        // recifriend://recipes (no id) opens the recipe collection page.
+        // Handled by the main app's deepLinkDispatch recipes_list kind.
+        // recipeId unused for now — kept on the outcome for a possible future
+        // "open this specific recipe" flavor.
+        _ = recipeId
+        guard let url = URL(string: "recifriend://recipes") else { return }
         openURL(url)
     }
 

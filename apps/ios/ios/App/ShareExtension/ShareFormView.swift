@@ -91,11 +91,11 @@ final class ShareFormViewModel: ObservableObject {
         }
     }
 
-    /// Dismiss the extension 5s after a successful save unless the user dismisses first.
+    /// Dismiss the extension 8s after a successful save unless the user dismisses first.
     private func startAutoDismiss() {
         autoDismissTask?.cancel()
         autoDismissTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
             guard !Task.isCancelled, let id = self.savedRecipeId else { return }
             self.onFinish(.saved(recipeId: id))
         }
@@ -259,13 +259,13 @@ struct ShareFormView: View {
     }
 }
 
-/// Liquid Glass on iOS 26+, bordered-prominent fallback otherwise.
+/// Transparent Liquid Glass on iOS 26+, bordered fallback otherwise.
 private struct SaveButtonStyle: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            content.buttonStyle(.glassProminent)
+            content.buttonStyle(.glass)
         } else {
-            content.buttonStyle(.borderedProminent)
+            content.buttonStyle(.bordered)
         }
     }
 }

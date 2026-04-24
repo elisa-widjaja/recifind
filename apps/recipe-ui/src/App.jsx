@@ -1418,6 +1418,9 @@ function App() {
         const recipe = recipesRef.current.find((r) => r.id === recipeId);
         if (recipe) handleOpenRecipeDetailsRef.current?.(recipe);
       },
+      onRecipesList: () => {
+        setCurrentView('recipes');
+      },
     });
     return dispatch(urlString);
   }, []);

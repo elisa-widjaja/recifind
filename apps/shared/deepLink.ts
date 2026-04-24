@@ -22,6 +22,11 @@ export function parseDeepLink(raw: string): DeepLink | null {
     ? (normalizeCustomScheme(raw) ?? url.pathname)
     : url.pathname;
 
+  // /recipes (recipe collection page)
+  if (fullPath === '/recipes' || fullPath === '/recipes/') {
+    return { kind: 'recipes_list' };
+  }
+
   // /recipes/:id
   const recipeMatch = fullPath.match(/^\/recipes\/([^/?#]+)\/?$/);
   if (recipeMatch) {

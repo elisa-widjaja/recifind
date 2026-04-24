@@ -56,7 +56,8 @@ export type DeepLink =
   | { kind: 'auth_callback'; code: string }
   | { kind: 'add_recipe'; url: string }
   | { kind: 'friend_requests' }
-  | { kind: 'recipe_detail'; recipe_id: string };
+  | { kind: 'recipe_detail'; recipe_id: string }
+  | { kind: 'recipes_list' };
 
 // ─── C4: APNs payload ──────────────────────────────────────────────
 

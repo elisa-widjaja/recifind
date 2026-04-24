@@ -7,6 +7,7 @@ import { parseDeepLink } from '../../../shared/deepLink';
  *   onAddRecipe: (url: string) => void,
  *   onFriendRequests: () => void,
  *   onRecipeDetail: (recipeId: string) => void,
+ *   onRecipesList: () => void,
  * }} handlers
  */
 export function createDispatcher(handlers) {
@@ -19,6 +20,7 @@ export function createDispatcher(handlers) {
       case 'add_recipe':      return handlers.onAddRecipe(link.url);
       case 'friend_requests': return handlers.onFriendRequests();
       case 'recipe_detail':   return handlers.onRecipeDetail(link.recipe_id);
+      case 'recipes_list':    return handlers.onRecipesList();
     }
   };
 }
