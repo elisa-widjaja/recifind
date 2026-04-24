@@ -169,7 +169,9 @@ describe('enrichAfterSave', () => {
       if (url.includes('r.jina.ai')) {
         return {
           ok: true,
-          text: async () => 'Ingredients: 1 cup flour, 2 eggs\nSteps: 1. Mix. 2. Bake.',
+          // Pad past the 500-char gate in textInference so the chain exercises
+          // pass-1 instead of short-circuiting on length.
+          text: async () => 'Ingredients: 1 cup flour, 2 eggs\nSteps: 1. Mix. 2. Bake.'.padEnd(600, ' '),
         } as Response;
       }
       // Gemini access token + inference
