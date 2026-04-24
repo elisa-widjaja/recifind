@@ -322,7 +322,11 @@ async function buildApiRecipePayload(recipe, { includePreviewImage = false } = {
         ? Math.round(recipe.durationMinutes)
         : null,
     notes: recipe.notes || '',
-    sharedWithFriends: Boolean(recipe.sharedWithFriends)
+    sharedWithFriends: Boolean(recipe.sharedWithFriends),
+    provenance:
+      recipe.provenance === 'extracted' || recipe.provenance === 'inferred'
+        ? recipe.provenance
+        : null,
   };
   if (includePreviewImage) {
     const previewPayload = await createPreviewImagePayloadFromUrl(payload.imageUrl);
@@ -3310,6 +3314,11 @@ function App() {
           changed = true;
         }
 
+        if (enriched.provenance === 'extracted' || enriched.provenance === 'inferred' || enriched.provenance === null) {
+          next.provenance = enriched.provenance;
+          changed = true;
+        }
+
         return changed ? next : prev;
       });
 
@@ -4106,6 +4115,7 @@ function App() {
               steps: savedHasSteps ? savedRecipe.steps : (enrichedSteps ?? savedRecipe.steps ?? []),
               mealTypes: savedRecipe.mealTypes?.length ? savedRecipe.mealTypes : (enriched.mealTypes ?? []),
               durationMinutes: savedRecipe.durationMinutes ?? enriched.durationMinutes ?? null,
+              provenance: enriched.provenance === 'extracted' || enriched.provenance === 'inferred' ? enriched.provenance : (savedRecipe.provenance ?? null),
             };
             try {
               const updated = await callRecipesApi(`/recipes/${savedRecipe.id}`, {
