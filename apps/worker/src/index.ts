@@ -1970,6 +1970,7 @@ async function handleEnrichRecipe(request: Request, env: Env) {
       steps: result.steps,
       durationMinutes: result.durationMinutes,
       notes: result.notes,
+      provenance: result.provenance ?? null,
     },
   });
 }
@@ -4958,4 +4959,5 @@ export {
   runEnrichmentChain,
   handleCreateRecipe,
   handleUpdateRecipe,
+  handleEnrichRecipe,
 };

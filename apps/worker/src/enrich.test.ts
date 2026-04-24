@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, runEnrichmentChain, enrichAfterSave } from './index';
+import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe } from './index';
 import type { Env } from './index';
 
 describe('fetchRawRecipeText', () => {
@@ -662,5 +662,55 @@ describe('EnrichmentResult shape', () => {
       { fetchOembedCaption: async () => null, fetchImpl: vi.fn() as any, getAccessToken: async () => 'x', getServiceAccount: async () => ({ client_email: '', private_key: '', token_uri: '', project_id: '' }) }
     );
     expect(emptyFromStrategy).toMatchObject({ ingredients: [], steps: [], provenance: null });
+  });
+});
+
+describe('handleEnrichRecipe response', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('includes provenance in the enriched payload', async () => {
+    const longText = 'Ingredients:\n- 1 cup flour\n\nInstructions:\n1. Mix.'.padEnd(600, ' ');
+
+    // Stub crypto so fake service-account keys don't fail the import/sign path.
+    vi.spyOn(crypto.subtle, 'importKey').mockResolvedValue({} as CryptoKey);
+    vi.spyOn(crypto.subtle, 'sign').mockResolvedValue(new ArrayBuffer(32));
+
+    const FAKE_SA_B64 = btoa(JSON.stringify({
+      client_email: 'svc@test.com',
+      private_key: '-----BEGIN PRIVATE KEY-----\nZmFrZQ==\n-----END PRIVATE KEY-----',
+      token_uri: 'https://oauth2.googleapis.com/token',
+      project_id: 'test-proj',
+    }));
+
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (typeof url === 'string' && url.includes('r.jina.ai')) {
+        return { ok: true, text: async () => longText } as Response;
+      }
+      if (typeof url === 'string' && url.includes('oauth2.googleapis.com')) {
+        return { ok: true, json: async () => ({ access_token: 'fake' }) } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: JSON.stringify({
+            ingredients: ['flour'], steps: ['mix'], mealTypes: [], durationMinutes: null, notes: '', title: ''
+          }) }] } }]
+        })
+      } as Response;
+    }) as unknown as typeof fetch);
+
+    const req = new Request('https://worker/recipes/enrich', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceUrl: 'https://somerecipeblog.com/pasta', title: 'Pasta' }),
+    });
+
+    const env = { GEMINI_SERVICE_ACCOUNT_B64: FAKE_SA_B64 } as unknown as Env;
+    const res = await handleEnrichRecipe(req, env);
+    const body = await res.json() as { enriched: { provenance?: string | null } };
+    expect(body.enriched.provenance).toBe('extracted');
   });
 });
