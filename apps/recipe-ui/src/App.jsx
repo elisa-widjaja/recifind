@@ -931,12 +931,6 @@ function getHomeGreetingMessage(date = new Date()) {
 
 const PENDING_SHARE_TTL_MS = 24 * 60 * 60 * 1000;
 
-// Tracks recipe ids whose empty-state silent retry has already run in the
-// current session. Prevents rapid open/close/open from spamming re-enrich.
-// Resets on page reload (intentional — a fresh load is a reasonable signal
-// that the user wants another shot).
-const silentRetryAttempted = new Set();
-
 function App() {
   // Use window width directly for reliable mobile detection
   const [isMobile, setIsMobile] = useState(() => {
@@ -2790,11 +2784,6 @@ function App() {
     setIsReEnriching(false);
   }, [activeRecipe?.id]);
 
-  // NOTE: the silent-retry useEffect that depends on handleReEnrichActiveRecipe
-  // lives AFTER that callback is declared (further down the component). Placing
-  // it here caused a TDZ crash — see docs/superpowers/learnings/2026-04-23-…
-  // for the same pattern.
-
   // Handle URL parameters to open recipe modal on page load
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -3290,6 +3279,10 @@ function App() {
         throw new Error('Unable to enhance this recipe right now.');
       }
 
+      // Track whether the merge actually filled visible content, separate from
+      // bookkeeping-only updates (provenance). The toast wording depends on this.
+      let addedContent = false;
+
       setActiveRecipeDraft((prev) => {
         if (!prev) {
           return prev;
@@ -3300,12 +3293,14 @@ function App() {
         if ((!next.title || !next.title.trim()) && enriched.title) {
           next.title = enriched.title;
           changed = true;
+          addedContent = true;
         }
 
         if (Array.isArray(enriched.ingredients) && enriched.ingredients.length > 0) {
           if (!Array.isArray(next.ingredients) || next.ingredients.length === 0) {
             next.ingredients = [...enriched.ingredients];
             changed = true;
+            addedContent = true;
           }
         }
 
@@ -3313,6 +3308,7 @@ function App() {
           if (!Array.isArray(next.steps) || next.steps.length === 0) {
             next.steps = [...enriched.steps];
             changed = true;
+            addedContent = true;
           }
         }
 
@@ -3320,12 +3316,14 @@ function App() {
           if (!Array.isArray(next.mealTypes) || next.mealTypes.length === 0) {
             next.mealTypes = [...enriched.mealTypes];
             changed = true;
+            addedContent = true;
           }
         }
 
         if (!next.durationMinutes && typeof enriched.durationMinutes === 'number') {
           next.durationMinutes = enriched.durationMinutes;
           changed = true;
+          addedContent = true;
         }
 
         // Update image if missing or using placeholder SVG
@@ -3333,16 +3331,22 @@ function App() {
         if ((!next.imageUrl || !next.imageUrl.trim() || hasPlaceholderImage) && enriched.imageUrl) {
           next.imageUrl = enriched.imageUrl;
           changed = true;
+          addedContent = true;
         }
 
         if ((!next.notes || !next.notes.trim()) && enriched.notes) {
           next.notes = enriched.notes;
           changed = true;
+          addedContent = true;
         }
 
+        // Provenance on its own is bookkeeping — don't let it trigger the
+        // "AI suggestions added" toast when no visible field actually changed.
         if (enriched.provenance === 'extracted' || enriched.provenance === 'inferred' || enriched.provenance === null) {
-          next.provenance = enriched.provenance;
-          changed = true;
+          if (next.provenance !== enriched.provenance) {
+            next.provenance = enriched.provenance;
+            changed = true;
+          }
         }
 
         return changed ? next : prev;
@@ -3350,8 +3354,10 @@ function App() {
 
       setSnackbarState({
         open: true,
-        message: 'AI suggestions added. Review and save to keep changes.',
-        severity: 'info'
+        message: addedContent
+          ? 'AI suggestions added. Review and save to keep changes.'
+          : "We couldn't read new details for this recipe. The source may be rate-limited — try again in a minute.",
+        severity: addedContent ? 'info' : 'warning',
       });
     } catch (error) {
       console.error('Unable to enhance recipe with AI.', error);
@@ -3370,6 +3376,8 @@ function App() {
       onDone?.({ ok: false, reason: 'no-recipe' });
       return;
     }
+    const prevIngredientsLen = (activeRecipe.ingredients?.length ?? 0);
+    const prevStepsLen = (activeRecipe.steps?.length ?? 0);
     setIsReEnriching(true);
     try {
       const response = await callRecipesApi(
@@ -3387,7 +3395,19 @@ function App() {
           steps: Array.isArray(refreshed.steps) ? [...refreshed.steps] : [],
         });
       }
-      onDone?.({ ok: true, recipe: refreshed });
+      const newIngredientsLen = refreshed?.ingredients?.length ?? 0;
+      const newStepsLen = refreshed?.steps?.length ?? 0;
+      const contentChanged = newIngredientsLen !== prevIngredientsLen || newStepsLen !== prevStepsLen;
+      // Non-silent callers (the empty-state "Enhance with AI" link) should hear
+      // when the server came back empty — otherwise the button just looks broken.
+      if (!silent && !contentChanged) {
+        setSnackbarState({
+          open: true,
+          message: "We couldn't read new details for this recipe. The source may be rate-limited — try again in a minute.",
+          severity: 'warning',
+        });
+      }
+      onDone?.({ ok: contentChanged, recipe: refreshed, reason: contentChanged ? null : 'no-change' });
     } catch (err) {
       if (!silent) {
         setSnackbarState({
@@ -3401,25 +3421,6 @@ function App() {
       setIsReEnriching(false);
     }
   }, [activeRecipe?.id, isRemoteEnabled, accessToken, setRecipes]);
-
-  // Silent retry on open: see note earlier in the file where the reset effect
-  // lives. This effect MUST be declared after handleReEnrichActiveRecipe to
-  // avoid a TDZ crash on initial render.
-  useEffect(() => {
-    if (!activeRecipe) return;
-    const r = activeRecipe;
-    if (silentRetryAttempted.has(r.id)) return;
-    const ingredientsLen = Array.isArray(r.ingredients) ? r.ingredients.length : 0;
-    const stepsLen = Array.isArray(r.steps) ? r.steps.length : 0;
-    const isEmpty = ingredientsLen === 0 && stepsLen === 0;
-    const hasSource = Boolean(r.sourceUrl);
-    const provenanceIsNull = !r.provenance;
-    const createdAtMs = r.createdAt ? new Date(r.createdAt).getTime() : 0;
-    const withinWindow = Number.isFinite(createdAtMs) && (Date.now() - createdAtMs) < 24 * 60 * 60 * 1000;
-    if (!provenanceIsNull || !isEmpty || !hasSource || !withinWindow) return;
-    silentRetryAttempted.add(r.id);
-    handleReEnrichActiveRecipe({ silent: true });
-  }, [activeRecipe?.id, handleReEnrichActiveRecipe]);
 
   const handleEnhanceNewRecipe = async () => {
     trackEvent('autofill_click', { context: 'new_recipe' });
@@ -4212,6 +4213,27 @@ function App() {
               console.warn('Background enrichment patch failed:', err);
             }
           }).catch(() => {}); // AbortError or network failure — auto-fill button is the fallback
+        }
+
+        // Save-time silent retry: the worker's enrichAfterSave runs via
+        // ctx.waitUntil and typically takes 5–30s. If this recipe came in
+        // empty (no ingredients OR no steps), refetch the row at t+6s and
+        // t+18s so by the time the user opens the detail, the row reflects
+        // whatever enrichAfterSave wrote. Best-effort; errors are swallowed.
+        if (savedRecipe.sourceUrl && (!savedHasIngredients || !savedHasSteps)) {
+          const retryId = savedRecipe.id;
+          const retryToken = accessToken;
+          const silentRefetch = async () => {
+            try {
+              const res = await callRecipesApi(`/recipes/${encodeURIComponent(retryId)}`, {}, retryToken);
+              const refreshed = normalizeRecipeFromApi(res?.recipe);
+              if (!refreshed) return;
+              setRecipes((prev) => prev.map((r) => (r.id === refreshed.id ? refreshed : r)));
+              setActiveRecipe((curr) => (curr?.id === refreshed.id ? refreshed : curr));
+            } catch { /* best-effort */ }
+          };
+          setTimeout(silentRefetch, 6000);
+          setTimeout(silentRefetch, 18000);
         }
 
         resetFormState(`Saved "${savedRecipe.title}".`);
@@ -5748,25 +5770,6 @@ function App() {
           <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Edit recipe</ListItemText>
         </MenuItem>
-        {activeRecipe?.sourceUrl && (
-          <MenuItem onClick={() => {
-            setRecipeMenuAnchor(null);
-            setSnackbarState({ open: true, message: 'Refreshing recipe…', severity: 'info' });
-            handleReEnrichActiveRecipe({
-              silent: true,
-              onDone: ({ ok }) => {
-                setSnackbarState({
-                  open: true,
-                  message: ok ? 'Recipe refreshed.' : "Couldn't refresh recipe. Try again later.",
-                  severity: ok ? 'success' : 'error',
-                });
-              },
-            });
-          }}>
-            <ListItemIcon><AutoAwesomeIcon fontSize="small" /></ListItemIcon>
-            <ListItemText>Re-enrich with AI</ListItemText>
-          </MenuItem>
-        )}
         <MenuItem onClick={() => { setRecipeMenuAnchor(null); openDeleteConfirm(); }}>
           <ListItemIcon><DeleteOutlineIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Delete</ListItemText>
