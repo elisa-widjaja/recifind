@@ -220,8 +220,8 @@ struct ShareFormView: View {
             signInToolbarButton
         } else {
             let enabled = !(saveDisabled || viewModel.isSaved)
-            saveButtonBase
-                .tint(enabled ? Color.blue : Color(.systemGray3))
+            saveButtonBase(enabled: enabled)
+                .tint(enabled ? Color.blue : Color(.systemGray5))
                 .disabled(!enabled)
                 .accessibilityLabel(viewModel.isSaved ? "Saved" : "Save")
         }
@@ -244,17 +244,24 @@ struct ShareFormView: View {
     }
 
     @ViewBuilder
-    private var saveButtonBase: some View {
+    private func saveButtonBase(enabled: Bool) -> some View {
+        // When enabled, white glyph on blue glass. When disabled, secondary
+        // glyph on light-grey glass — matches native iOS disabled toolbar
+        // buttons (Mail, Notes) where contrast comes from the grey-on-grey
+        // pairing rather than a faint white glyph.
+        let glyphColor: Color = enabled ? .white : Color(.secondaryLabel)
         if #available(iOS 26.0, *) {
             Button(action: viewModel.save) {
                 Image(systemName: "checkmark")
                     .font(.body.weight(.semibold))
+                    .foregroundStyle(glyphColor)
             }
             .buttonStyle(.glassProminent)
         } else {
             Button(action: viewModel.save) {
                 Image(systemName: "checkmark")
                     .font(.body.weight(.semibold))
+                    .foregroundStyle(glyphColor)
             }
             .buttonStyle(.borderedProminent)
         }
