@@ -48,16 +48,18 @@ export const ALLOWED_DEEP_LINK_PATHS = new Set<string>([
   '/auth/callback',
   '/add-recipe',
   '/friend-requests',
+  '/open-pending-share',
 ]);
 
 export const RECIPE_ID_REGEX = /^[a-zA-Z0-9_-]{1,64}$/;
 
 export type DeepLink =
   | { kind: 'auth_callback'; code: string }
-  | { kind: 'add_recipe'; url: string }
+  | { kind: 'add_recipe'; url: string; title?: string }
   | { kind: 'friend_requests' }
   | { kind: 'recipe_detail'; recipe_id: string }
-  | { kind: 'recipes_list' };
+  | { kind: 'recipes_list' }
+  | { kind: 'open_pending_share' };
 
 // ─── C4: APNs payload ──────────────────────────────────────────────
 

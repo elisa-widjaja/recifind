@@ -141,3 +141,45 @@ describe('parseDeepLink — port + encoding guards', () => {
     expect(parseDeepLink('recifriend:recipes/123')).toBeNull();
   });
 });
+
+describe('parseDeepLink — /add-recipe with optional title', () => {
+  it('parses url only (backward compatible)', () => {
+    expect(parseDeepLink('recifriend://add-recipe?url=https%3A%2F%2Ftiktok.com%2Fx')).toEqual({
+      kind: 'add_recipe', url: 'https://tiktok.com/x',
+    });
+  });
+  it('parses url and title', () => {
+    expect(parseDeepLink('recifriend://add-recipe?url=https%3A%2F%2Ftiktok.com%2Fx&title=Creamy%20pasta')).toEqual({
+      kind: 'add_recipe', url: 'https://tiktok.com/x', title: 'Creamy pasta',
+    });
+  });
+  it('ignores empty title', () => {
+    expect(parseDeepLink('recifriend://add-recipe?url=https%3A%2F%2Ftiktok.com%2Fx&title=')).toEqual({
+      kind: 'add_recipe', url: 'https://tiktok.com/x',
+    });
+  });
+  it('caps absurdly long title at 200 chars', () => {
+    const long = 'a'.repeat(500);
+    const result = parseDeepLink(`recifriend://add-recipe?url=https%3A%2F%2Ftiktok.com%2Fx&title=${long}`);
+    expect(result?.kind).toBe('add_recipe');
+    expect((result as { title?: string }).title?.length).toBe(200);
+  });
+});
+
+describe('parseDeepLink — /open-pending-share', () => {
+  it('accepts via custom scheme', () => {
+    expect(parseDeepLink('recifriend://open-pending-share')).toEqual({
+      kind: 'open_pending_share',
+    });
+  });
+  it('accepts trailing slash', () => {
+    expect(parseDeepLink('recifriend://open-pending-share/')).toEqual({
+      kind: 'open_pending_share',
+    });
+  });
+  it('ignores query params on this path', () => {
+    expect(parseDeepLink('recifriend://open-pending-share?foo=bar')).toEqual({
+      kind: 'open_pending_share',
+    });
+  });
+});

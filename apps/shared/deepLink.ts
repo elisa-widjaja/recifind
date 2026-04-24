@@ -48,11 +48,18 @@ export function parseDeepLink(raw: string): DeepLink | null {
     return { kind: 'auth_callback', code };
   }
 
-  // /add-recipe?url=<http(s)://...>
+  // /add-recipe?url=<http(s)://...>&title=<optional>
   if (fullPath === '/add-recipe' || fullPath === '/add-recipe/') {
     const shared = url.searchParams.get('url');
     if (!shared || !/^https?:\/\//.test(shared)) return null;
-    return { kind: 'add_recipe', url: shared };
+    const rawTitle = url.searchParams.get('title') ?? '';
+    const title = rawTitle.slice(0, 200);
+    return title ? { kind: 'add_recipe', url: shared, title } : { kind: 'add_recipe', url: shared };
+  }
+
+  // /open-pending-share — extension hands off via App Group, this is just a wake-up ping
+  if (fullPath === '/open-pending-share' || fullPath === '/open-pending-share/') {
+    return { kind: 'open_pending_share' };
   }
 
   // /friend-requests
