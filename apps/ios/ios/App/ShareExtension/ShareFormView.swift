@@ -122,6 +122,7 @@ final class ShareFormViewModel: ObservableObject {
 
 struct ShareFormView: View {
     @ObservedObject var viewModel: ShareFormViewModel
+    @FocusState private var titleFocused: Bool
 
     var body: some View {
         NavigationView {
@@ -138,15 +139,17 @@ struct ShareFormView: View {
                         .padding(.horizontal, 16)
                 }
 
-                saveButton
-                    .padding(.top, 4)
+                if viewModel.isSaved {
+                    viewInAppButton
+                        .padding(.top, 4)
+                }
 
                 Spacer(minLength: 0)
             }
             .navigationTitle("Save to ReciFriend")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .navigationBarLeading) {
                     Button(action: viewModel.cancel) {
                         Image(systemName: "xmark")
                             .font(.body.weight(.semibold))
@@ -155,8 +158,46 @@ struct ShareFormView: View {
                     .disabled(viewModel.isSaving)
                     .accessibilityLabel("Close")
                 }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    saveToolbarButton
+                }
+            }
+            .onAppear {
+                // Auto-focus the title so the user sees a blinking cursor —
+                // makes it visually clear the field is editable. Small delay
+                // lets the view settle into the hierarchy before focusing.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    titleFocused = true
+                }
             }
         }
+    }
+
+    // MARK: - Nav bar save button (right)
+
+    @ViewBuilder
+    private var saveToolbarButton: some View {
+        if viewModel.isSaved {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.body.weight(.semibold))
+                .foregroundColor(.green)
+                .accessibilityLabel("Saved")
+        } else if viewModel.isSaving {
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityLabel("Saving")
+        } else {
+            Button(action: viewModel.save) {
+                Image(systemName: "checkmark")
+                    .font(.body.weight(.semibold))
+            }
+            .disabled(saveDisabled)
+            .accessibilityLabel("Save")
+        }
+    }
+
+    private var saveDisabled: Bool {
+        viewModel.title.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     // MARK: - Recipe card
@@ -167,17 +208,26 @@ struct ShareFormView: View {
                 .frame(width: 72, height: 72)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
-            VStack(alignment: .leading, spacing: 6) {
+            // Right column: title at top, "Recipe saved!" anchored at the
+            // bottom of the thumbnail height. Spacer pushes them apart so the
+            // saved-state confirmation always lines up with the thumbnail's
+            // bottom edge regardless of title length.
+            VStack(alignment: .leading, spacing: 0) {
                 titleField
+                Spacer(minLength: 0)
                 if viewModel.isSaved {
-                    Button(action: viewModel.openInApp) {
-                        Text("View on ReciFriend")
-                            .font(.system(size: 14))
-                            .foregroundColor(.accentColor)
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .font(.system(size: 13))
+                        Text("Recipe saved!")
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
                     }
-                    .buttonStyle(.plain)
+                    .transition(.opacity)
                 }
             }
+            .frame(height: 72, alignment: .topLeading)
 
             Spacer(minLength: 0)
         }
@@ -186,6 +236,7 @@ struct ShareFormView: View {
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color(.secondarySystemGroupedBackground))
         )
+        .animation(.default, value: viewModel.isSaved)
     }
 
     @ViewBuilder
@@ -194,48 +245,29 @@ struct ShareFormView: View {
             TextField("Title", text: $viewModel.title, axis: .vertical)
                 .font(.system(size: 16, weight: .semibold))
                 .lineLimit(2, reservesSpace: false)
+                .focused($titleFocused)
                 .disabled(viewModel.isSaving || viewModel.isSaved)
         } else {
             TextField("Title", text: $viewModel.title)
                 .font(.system(size: 16, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .focused($titleFocused)
                 .disabled(viewModel.isSaving || viewModel.isSaved)
         }
     }
 
-    // MARK: - Save button
+    // MARK: - View on ReciFriend
 
-    private var saveButton: some View {
-        Button(action: viewModel.save) {
-            Group {
-                if viewModel.isSaved {
-                    Label("Saved", systemImage: "checkmark.circle.fill")
-                } else if viewModel.isSaving {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Saving…")
-                    }
-                } else {
-                    Text("Save")
-                }
-            }
-            .font(.body.weight(.semibold))
-            .frame(minWidth: 100)
-            .padding(.vertical, 2)
+    private var viewInAppButton: some View {
+        Button(action: viewModel.openInApp) {
+            Text("View on ReciFriend")
+                .font(.body.weight(.semibold))
+                .frame(minWidth: 100)
+                .padding(.vertical, 2)
         }
-        .modifier(SaveButtonStyle(isSaved: viewModel.isSaved))
+        .modifier(GlassButtonStyle())
         .controlSize(.large)
-        // Keep Saved state enabled visually (full opacity) — the save() method
-        // already guards against re-firing, so the button is a no-op on tap.
-        .disabled(saveDisabled)
-        .animation(.default, value: viewModel.isSaved)
-    }
-
-    private var saveDisabled: Bool {
-        viewModel.isSaving ||
-            viewModel.title.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     // MARK: - Thumbnail
@@ -261,23 +293,14 @@ struct ShareFormView: View {
     }
 }
 
-/// Transparent Liquid Glass for the default state; filled + green tint when
-/// saved so the confirmation reads stronger than the disabled-save state.
-private struct SaveButtonStyle: ViewModifier {
-    let isSaved: Bool
+/// Transparent Liquid Glass on iOS 26+, bordered fallback otherwise.
+/// Used by the "View on ReciFriend" action below the card.
+private struct GlassButtonStyle: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            if isSaved {
-                content.buttonStyle(.glassProminent).tint(.green)
-            } else {
-                content.buttonStyle(.glass)
-            }
+            content.buttonStyle(.glass)
         } else {
-            if isSaved {
-                content.buttonStyle(.borderedProminent).tint(.green)
-            } else {
-                content.buttonStyle(.bordered)
-            }
+            content.buttonStyle(.bordered)
         }
     }
 }
