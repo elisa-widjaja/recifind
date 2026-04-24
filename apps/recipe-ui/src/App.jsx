@@ -113,6 +113,7 @@ import { Browser } from '@capacitor/browser';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Preferences } from '@capacitor/preferences';
 import { createDispatcher } from './lib/deepLinkDispatch';
+import { readPendingShare, clearPendingShare } from './lib/pendingShare.js';
 // === [/S09] ===
 // === [S11] Push client ===
 import { ensureRegistered, getCurrentApnsToken, onNotificationTap, hasPromptedForPermission } from './lib/pushClient';
@@ -924,6 +925,8 @@ function getHomeGreetingMessage(date = new Date()) {
 }
 
 
+const PENDING_SHARE_TTL_MS = 24 * 60 * 60 * 1000;
+
 function App() {
   // Use window width directly for reliable mobile detection
   const [isMobile, setIsMobile] = useState(() => {
@@ -1204,6 +1207,7 @@ function App() {
 
   // Auth state
   const [session, setSession] = useState(null);
+  const [pendingShare, setPendingShare] = useState(null);
   const [isAuthChecked, setIsAuthChecked] = useState(false);
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(
     () => !!(
@@ -1430,6 +1434,17 @@ function App() {
       },
     });
     return dispatch(urlString);
+  }, []);
+
+  // Drain App Group on mount — picks up any share the extension wrote before
+  // the app launched (cold-start / was backgrounded).
+  useEffect(() => {
+    let cancelled = false;
+    readPendingShare().then((share) => {
+      if (cancelled || !share) return;
+      setPendingShare(share);
+    });
+    return () => { cancelled = true; };
   }, []);
 
   // Register appUrlOpen listener exactly once. Never re-subscribe — every
