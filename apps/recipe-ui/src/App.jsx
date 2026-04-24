@@ -1415,7 +1415,15 @@ function App() {
       const tokenHash = parsed.searchParams.get('token_hash');
       const otpType = parsed.searchParams.get('type');
       if (tokenHash && otpType && supabase) {
-        await supabase.auth.verifyOtp({ token_hash: tokenHash, type: otpType });
+        const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: otpType });
+        if (error) {
+          console.warn('[deeplink] verifyOtp failed:', error.message);
+          setSnackbarState({
+            open: true,
+            message: `Sign-in link failed: ${error.message}. Request a new one.`,
+            severity: 'error',
+          });
+        }
         try { await Browser.close(); } catch { /* ignore */ }
         return;
       }
