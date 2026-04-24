@@ -223,6 +223,7 @@ describe('captionExtract', () => {
     const result = await captionExtract(fakeEnv, 'https://tiktok.com/@chef/video/1', 'Pasta', deps);
     expect(result.ingredients).toEqual(['1 cup flour', '2 eggs']);
     expect(result.steps).toEqual(['Mix flour and eggs', 'Knead for 5 min']);
+    expect(result.provenance).toBe('extracted');
     expect(mockFetch).toHaveBeenCalledTimes(1);
     // Prompt should explicitly ask for extract-only, not inference
     const parsedBody = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
@@ -255,6 +256,7 @@ describe('captionExtract', () => {
     const result = await captionExtract(fakeEnv, 'https://tiktok.com/x', 'Pasta', deps);
     expect(result.ingredients).toEqual([]);
     expect(result.steps).toEqual([]);
+    expect(result.provenance).toBeNull();
   });
 });
 
@@ -279,6 +281,7 @@ describe('youtubeVideo', () => {
     const result = await youtubeVideo(fakeEnv, 'https://www.tiktok.com/@x/video/1', 'Pasta', { ...baseDeps, fetchImpl: mockFetch });
     expect(result.ingredients).toEqual([]);
     expect(result.steps).toEqual([]);
+    expect(result.provenance).toBeNull();
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -305,6 +308,7 @@ describe('youtubeVideo', () => {
     );
     expect(result.ingredients).toEqual(['pasta', 'olive oil']);
     expect(result.steps).toEqual(['Boil water', 'Cook pasta']);
+    expect(result.provenance).toBe('extracted');
 
     const parsedBody = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
     expect(parsedBody.contents[0].parts).toHaveLength(2);

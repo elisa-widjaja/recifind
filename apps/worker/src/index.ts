@@ -4193,8 +4193,9 @@ async function captionExtract(
       getServiceAccount: deps.getServiceAccount,
     });
     const parsed = parseGeminiRecipeJson(completion);
-    const result = parsed ? parsedToEnrichmentResult(parsed) : EMPTY_ENRICHMENT;
-    const isEmpty = result.ingredients.length === 0 && result.steps.length === 0;
+    const base = parsed ? parsedToEnrichmentResult(parsed) : EMPTY_ENRICHMENT;
+    const isEmpty = base.ingredients.length === 0 && base.steps.length === 0;
+    const result: EnrichmentResult = { ...base, provenance: isEmpty ? null : 'extracted' };
     console.log('[enrich]', { strategy: 'caption-extract', url: sourceUrl, captionLength: caption.length, outcome: isEmpty ? 'empty' : 'extracted', duration_ms: Date.now() - startedAt });
     return result;
   } catch (err) {
@@ -4267,8 +4268,9 @@ async function youtubeVideo(
     }
 
     const parsed = parseGeminiRecipeJson(raced);
-    const result = parsed ? parsedToEnrichmentResult(parsed) : EMPTY_ENRICHMENT;
-    const isEmpty = result.ingredients.length === 0 && result.steps.length === 0;
+    const base = parsed ? parsedToEnrichmentResult(parsed) : EMPTY_ENRICHMENT;
+    const isEmpty = base.ingredients.length === 0 && base.steps.length === 0;
+    const result: EnrichmentResult = { ...base, provenance: isEmpty ? null : 'extracted' };
     console.log('[enrich]', { strategy: 'youtube-video', url: sourceUrl, outcome: isEmpty ? 'empty' : 'extracted', duration_ms: Date.now() - startedAt });
     return result;
   } catch (err) {
