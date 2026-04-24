@@ -5703,6 +5703,25 @@ function App() {
           <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Edit recipe</ListItemText>
         </MenuItem>
+        {activeRecipe?.sourceUrl && (
+          <MenuItem onClick={() => {
+            setRecipeMenuAnchor(null);
+            setSnackbarState({ open: true, message: 'Refreshing recipe…', severity: 'info' });
+            handleReEnrichActiveRecipe({
+              silent: true,
+              onDone: ({ ok }) => {
+                setSnackbarState({
+                  open: true,
+                  message: ok ? 'Recipe refreshed.' : "Couldn't refresh recipe. Try again later.",
+                  severity: ok ? 'success' : 'error',
+                });
+              },
+            });
+          }}>
+            <ListItemIcon><AutoAwesomeIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Re-enrich with AI</ListItemText>
+          </MenuItem>
+        )}
         <MenuItem onClick={() => { setRecipeMenuAnchor(null); openDeleteConfirm(); }}>
           <ListItemIcon><DeleteOutlineIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Delete</ListItemText>
