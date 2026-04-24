@@ -1209,6 +1209,7 @@ function App() {
   // actually being mirrored into the shared Keychain on device. Remove once
   // the native-save share flow is proven working end-to-end.
   const [sharedAuthDebug, setSharedAuthDebug] = useState(null);
+  const [authEvents, setAuthEvents] = useState({ initialResolved: false, initialHasToken: false, events: [] });
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(
     () => !!(
       sessionStorage.getItem('pending_open_invite') ||
@@ -1335,6 +1336,7 @@ function App() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setIsAuthChecked(true);
+      setAuthEvents(prev => ({ ...prev, initialResolved: true, initialHasToken: !!session?.access_token }));
       // Mirror on initial restore too — onAuthStateChange sometimes doesn't
       // fire INITIAL_SESSION depending on Supabase version / storage state.
       if (session?.access_token) {
@@ -1348,6 +1350,7 @@ function App() {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
+      setAuthEvents(prev => ({ ...prev, events: [...prev.events, { event, hasToken: !!session?.access_token, len: session?.access_token?.length ?? 0 }].slice(-5) }));
 
       // Mirror the Supabase access token into shared iOS Keychain so the
       // share extension can save recipes natively without the main app.
@@ -4222,8 +4225,11 @@ function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       {sharedAuthDebug && (
-        <Box sx={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999, bgcolor: sharedAuthDebug.lastAttempt?.ok ? 'success.light' : 'warning.light', color: 'common.black', fontSize: 11, p: 0.5, fontFamily: 'monospace', paddingTop: 'env(safe-area-inset-top)', textAlign: 'center' }}>
-          SharedAuth · native={String(sharedAuthDebug.isNative)} · plugin={String(sharedAuthDebug.pluginHasSetJwt)} · {sharedAuthDebug.lastAttempt ? `${sharedAuthDebug.lastAttempt.action}: ${sharedAuthDebug.lastAttempt.ok ? 'OK' : 'FAIL'} — ${sharedAuthDebug.lastAttempt.detail}` : 'no attempts yet'}
+        <Box sx={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999, bgcolor: sharedAuthDebug.lastAttempt?.ok ? 'success.light' : 'warning.light', color: 'common.black', fontSize: 10, p: 0.5, fontFamily: 'monospace', paddingTop: 'env(safe-area-inset-top)', textAlign: 'left', whiteSpace: 'pre-wrap' }}>
+          {`native=${sharedAuthDebug.isNative} plugin=${sharedAuthDebug.pluginHasSetJwt}
+initialResolved=${authEvents.initialResolved} initialHasToken=${authEvents.initialHasToken}
+events(${authEvents.events.length}): ${authEvents.events.map(e => `${e.event}/${e.hasToken ? 'tok='+e.len : 'no-tok'}`).join(', ') || '(none)'}
+last: ${sharedAuthDebug.lastAttempt ? `${sharedAuthDebug.lastAttempt.action} ${sharedAuthDebug.lastAttempt.ok ? 'OK' : 'FAIL'} — ${sharedAuthDebug.lastAttempt.detail}` : '(none)'}`}
         </Box>
       )}
       <AppBar position="static" color="inherit" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider', paddingTop: 'env(safe-area-inset-top)' }}>
