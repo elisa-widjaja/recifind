@@ -37,7 +37,7 @@ A user who is not signed in when they invoke the share extension should:
 
 **Configuration:**
 
-- App Group identifier: `group.com.recifriend.app` (added to both the main App and ShareExtension target entitlements).
+- App Group identifier: `group.com.recifriend.app` — already present in both `App.entitlements` and `ShareExtension.entitlements`. No entitlement changes required.
 - UserDefaults suite: `UserDefaults(suiteName: "group.com.recifriend.app")`.
 - Single key: `pending_share.v1` holding a JSON-encoded dictionary:
   ```json
@@ -264,7 +264,7 @@ Two deep-link paths coexist:
 - Edit — `apps/ios/ios/App/ShareExtension/ShareViewController.swift` (Outcome.signIn, `recifriend://open-pending-share`)
 - Edit — `apps/ios/ios/App/App/Plugins/SharedAuthStore/SharedAuthStorePlugin.swift` (readPendingShare, clearPendingShare)
 - Edit — `apps/ios/ios/App/App/Plugins/SharedAuthStore/SharedAuthStorePlugin.m` (register new methods)
-- Edit — entitlements for both targets (`apps/ios/ios/App/App/App.entitlements` and `apps/ios/ios/App/ShareExtension/ShareExtension.entitlements`): add `com.apple.security.application-groups` with `group.com.recifriend.app`. Matching App Group must also be enabled on both App IDs in the Apple Developer portal.
+- Entitlements — no change. Both targets already include `group.com.recifriend.app` under `com.apple.security.application-groups`.
 
 **Frontend (JS):**
 
