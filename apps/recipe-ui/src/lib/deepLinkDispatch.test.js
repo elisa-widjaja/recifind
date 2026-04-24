@@ -8,6 +8,7 @@ describe('deep link dispatcher', () => {
     onFriendRequests: () => {},
     onRecipeDetail: () => {},
     onRecipesList: () => {},
+    onOpenPendingShare: () => {},
   });
 
   it('routes auth callback to onAuthCallback', async () => {
@@ -21,7 +22,7 @@ describe('deep link dispatcher', () => {
     const onAddRecipe = vi.fn();
     const dispatch = createDispatcher({ ...noopHandlers(), onAddRecipe });
     await dispatch('recifriend://add-recipe?url=https%3A%2F%2Ftiktok.com%2Fabc');
-    expect(onAddRecipe).toHaveBeenCalledWith('https://tiktok.com/abc');
+    expect(onAddRecipe).toHaveBeenCalledWith('https://tiktok.com/abc', undefined);
   });
 
   it('routes /recipes/:id to onRecipeDetail with id', async () => {
@@ -46,6 +47,7 @@ describe('deep link dispatcher', () => {
     const handlers = {
       onAuthCallback: vi.fn(), onAddRecipe: vi.fn(),
       onFriendRequests: vi.fn(), onRecipeDetail: vi.fn(), onRecipesList: vi.fn(),
+      onOpenPendingShare: vi.fn(),
     };
     const dispatch = createDispatcher(handlers);
     await dispatch('javascript:alert(1)');
@@ -56,5 +58,49 @@ describe('deep link dispatcher', () => {
     expect(handlers.onFriendRequests).not.toHaveBeenCalled();
     expect(handlers.onRecipeDetail).not.toHaveBeenCalled();
     expect(handlers.onRecipesList).not.toHaveBeenCalled();
+  });
+});
+
+describe('dispatcher — new kinds and title', () => {
+  it('passes title through to onAddRecipe when present', async () => {
+    const onAddRecipe = vi.fn();
+    const dispatch = createDispatcher({
+      onAuthCallback: vi.fn(),
+      onAddRecipe,
+      onFriendRequests: vi.fn(),
+      onRecipeDetail: vi.fn(),
+      onRecipesList: vi.fn(),
+      onOpenPendingShare: vi.fn(),
+    });
+    await dispatch('recifriend://add-recipe?url=https%3A%2F%2Ftiktok.com%2Fx&title=Pasta');
+    expect(onAddRecipe).toHaveBeenCalledWith('https://tiktok.com/x', 'Pasta');
+  });
+
+  it('passes undefined title when query omits it', async () => {
+    const onAddRecipe = vi.fn();
+    const dispatch = createDispatcher({
+      onAuthCallback: vi.fn(),
+      onAddRecipe,
+      onFriendRequests: vi.fn(),
+      onRecipeDetail: vi.fn(),
+      onRecipesList: vi.fn(),
+      onOpenPendingShare: vi.fn(),
+    });
+    await dispatch('recifriend://add-recipe?url=https%3A%2F%2Ftiktok.com%2Fx');
+    expect(onAddRecipe).toHaveBeenCalledWith('https://tiktok.com/x', undefined);
+  });
+
+  it('calls onOpenPendingShare for /open-pending-share', async () => {
+    const onOpenPendingShare = vi.fn();
+    const dispatch = createDispatcher({
+      onAuthCallback: vi.fn(),
+      onAddRecipe: vi.fn(),
+      onFriendRequests: vi.fn(),
+      onRecipeDetail: vi.fn(),
+      onRecipesList: vi.fn(),
+      onOpenPendingShare,
+    });
+    await dispatch('recifriend://open-pending-share');
+    expect(onOpenPendingShare).toHaveBeenCalledOnce();
   });
 });
