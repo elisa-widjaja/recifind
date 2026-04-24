@@ -534,6 +534,9 @@ export default {
         })();
       }
 
+      // Must precede the generic `recipeMatch` block below. recipeMatch's regex
+      // rejects slashes in the id, so ordering is technically safe either way —
+      // explicit ordering avoids future ambiguity if that regex ever loosens.
       const reEnrichMatch = url.pathname.match(/^\/recipes\/([^/]+)\/re-enrich$/);
       if (reEnrichMatch && request.method === 'POST') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
@@ -2078,6 +2081,10 @@ export async function handleReEnrichRecipe(
   });
 
   // Preserve-on-empty: refuse to overwrite existing content with a blank result.
+  // "Empty" = BOTH ingredients and steps returned empty, matching the spec and
+  // the symmetric guard in enrichAfterSave. A partial chain result (e.g., a
+  // shopping list without steps) still goes through — we treat partial data as
+  // better than nothing.
   if (result.ingredients.length === 0 && result.steps.length === 0) {
     return json({ recipe: existing });
   }

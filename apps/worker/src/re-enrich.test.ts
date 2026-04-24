@@ -98,6 +98,13 @@ describe('handleReEnrichRecipe', () => {
     expect(runCalls.find(c => c.sql.includes('UPDATE recipes'))).toBeUndefined();
   });
 
+  it('503 when GEMINI_SERVICE_ACCOUNT_B64 is not configured', async () => {
+    const { db } = makeDb(makeRow());
+    const env = { DB: db as unknown as D1Database } as Env; // no GEMINI key
+    await expect(handleReEnrichRecipe(env, user, 'recipe-1'))
+      .rejects.toMatchObject({ status: 503 });
+  });
+
   it('does not touch image_url on a successful update', async () => {
     const existing = makeRow({ image_url: 'https://img.example/a.jpg' });
     const { db, runCalls } = makeDb(existing);
