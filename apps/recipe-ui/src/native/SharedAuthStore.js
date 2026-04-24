@@ -1,48 +1,27 @@
 import { registerPlugin, Capacitor } from '@capacitor/core';
 
-// Registered in apps/ios/ios/App/App/Plugins/SharedAuthStore/SharedAuthStorePlugin.m
-// via CAP_PLUGIN(SharedAuthStorePlugin, "SharedAuthStore", ...).
+// Registered in apps/ios/ios/App/App/MainViewController.swift via
+// bridge?.registerPluginInstance(SharedAuthStorePlugin()). Plugin class
+// lives in apps/ios/ios/App/App/Plugins/SharedAuthStore/.
 const SharedAuthStoreNative = registerPlugin('SharedAuthStore');
 
-// Module-level diagnostics so App.jsx can surface why setJwt may not be
-// reaching the shared Keychain. Latest attempt only; overwritten each call.
-let lastAttempt = null; // { at: number, action: string, ok: boolean, detail: string }
-const listeners = new Set();
-function emit() { listeners.forEach(fn => { try { fn(lastAttempt); } catch {} }); }
-
-function record(action, ok, detail) {
-  lastAttempt = { at: Date.now(), action, ok, detail };
-  if (!ok) {
-    // eslint-disable-next-line no-console
-    console.error('[SharedAuthStore]', action, 'failed:', detail);
-  } else {
-    // eslint-disable-next-line no-console
-    console.log('[SharedAuthStore]', action, 'ok:', detail);
-  }
-  emit();
-}
-
+// Thin wrapper that no-ops on non-iOS platforms. Write-and-verify pattern
+// catches silent plugin-registration regressions — if the native plugin
+// is ever absent, the verify-read will reject and we'll get a useful
+// console.error instead of a silent keychain miss on the extension side.
 export const SharedAuthStore = {
   async setJwt(token) {
-    if (!Capacitor.isNativePlatform()) return;
-    if (!token) { record('setJwt', false, 'no token passed'); return; }
+    if (!Capacitor.isNativePlatform() || !token) return;
     try {
       await SharedAuthStoreNative.setJwt({ token });
-      // Verify the write actually landed. If the plugin is an unimplemented
-      // web-fallback proxy, setJwt may silently resolve — getJwt will reveal it.
-      try {
-        const res = await SharedAuthStoreNative.getJwt();
-        const readLen = res?.token?.length ?? 0;
-        if (readLen === token.length) {
-          record('setJwt', true, `verified, len=${token.length}`);
-        } else {
-          record('setJwt', false, `verify mismatch: wrote=${token.length} read=${readLen}`);
-        }
-      } catch (readErr) {
-        record('setJwt', false, `wrote, verify-read threw: ${readErr?.message ?? readErr}`);
+      const res = await SharedAuthStoreNative.getJwt();
+      if (res?.token?.length !== token.length) {
+        // eslint-disable-next-line no-console
+        console.error('[SharedAuthStore] setJwt verify mismatch:', res?.token?.length, 'vs', token.length);
       }
     } catch (err) {
-      record('setJwt', false, err?.message ?? String(err));
+      // eslint-disable-next-line no-console
+      console.error('[SharedAuthStore] setJwt failed:', err?.message ?? err);
     }
   },
 
@@ -50,22 +29,9 @@ export const SharedAuthStore = {
     if (!Capacitor.isNativePlatform()) return;
     try {
       await SharedAuthStoreNative.clearJwt();
-      record('clearJwt', true, 'ok');
     } catch (err) {
-      record('clearJwt', false, err?.message ?? String(err));
+      // eslint-disable-next-line no-console
+      console.error('[SharedAuthStore] clearJwt failed:', err?.message ?? err);
     }
-  },
-
-  getDiagnostics() {
-    return {
-      isNative: Capacitor.isNativePlatform(),
-      pluginHasSetJwt: typeof SharedAuthStoreNative?.setJwt === 'function',
-      lastAttempt,
-    };
-  },
-
-  subscribe(fn) {
-    listeners.add(fn);
-    return () => listeners.delete(fn);
   },
 };

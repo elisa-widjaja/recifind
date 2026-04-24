@@ -1205,11 +1205,6 @@ function App() {
   // Auth state
   const [session, setSession] = useState(null);
   const [isAuthChecked, setIsAuthChecked] = useState(false);
-  // TEMPORARY: surface SharedAuthStore activity so we can verify the JWT is
-  // actually being mirrored into the shared Keychain on device. Remove once
-  // the native-save share flow is proven working end-to-end.
-  const [sharedAuthDebug, setSharedAuthDebug] = useState(null);
-  const [authEvents, setAuthEvents] = useState({ initialResolved: false, initialHasToken: false, events: [] });
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(
     () => !!(
       sessionStorage.getItem('pending_open_invite') ||
@@ -1336,9 +1331,8 @@ function App() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setIsAuthChecked(true);
-      setAuthEvents(prev => ({ ...prev, initialResolved: true, initialHasToken: !!session?.access_token }));
-      // Mirror on initial restore too — onAuthStateChange sometimes doesn't
-      // fire INITIAL_SESSION depending on Supabase version / storage state.
+      // Mirror on initial restore — onAuthStateChange doesn't always fire
+      // INITIAL_SESSION on cold launch with restored auth.
       if (session?.access_token) {
         SharedAuthStore.setJwt(session.access_token);
       }
@@ -1350,7 +1344,6 @@ function App() {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
-      setAuthEvents(prev => ({ ...prev, events: [...prev.events, { event, hasToken: !!session?.access_token, len: session?.access_token?.length ?? 0 }].slice(-5) }));
 
       // Mirror the Supabase access token into shared iOS Keychain so the
       // share extension can save recipes natively without the main app.
@@ -1377,16 +1370,6 @@ function App() {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
-
-  // TEMPORARY: keep SharedAuthStore diagnostics in React state so the debug
-  // banner renders up-to-date info. Remove when share flow is verified.
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-    setSharedAuthDebug(SharedAuthStore.getDiagnostics());
-    return SharedAuthStore.subscribe(() => {
-      setSharedAuthDebug(SharedAuthStore.getDiagnostics());
-    });
   }, []);
 
   // === [S09] Capacitor auth — deep-link dispatcher (hoisted so Story 11 can reference it) ===
@@ -4224,14 +4207,6 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      {sharedAuthDebug && (
-        <Box sx={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 9999, bgcolor: sharedAuthDebug.lastAttempt?.ok ? 'success.light' : 'warning.light', color: 'common.black', fontSize: 10, p: 0.5, fontFamily: 'monospace', paddingBottom: 'env(safe-area-inset-bottom)', textAlign: 'left', whiteSpace: 'pre-wrap', userSelect: 'text', WebkitUserSelect: 'text', WebkitTouchCallout: 'default' }}>
-          {`native=${sharedAuthDebug.isNative} plugin=${sharedAuthDebug.pluginHasSetJwt}
-initialResolved=${authEvents.initialResolved} initialHasToken=${authEvents.initialHasToken}
-events(${authEvents.events.length}): ${authEvents.events.map(e => `${e.event}/${e.hasToken ? 'tok='+e.len : 'no-tok'}`).join(', ') || '(none)'}
-last: ${sharedAuthDebug.lastAttempt ? `${sharedAuthDebug.lastAttempt.action} ${sharedAuthDebug.lastAttempt.ok ? 'OK' : 'FAIL'} — ${sharedAuthDebug.lastAttempt.detail}` : '(none)'}`}
-        </Box>
-      )}
       <AppBar position="static" color="inherit" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider', paddingTop: 'env(safe-area-inset-top)' }}>
         <Toolbar sx={{ display: 'flex', alignItems: 'center', gap: 2, minHeight: { xs: '50px', sm: 'calc(64px - 16px)' } }}>
           <IconButton
