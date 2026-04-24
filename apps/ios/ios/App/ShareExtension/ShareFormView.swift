@@ -120,15 +120,36 @@ final class ShareFormViewModel: ObservableObject {
     }
 }
 
+/// TEMPORARY — set to .off before shipping. Lets us A/B/C the title-field
+/// affordance in the share drawer on a real device.
+private enum TitleAffordanceMock: String, CaseIterable, Identifiable {
+    case plain       = "Plain"
+    case filledPill  = "Pill"
+    case underline   = "Underline"
+    case bordered    = "Bordered"
+    var id: String { rawValue }
+}
+
 struct ShareFormView: View {
     @ObservedObject var viewModel: ShareFormViewModel
+    @State private var titleMock: TitleAffordanceMock = .plain
 
     var body: some View {
         NavigationView {
             VStack(spacing: 20) {
+                // TEMPORARY: toggle between title-field affordances.
+                Picker("Title style", selection: $titleMock) {
+                    ForEach(TitleAffordanceMock.allCases) { opt in
+                        Text(opt.rawValue).tag(opt)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
                 recipeCard
                     .padding(.horizontal, 16)
-                    .padding(.top, 16)
+                    .padding(.top, 4)
 
                 if let error = viewModel.errorMessage {
                     Text(error)
@@ -190,6 +211,50 @@ struct ShareFormView: View {
 
     @ViewBuilder
     private var titleField: some View {
+        switch titleMock {
+        case .plain:
+            plainTitle
+        case .filledPill:
+            plainTitle
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(.tertiarySystemGroupedBackground))
+                )
+        case .underline:
+            HStack(alignment: .top, spacing: 6) {
+                plainTitle
+                Image(systemName: "pencil")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 2)
+            }
+            .padding(.bottom, 4)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color(.separator))
+                    .frame(height: 0.5)
+            }
+        case .bordered:
+            HStack(alignment: .top, spacing: 6) {
+                plainTitle
+                Image(systemName: "pencil")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 2)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color(.separator), lineWidth: 1)
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var plainTitle: some View {
         if #available(iOS 16.0, *) {
             TextField("Title", text: $viewModel.title, axis: .vertical)
                 .font(.system(size: 16, weight: .semibold))
