@@ -534,6 +534,13 @@ export default {
         })();
       }
 
+      const reEnrichMatch = url.pathname.match(/^\/recipes\/([^/]+)\/re-enrich$/);
+      if (reEnrichMatch && request.method === 'POST') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        const recipeId = decodeURIComponent(reEnrichMatch[1]);
+        return await handleReEnrichRecipe(env, user, recipeId);
+      }
+
       if (recipeMatch) {
         const recipeId = decodeURIComponent(recipeMatch[1]);
         if (request.method === 'GET') {
@@ -2034,6 +2041,76 @@ async function handleDeleteRecipe(env: Env, user: AuthenticatedUser, recipeId: s
   ).bind(user.userId, recipeId).run();
   await updateCollectionMeta(env, user.userId, { countDelta: -1 });
   return new Response(null, { status: 204, headers: withCors() });
+}
+
+export async function handleReEnrichRecipe(
+  env: Env,
+  user: AuthenticatedUser,
+  recipeId: string,
+  deps: { runEnrichmentChain?: typeof runEnrichmentChain } = {}
+) {
+  if (!env.GEMINI_SERVICE_ACCOUNT_B64) {
+    throw new HttpError(503, 'Enrichment service is not configured');
+  }
+
+  // loadRecipe already filters by user_id and throws 404 for missing/other-owner rows.
+  const existing = await loadRecipe(env, user.userId, recipeId);
+
+  if (!existing.sourceUrl) {
+    throw new HttpError(400, 'source_url required for re-enrich');
+  }
+
+  const resolvedUrl = await resolveSourceUrl(existing.sourceUrl);
+  const runChain = deps.runEnrichmentChain ?? runEnrichmentChain;
+  const { result, winningStrategy } = await runChain(env, resolvedUrl, existing.title, {
+    captionExtract,
+    youtubeVideo,
+    textInference,
+  });
+
+  console.log('[re-enrich]', {
+    recipeId,
+    url: resolvedUrl,
+    winningStrategy: winningStrategy ?? 'none',
+    provenance: result.provenance ?? null,
+    ingredients_count: result.ingredients.length,
+    steps_count: result.steps.length,
+  });
+
+  // Preserve-on-empty: refuse to overwrite existing content with a blank result.
+  if (result.ingredients.length === 0 && result.steps.length === 0) {
+    return json({ recipe: existing });
+  }
+
+  const now = new Date().toISOString();
+  // image_url is intentionally NOT updated (same policy as enrichAfterSave).
+  await env.DB.prepare(
+    `UPDATE recipes
+     SET ingredients = ?, steps = ?, meal_types = ?, duration_minutes = ?, notes = ?, provenance = ?, updated_at = ?
+     WHERE user_id = ? AND id = ?`
+  ).bind(
+    JSON.stringify(result.ingredients),
+    JSON.stringify(result.steps),
+    JSON.stringify(result.mealTypes),
+    result.durationMinutes,
+    result.notes || '',
+    result.provenance ?? null,
+    now,
+    user.userId,
+    recipeId
+  ).run();
+
+  const refreshed: Recipe = {
+    ...existing,
+    ingredients: result.ingredients,
+    steps: result.steps,
+    mealTypes: result.mealTypes,
+    durationMinutes: result.durationMinutes,
+    notes: result.notes || '',
+    provenance: result.provenance ?? null,
+    updatedAt: now,
+  };
+  return json({ recipe: refreshed });
 }
 
 async function handleImageRequest(
