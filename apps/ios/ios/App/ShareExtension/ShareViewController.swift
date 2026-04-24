@@ -5,9 +5,11 @@ import UniformTypeIdentifiers
 // Share extension host. Extracts the first URL from the share payload (fast
 // path from the previous version), fetches a preview from the worker, and
 // renders a SwiftUI form with thumbnail + editable title + Save. On Save,
-// POSTs to /recipes with the JWT from shared Keychain. Any failure path
-// falls back to deep-linking `recifriend://add-recipe?url=<raw>` to the main
-// app's existing drawer flow (A2 fallback).
+// POSTs to /recipes with the JWT from shared Keychain. Logged-out states
+// (keychain .notFound, worker 401) swap Save for a "Sign in" button that
+// writes the pending share to App Group and deep-links
+// `recifriend://open-pending-share`. Other unrecoverable errors still fall
+// back to `recifriend://add-recipe?url=<raw>` via the legacy A2 path.
 final class ShareViewController: UIViewController {
     private var hostingController: UIHostingController<ShareFormView>?
 

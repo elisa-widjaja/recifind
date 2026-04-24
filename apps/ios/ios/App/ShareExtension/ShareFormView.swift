@@ -11,6 +11,7 @@ final class ShareFormViewModel: ObservableObject {
     @Published var savedRecipeId: String? = nil
     @Published var errorMessage: String?
     @Published var needsSignIn: Bool = false
+    @Published var isSigningIn: Bool = false
 
     let sourceURL: URL
     private let onFinish: (ShareViewController.Outcome) -> Void
@@ -48,6 +49,13 @@ final class ShareFormViewModel: ObservableObject {
             do {
                 jwt = try SharedKeychain.readJwt()
             } catch SharedKeychainError.notFound {
+                // No JWT = user never signed in (or signed out cleanly). The
+                // App Group write is deferred to signIn() so we capture the
+                // user's final title edit, not whatever was in the field when
+                // save() ran. The .unauthenticated path writes eagerly because
+                // the JWT-expired-mid-session case carries the same title state
+                // that would have posted — deferring there would require tracking
+                // whether save() was mid-flight, which is needless complexity.
                 await MainActor.run {
                     self.needsSignIn = true
                     self.errorMessage = nil
@@ -131,6 +139,8 @@ final class ShareFormViewModel: ObservableObject {
     }
 
     func signIn() {
+        guard !isSigningIn else { return }
+        isSigningIn = true
         let titleSnapshot = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedTitle = titleSnapshot.isEmpty ? (sourceURL.host ?? "Recipe") : titleSnapshot
         SharedPendingShare.write(url: sourceURL.absoluteString, title: resolvedTitle)
@@ -223,10 +233,12 @@ struct ShareFormView: View {
             Button("Sign in", action: viewModel.signIn)
                 .buttonStyle(.glassProminent)
                 .tint(Color.blue)
+                .disabled(viewModel.isSigningIn)
                 .accessibilityLabel("Sign in on ReciFriend")
         } else {
             Button("Sign in", action: viewModel.signIn)
                 .buttonStyle(.borderedProminent)
+                .disabled(viewModel.isSigningIn)
                 .accessibilityLabel("Sign in on ReciFriend")
         }
     }
