@@ -4439,14 +4439,16 @@ export async function enrichAfterSave(
   env: Env,
   recipeId: string,
   sourceUrl: string,
-  title: string
+  title: string,
+  deps: { runEnrichmentChain?: typeof runEnrichmentChain } = {}
 ): Promise<void> {
   if (!sourceUrl || !env.GEMINI_SERVICE_ACCOUNT_B64) return;
 
   const resolvedUrl = await resolveSourceUrl(sourceUrl);
   const startedAt = Date.now();
 
-  const { result, winningStrategy } = await runEnrichmentChain(env, resolvedUrl, title, {
+  const runChain = deps.runEnrichmentChain ?? runEnrichmentChain;
+  const { result, winningStrategy } = await runChain(env, resolvedUrl, title, {
     captionExtract,
     youtubeVideo,
     textInference,
@@ -4456,6 +4458,7 @@ export async function enrichAfterSave(
     recipeId,
     url: resolvedUrl,
     winningStrategy: winningStrategy ?? 'none',
+    provenance: result.provenance ?? null,
     duration_ms: Date.now() - startedAt,
     ingredients_count: result.ingredients.length,
     steps_count: result.steps.length,
@@ -4470,7 +4473,7 @@ export async function enrichAfterSave(
   // the initial save and Gemini's inferred image is often worse than the og:image.
   await env.DB.prepare(
     `UPDATE recipes
-     SET ingredients = ?, steps = ?, meal_types = ?, duration_minutes = ?, notes = ?, updated_at = ?
+     SET ingredients = ?, steps = ?, meal_types = ?, duration_minutes = ?, notes = ?, provenance = ?, updated_at = ?
      WHERE id = ?`
   ).bind(
     JSON.stringify(result.ingredients),
@@ -4478,6 +4481,7 @@ export async function enrichAfterSave(
     JSON.stringify(result.mealTypes),
     result.durationMinutes,
     result.notes || '',
+    result.provenance ?? null,
     now,
     recipeId
   ).run();

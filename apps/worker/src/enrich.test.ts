@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, runEnrichmentChain } from './index';
+import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, runEnrichmentChain, enrichAfterSave } from './index';
 import type { Env } from './index';
 
 describe('fetchRawRecipeText', () => {
@@ -602,6 +602,52 @@ describe('runEnrichmentChain', () => {
     );
     expect(result.ingredients).toEqual([]);
     expect(winningStrategy).toBeNull();
+  });
+});
+
+describe('enrichAfterSave', () => {
+  it('binds provenance in the UPDATE when the chain returns a non-empty result', async () => {
+    const runCalls: Array<{ sql: string; binds: any[] }> = [];
+    const dbMock = {
+      prepare: (sql: string) => ({
+        bind: (...binds: any[]) => ({
+          run: async () => { runCalls.push({ sql, binds: [...binds] }); return { success: true }; },
+        }),
+      }),
+    };
+    const env = { DB: dbMock as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'x' } as unknown as Env;
+    const fakeChain = async () => ({
+      result: {
+        title: 'X', imageUrl: '', mealTypes: [], ingredients: ['a'], steps: ['b'],
+        durationMinutes: null, notes: '', provenance: 'inferred' as const,
+      },
+      winningStrategy: 'text-inference' as const,
+    });
+    await enrichAfterSave(env, 'recipe-1', 'https://e.com/x', 'T', { runEnrichmentChain: fakeChain as any });
+    const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
+    expect(update).toBeDefined();
+    expect(update!.binds).toContain('inferred');
+  });
+
+  it('does NOT UPDATE when the chain returns empty (B1 silent no-op preserved)', async () => {
+    const runCalls: Array<{ sql: string; binds: any[] }> = [];
+    const dbMock = {
+      prepare: (sql: string) => ({
+        bind: (...binds: any[]) => ({
+          run: async () => { runCalls.push({ sql, binds: [...binds] }); return { success: true }; },
+        }),
+      }),
+    };
+    const env = { DB: dbMock as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'x' } as unknown as Env;
+    const fakeChain = async () => ({
+      result: {
+        title: '', imageUrl: '', mealTypes: [], ingredients: [], steps: [],
+        durationMinutes: null, notes: '', provenance: null,
+      },
+      winningStrategy: null,
+    });
+    await enrichAfterSave(env, 'recipe-1', 'https://e.com/x', 'T', { runEnrichmentChain: fakeChain as any });
+    expect(runCalls.find(c => c.sql.includes('UPDATE recipes'))).toBeUndefined();
   });
 });
 
