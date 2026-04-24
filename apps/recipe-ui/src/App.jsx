@@ -1218,6 +1218,7 @@ function App() {
   );
   const [authEmail, setAuthEmail] = useState('');
   const [authError, setAuthError] = useState('');
+  const [authDialogReason, setAuthDialogReason] = useState(null);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [accountMenuAnchor, setAccountMenuAnchor] = useState(null);
 
@@ -1446,6 +1447,36 @@ function App() {
     });
     return () => { cancelled = true; };
   }, []);
+
+  // Gate pendingShare on session: logged in → pre-fill Add Recipe drawer,
+  // logged out → open auth dialog with a contextual subtitle.
+  useEffect(() => {
+    if (!pendingShare) return;
+
+    const ageMs = Date.now() - pendingShare.createdAt * 1000;
+    if (ageMs > PENDING_SHARE_TTL_MS) {
+      clearPendingShare();
+      setPendingShare(null);
+      return;
+    }
+
+    if (session) {
+      setNewRecipeForm((prev) => ({
+        ...prev,
+        sourceUrl: pendingShare.url,
+        title: pendingShare.title || prev.title || '',
+      }));
+      setNewRecipeErrors({});
+      setNewRecipePrefillInfo({ matched: false, hasIngredients: false, hasSteps: false });
+      setSourceParseState({ status: 'idle', message: '' });
+      setAddRecipeSource('share-extension');
+      setIsAddDialogOpen(true);
+      clearPendingShare();
+      setPendingShare(null);
+    } else {
+      openAuthDialog({ reason: `Sign in to save "${pendingShare.title}"` });
+    }
+  }, [pendingShare, session]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Register appUrlOpen listener exactly once. Never re-subscribe — every
   // re-subscription flushes Capacitor's retained `appUrlOpen` event again
@@ -2173,9 +2204,10 @@ function App() {
     setAccountMenuAnchor(null);
   };
 
-  const openAuthDialog = () => {
+  const openAuthDialog = (opts = {}) => {
     setAuthEmail('');
     setAuthError('');
+    setAuthDialogReason(opts.reason ?? null);
     setIsAuthDialogOpen(true);
   };
 
@@ -2183,6 +2215,11 @@ function App() {
     setIsAuthDialogOpen(false);
     setAuthEmail('');
     setAuthError('');
+    setAuthDialogReason(null);
+    if (pendingShare) {
+      clearPendingShare();
+      setPendingShare(null);
+    }
   };
 
   const normalizedIngredients = useMemo(() => {
@@ -6484,6 +6521,15 @@ function App() {
         <DialogTitle id="auth-dialog-title">
           Sign in
         </DialogTitle>
+        {authDialogReason && (
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ px: 3, pb: 1, mt: -1 }}
+          >
+            {authDialogReason}
+          </Typography>
+        )}
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             {authError && (
