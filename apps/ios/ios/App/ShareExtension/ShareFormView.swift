@@ -182,17 +182,17 @@ struct ShareFormView: View {
                 .controlSize(.small)
                 .accessibilityLabel("Saving")
         } else {
-            let enabled = !(saveDisabled || viewModel.isSaved)
+            // Filled-pill action (à la iOS Notes "Done") but in blue.
+            // borderedProminent fills the button's own shape with the tint
+            // colour — no inner glyph container. System handles disabled
+            // dimming on its own.
             Button(action: viewModel.save) {
-                ZStack {
-                    Circle()
-                        .fill(enabled ? Color.blue : Color(.systemGray4))
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(.white)
-                }
-                .frame(width: 28, height: 28)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 13, weight: .bold))
             }
+            .buttonStyle(.borderedProminent)
+            .tint(.blue)
+            .controlSize(.small)
             .disabled(saveDisabled || viewModel.isSaved)
             .accessibilityLabel(viewModel.isSaved ? "Saved" : "Save")
         }
