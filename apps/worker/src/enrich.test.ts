@@ -458,7 +458,8 @@ describe('textInference', () => {
 
   it('short-circuits without calling Gemini when raw text is an HTTP 429 error page', async () => {
     const mockFetch = vi.fn() as unknown as typeof fetch;
-    const errorText = 'Title: www.instagram.com\n\nURL Source: https://www.instagram.com/reel/xyz/\n\nWarning: Target URL returned error 429: Too Many Requests\n\nMarkdown Content:\n## This page isn\u2019t working\n\nHTTP ERROR 429';
+    // Pad to > 500 chars so we test the error-page regex gate, not the length gate.
+    const errorText = ('Title: www.instagram.com\n\nURL Source: https://www.instagram.com/reel/xyz/\n\nWarning: Target URL returned error 429: Too Many Requests\n\nMarkdown Content:\n## This page isn\u2019t working\n\nHTTP ERROR 429').padEnd(600, ' ');
     const result = await textInference(
       fakeEnv,
       'https://www.instagram.com/reel/xyz/',
@@ -467,6 +468,7 @@ describe('textInference', () => {
     );
     expect(result.ingredients).toEqual([]);
     expect(result.steps).toEqual([]);
+    expect(result.provenance).toBeNull();
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
