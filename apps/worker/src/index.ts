@@ -51,6 +51,7 @@ interface Recipe {
   updatedAt: string;
   previewImage?: ImageMetadata | null;
   sharedWithFriends?: boolean;
+  provenance?: 'extracted' | 'inferred' | null;
 }
 
 interface UserProfile {
@@ -990,6 +991,7 @@ function rowToRecipe(row: Record<string, unknown>): Recipe {
     sharedWithFriends: Boolean(row.shared_with_friends),
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
+    provenance: (row.provenance as 'extracted' | 'inferred' | null) ?? null,
   };
 }
 
