@@ -40,7 +40,7 @@ ALTER TABLE recipes ADD COLUMN provenance TEXT;
 
 Run:
 ```bash
-cd apps/worker && npx wrangler d1 execute recipes-db --env dev --file migrations/0011_add_recipes_provenance.sql
+cd apps/worker && npx wrangler d1 execute recipes-db --remote --env dev --file migrations/0011_add_recipes_provenance.sql
 ```
 
 Expected: `Executed 1 command` with `✔` in the output. If wrangler prompts to confirm, accept.
@@ -49,7 +49,7 @@ Expected: `Executed 1 command` with `✔` in the output. If wrangler prompts to 
 
 Run:
 ```bash
-cd apps/worker && npx wrangler d1 execute recipes-db --env dev --command "PRAGMA table_info(recipes);"
+cd apps/worker && npx wrangler d1 execute recipes-db --remote --env dev --command "PRAGMA table_info(recipes);"
 ```
 
 Expected: the output lists a row whose `name` is `provenance` and whose `type` is `TEXT`.
@@ -1620,7 +1620,7 @@ cd apps/recipe-ui && npm run dev
 Log in as a dev user. Temporarily flip a recipe's provenance to `'inferred'` via a direct D1 write on the dev DB:
 
 ```bash
-cd apps/worker && npx wrangler d1 execute recipes-db --env dev --command "UPDATE recipes SET provenance='inferred' WHERE id='<id>';"
+cd apps/worker && npx wrangler d1 execute recipes-db --remote --env dev --command "UPDATE recipes SET provenance='inferred' WHERE id='<id>';"
 ```
 
 Reload the app. Open the recipe. Confirm the chip renders above "View source". Tap the chip — caveat text toggles below.
@@ -1771,7 +1771,7 @@ Ensure `CircularProgress` is imported near the other MUI imports — it likely a
 
 1. Set a dev recipe to empty + null provenance + source_url via direct D1:
    ```bash
-   cd apps/worker && npx wrangler d1 execute recipes-db --env dev --command "UPDATE recipes SET provenance=NULL, ingredients='[]', steps='[]' WHERE id='<id>';"
+   cd apps/worker && npx wrangler d1 execute recipes-db --remote --env dev --command "UPDATE recipes SET provenance=NULL, ingredients='[]', steps='[]' WHERE id='<id>';"
    ```
 2. Open the recipe in the app. Confirm the empty-state copy renders.
 3. Tap "Enhance with AI". Confirm the icon swaps to a spinner, the network tab shows `POST /recipes/:id/re-enrich`, and on success the ingredients fill in (or stay empty + button re-enables on failure).
@@ -1944,7 +1944,7 @@ Update the empty-state block from Task 14 so that while `isReEnriching` is true,
 
 1. Pick a test recipe: `ingredients=[]`, `steps=[]`, `provenance=null`, `source_url` set, `created_at` within the last 24h. Temporarily fake `created_at` to `now` via direct D1 write:
    ```bash
-   cd apps/worker && npx wrangler d1 execute recipes-db --env dev --command "UPDATE recipes SET provenance=NULL, ingredients='[]', steps='[]', created_at=datetime('now') WHERE id='<id>';"
+   cd apps/worker && npx wrangler d1 execute recipes-db --remote --env dev --command "UPDATE recipes SET provenance=NULL, ingredients='[]', steps='[]', created_at=datetime('now') WHERE id='<id>';"
    ```
 2. Reload the web app. Open the recipe.
 3. Confirm the "Checking for ingredients…" spinner flashes briefly.
@@ -1979,7 +1979,7 @@ EOF
 
 Run:
 ```bash
-cd apps/worker && npx wrangler d1 execute recipes-db --file migrations/0011_add_recipes_provenance.sql
+cd apps/worker && npx wrangler d1 execute recipes-db --remote --file migrations/0011_add_recipes_provenance.sql
 ```
 
 Expected: success output. If wrangler prompts about running against prod, confirm.
@@ -1987,7 +1987,7 @@ Expected: success output. If wrangler prompts about running against prod, confir
 - [ ] **Step 2: Verify column exists on prod**
 
 ```bash
-cd apps/worker && npx wrangler d1 execute recipes-db --command "PRAGMA table_info(recipes);"
+cd apps/worker && npx wrangler d1 execute recipes-db --remote --command "PRAGMA table_info(recipes);"
 ```
 
 Expected: `provenance TEXT` present in the output.
