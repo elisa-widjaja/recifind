@@ -181,27 +181,33 @@ struct ShareFormView: View {
             ProgressView()
                 .controlSize(.small)
                 .accessibilityLabel("Saving")
-        } else if #available(iOS 26.0, *) {
-            // Native iOS 26 toolbar action — Liquid Glass prominent chrome
-            // tinted blue. Matches iOS Reminders' "done" affordance.
+        } else {
+            let enabled = !(saveDisabled || viewModel.isSaved)
+            // Native iOS 26 toolbar action — Liquid Glass prominent chrome.
+            // Swap the tint (blue → grey) for the disabled state instead of
+            // relying on the default disabled dim, which drops the white
+            // glyph's contrast so low it becomes nearly invisible.
+            saveButtonBase
+                .tint(enabled ? Color.blue : Color(.systemGray3))
+                .disabled(!enabled)
+                .accessibilityLabel(viewModel.isSaved ? "Saved" : "Save")
+        }
+    }
+
+    @ViewBuilder
+    private var saveButtonBase: some View {
+        if #available(iOS 26.0, *) {
             Button(action: viewModel.save) {
                 Image(systemName: "checkmark")
                     .font(.body.weight(.semibold))
             }
             .buttonStyle(.glassProminent)
-            .tint(.blue)
-            .disabled(saveDisabled || viewModel.isSaved)
-            .accessibilityLabel(viewModel.isSaved ? "Saved" : "Save")
         } else {
-            // Pre-iOS-26 fallback.
             Button(action: viewModel.save) {
                 Image(systemName: "checkmark")
                     .font(.body.weight(.semibold))
             }
             .buttonStyle(.borderedProminent)
-            .tint(.blue)
-            .disabled(saveDisabled || viewModel.isSaved)
-            .accessibilityLabel(viewModel.isSaved ? "Saved" : "Save")
         }
     }
 
