@@ -10,6 +10,7 @@ final class ShareFormViewModel: ObservableObject {
     @Published var isSaved: Bool = false
     @Published var savedRecipeId: String? = nil
     @Published var errorMessage: String?
+    @Published var needsSignIn: Bool = false
 
     let sourceURL: URL
     private let onFinish: (ShareViewController.Outcome) -> Void
@@ -47,7 +48,10 @@ final class ShareFormViewModel: ObservableObject {
             do {
                 jwt = try SharedKeychain.readJwt()
             } catch SharedKeychainError.notFound {
-                await self.surfaceAndFallback(reason: "keychain notFound (no JWT written by main app)")
+                await MainActor.run {
+                    self.needsSignIn = true
+                    self.errorMessage = nil
+                }
                 return
             } catch SharedKeychainError.readFailed(let status) {
                 let hint: String
@@ -82,7 +86,14 @@ final class ShareFormViewModel: ObservableObject {
                 }
             } catch WorkerClientError.unauthenticated {
                 SharedKeychain.clearJwt()
-                await self.surfaceAndFallback(reason: "worker 401 (jwt expired)")
+                SharedPendingShare.write(
+                    url: urlSnapshot,
+                    title: titleSnapshot.isEmpty ? (self.sourceURL.host ?? "Recipe") : titleSnapshot
+                )
+                await MainActor.run {
+                    self.needsSignIn = true
+                    self.errorMessage = nil
+                }
             } catch let err as WorkerClientError {
                 await self.surfaceAndFallback(reason: "worker \(err)")
             } catch {
@@ -118,6 +129,14 @@ final class ShareFormViewModel: ObservableObject {
         autoDismissTask?.cancel()
         onFinish(.viewInApp(recipeId: id))
     }
+
+    func signIn() {
+        let titleSnapshot = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedTitle = titleSnapshot.isEmpty ? (sourceURL.host ?? "Recipe") : titleSnapshot
+        SharedPendingShare.write(url: sourceURL.absoluteString, title: resolvedTitle)
+        autoDismissTask?.cancel()
+        onFinish(.signIn)
+    }
 }
 
 struct ShareFormView: View {
@@ -131,7 +150,13 @@ struct ShareFormView: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 16)
 
-                if let error = viewModel.errorMessage {
+                if viewModel.needsSignIn {
+                    Text("Sign in on ReciFriend to save")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
+                } else if let error = viewModel.errorMessage {
                     Text(error)
                         .font(.caption)
                         .foregroundColor(.red)
@@ -181,16 +206,28 @@ struct ShareFormView: View {
             ProgressView()
                 .controlSize(.small)
                 .accessibilityLabel("Saving")
+        } else if viewModel.needsSignIn {
+            signInToolbarButton
         } else {
             let enabled = !(saveDisabled || viewModel.isSaved)
-            // Native iOS 26 toolbar action — Liquid Glass prominent chrome.
-            // Swap the tint (blue → grey) for the disabled state instead of
-            // relying on the default disabled dim, which drops the white
-            // glyph's contrast so low it becomes nearly invisible.
             saveButtonBase
                 .tint(enabled ? Color.blue : Color(.systemGray3))
                 .disabled(!enabled)
                 .accessibilityLabel(viewModel.isSaved ? "Saved" : "Save")
+        }
+    }
+
+    @ViewBuilder
+    private var signInToolbarButton: some View {
+        if #available(iOS 26.0, *) {
+            Button("Sign in", action: viewModel.signIn)
+                .buttonStyle(.glassProminent)
+                .tint(Color.blue)
+                .accessibilityLabel("Sign in on ReciFriend")
+        } else {
+            Button("Sign in", action: viewModel.signIn)
+                .buttonStyle(.borderedProminent)
+                .accessibilityLabel("Sign in on ReciFriend")
         }
     }
 

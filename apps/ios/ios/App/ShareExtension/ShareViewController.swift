@@ -101,8 +101,9 @@ final class ShareViewController: UIViewController {
     enum Outcome {
         case saved(recipeId: String)
         case cancelled
-        case fallback  // A2: open main-app drawer via deep link
-        case viewInApp(recipeId: String)  // User tapped "View on ReciFriend" after save
+        case fallback              // A2: open main-app drawer via deep link (legacy)
+        case viewInApp(recipeId: String)
+        case signIn                // logged-out: write App Group, open sign-in in app
     }
 
     private func finish(with outcome: Outcome, sourceURL: URL) {
@@ -125,6 +126,10 @@ final class ShareViewController: UIViewController {
             openRecipeInApp(recipeId: recipeId) { [weak self] _ in
                 self?.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
             }
+        case .signIn:
+            openSignInDeepLink { [weak self] _ in
+                self?.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+            }
         }
     }
 
@@ -135,6 +140,13 @@ final class ShareViewController: UIViewController {
         components.queryItems = [URLQueryItem(name: "url", value: sourceURL.absoluteString)]
         guard let deepLink = components.url else { completion(false); return }
         openURL(deepLink, completion: completion)
+    }
+
+    private func openSignInDeepLink(completion: @escaping (Bool) -> Void) {
+        guard let url = URL(string: "recifriend://open-pending-share") else {
+            completion(false); return
+        }
+        openURL(url, completion: completion)
     }
 
     private func openRecipeInApp(recipeId: String, completion: @escaping (Bool) -> Void) {
