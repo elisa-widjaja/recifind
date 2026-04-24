@@ -1055,6 +1055,7 @@ function App() {
   const [cookMode, setCookMode] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [recipeMenuAnchor, setRecipeMenuAnchor] = useState(null);
+  const [isInferredCaveatOpen, setIsInferredCaveatOpen] = useState(false);
   const [isStickyStuck, setIsStickyStuck] = useState(false);
   const scrollHandlerRef = useRef(null);
   const dialogContentRef = useCallback((node) => {
@@ -2768,6 +2769,10 @@ function App() {
   useEffect(() => {
     handleOpenRecipeDetailsRef.current = handleOpenRecipeDetails;
   }, [handleOpenRecipeDetails]);
+
+  useEffect(() => {
+    setIsInferredCaveatOpen(false);
+  }, [activeRecipe?.id]);
 
   // Handle URL parameters to open recipe modal on page load
   useEffect(() => {
@@ -5394,6 +5399,31 @@ function App() {
 
                 {activeRecipeView.sourceUrl && (
                   <Box>
+                    {activeRecipeView.provenance === 'inferred' && (
+                      <Box sx={{ mb: 1.5 }}>
+                        <Chip
+                          icon={<AutoAwesomeIcon sx={{ fontSize: 16 }} />}
+                          label="AI-inferred"
+                          size="small"
+                          variant="outlined"
+                          onClick={() => setIsInferredCaveatOpen((v) => !v)}
+                          sx={{
+                            color: 'warning.dark',
+                            borderColor: 'warning.light',
+                            cursor: 'pointer',
+                            '&:hover': { backgroundColor: 'warning.light', opacity: 0.15 }
+                          }}
+                        />
+                        {isInferredCaveatOpen && (
+                          <Typography
+                            variant="caption"
+                            sx={{ display: 'block', color: 'text.secondary', mt: 0.5, maxWidth: 420 }}
+                          >
+                            We couldn't read the full recipe. Please verify with the source.
+                          </Typography>
+                        )}
+                      </Box>
+                    )}
                     <Link href={activeRecipeView.sourceUrl} target="_blank" rel="noopener" underline="hover">
                       View source
                     </Link>
