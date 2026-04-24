@@ -120,36 +120,15 @@ final class ShareFormViewModel: ObservableObject {
     }
 }
 
-/// TEMPORARY — set to .off before shipping. Lets us A/B/C the title-field
-/// affordance in the share drawer on a real device.
-private enum TitleAffordanceMock: String, CaseIterable, Identifiable {
-    case plain       = "Plain"
-    case filledPill  = "Pill"
-    case underline   = "Underline"
-    case bordered    = "Bordered"
-    var id: String { rawValue }
-}
-
 struct ShareFormView: View {
     @ObservedObject var viewModel: ShareFormViewModel
-    @State private var titleMock: TitleAffordanceMock = .plain
 
     var body: some View {
         NavigationView {
             VStack(spacing: 20) {
-                // TEMPORARY: toggle between title-field affordances.
-                Picker("Title style", selection: $titleMock) {
-                    ForEach(TitleAffordanceMock.allCases) { opt in
-                        Text(opt.rawValue).tag(opt)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-
                 recipeCard
                     .padding(.horizontal, 16)
-                    .padding(.top, 4)
+                    .padding(.top, 16)
 
                 if let error = viewModel.errorMessage {
                     Text(error)
@@ -211,50 +190,6 @@ struct ShareFormView: View {
 
     @ViewBuilder
     private var titleField: some View {
-        switch titleMock {
-        case .plain:
-            plainTitle
-        case .filledPill:
-            plainTitle
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(.tertiarySystemGroupedBackground))
-                )
-        case .underline:
-            HStack(alignment: .top, spacing: 6) {
-                plainTitle
-                Image(systemName: "pencil")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.top, 2)
-            }
-            .padding(.bottom, 4)
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(Color(.separator))
-                    .frame(height: 0.5)
-            }
-        case .bordered:
-            HStack(alignment: .top, spacing: 6) {
-                plainTitle
-                Image(systemName: "pencil")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.top, 2)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color(.separator), lineWidth: 1)
-            )
-        }
-    }
-
-    @ViewBuilder
-    private var plainTitle: some View {
         if #available(iOS 16.0, *) {
             TextField("Title", text: $viewModel.title, axis: .vertical)
                 .font(.system(size: 16, weight: .semibold))
@@ -275,7 +210,7 @@ struct ShareFormView: View {
         Button(action: viewModel.save) {
             Group {
                 if viewModel.isSaved {
-                    Label("Saved", systemImage: "checkmark")
+                    Label("Saved", systemImage: "checkmark.circle.fill")
                 } else if viewModel.isSaving {
                     HStack(spacing: 8) {
                         ProgressView()
@@ -290,14 +225,16 @@ struct ShareFormView: View {
             .frame(minWidth: 100)
             .padding(.vertical, 2)
         }
-        .modifier(SaveButtonStyle())
+        .modifier(SaveButtonStyle(isSaved: viewModel.isSaved))
         .controlSize(.large)
+        // Keep Saved state enabled visually (full opacity) — the save() method
+        // already guards against re-firing, so the button is a no-op on tap.
         .disabled(saveDisabled)
         .animation(.default, value: viewModel.isSaved)
     }
 
     private var saveDisabled: Bool {
-        viewModel.isSaving || viewModel.isSaved ||
+        viewModel.isSaving ||
             viewModel.title.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
@@ -324,13 +261,23 @@ struct ShareFormView: View {
     }
 }
 
-/// Transparent Liquid Glass on iOS 26+, bordered fallback otherwise.
+/// Transparent Liquid Glass for the default state; filled + green tint when
+/// saved so the confirmation reads stronger than the disabled-save state.
 private struct SaveButtonStyle: ViewModifier {
+    let isSaved: Bool
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            content.buttonStyle(.glass)
+            if isSaved {
+                content.buttonStyle(.glassProminent).tint(.green)
+            } else {
+                content.buttonStyle(.glass)
+            }
         } else {
-            content.buttonStyle(.bordered)
+            if isSaved {
+                content.buttonStyle(.borderedProminent).tint(.green)
+            } else {
+                content.buttonStyle(.bordered)
+            }
         }
     }
 }

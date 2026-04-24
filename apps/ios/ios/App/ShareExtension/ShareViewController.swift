@@ -87,6 +87,13 @@ final class ShareViewController: UIViewController {
         ])
         host.didMove(toParent: self)
         hostingController = host
+
+        // Hint to iOS that the share sheet can be compact instead of full-screen.
+        // iOS uses preferredContentSize to size the extension's sheet. Width 0
+        // lets iOS pick the full share-sheet width; height caps how tall we go.
+        let compactHeight: CGFloat = 360
+        host.preferredContentSize = CGSize(width: 0, height: compactHeight)
+        self.preferredContentSize = CGSize(width: 0, height: compactHeight)
     }
 
     // MARK: - Finish / fallback
