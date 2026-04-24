@@ -8,7 +8,7 @@ describe('callGemini', () => {
     vi.restoreAllMocks();
   });
 
-  it('calls the v1beta gemini-3-flash endpoint and returns parsed text', async () => {
+  it('calls the v1beta gemini-2.5-flash endpoint and returns parsed text', async () => {
     const prompt = 'format this recipe please';
     const mockFetch = vi.fn(async () => ({
       ok: true,
@@ -41,7 +41,7 @@ describe('callGemini', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const [url, options] = mockFetch.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent'
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
     );
     expect(options).toMatchObject({
       method: 'POST',

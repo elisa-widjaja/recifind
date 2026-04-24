@@ -4852,7 +4852,7 @@ async function callGemini(env: Env, prompt: string, deps: CallGeminiDeps = {}) {
   const token = await getAccessToken(env);
   const serviceAccount = await getServiceAccount(env);
   const response = await fetchImpl(
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent',
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
     {
       method: 'POST',
       headers: {
