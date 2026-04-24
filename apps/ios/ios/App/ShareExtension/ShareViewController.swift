@@ -95,6 +95,7 @@ final class ShareViewController: UIViewController {
         case saved(recipeId: String)
         case cancelled
         case fallback  // A2: open main-app drawer via deep link
+        case viewInApp(recipeId: String)  // User tapped "View on ReciFriend" after save
     }
 
     private func finish(with outcome: Outcome, sourceURL: URL) {
@@ -109,6 +110,9 @@ final class ShareViewController: UIViewController {
         case .fallback:
             openDeepLink(for: sourceURL)
             self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+        case .viewInApp(let recipeId):
+            openRecipeInApp(recipeId: recipeId)
+            self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
         }
     }
 
@@ -118,10 +122,21 @@ final class ShareViewController: UIViewController {
         components.host = "add-recipe"
         components.queryItems = [URLQueryItem(name: "url", value: sourceURL.absoluteString)]
         guard let deepLink = components.url else { return }
+        openURL(deepLink)
+    }
+
+    private func openRecipeInApp(recipeId: String) {
+        // recifriend://recipes/<id> is handled by the main app's deepLinkDispatch
+        // (see apps/shared/deepLink.ts recipe_detail pattern).
+        guard let url = URL(string: "recifriend://recipes/\(recipeId)") else { return }
+        openURL(url)
+    }
+
+    private func openURL(_ url: URL) {
         var responder: UIResponder? = self
         while responder != nil {
             if let application = responder as? UIApplication {
-                application.open(deepLink, options: [:], completionHandler: nil)
+                application.open(url, options: [:], completionHandler: nil)
                 return
             }
             responder = responder?.next

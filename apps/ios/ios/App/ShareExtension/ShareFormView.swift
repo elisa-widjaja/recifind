@@ -7,10 +7,13 @@ final class ShareFormViewModel: ObservableObject {
     @Published var imageUrl: URL?
     @Published var isLoadingPreview: Bool = true
     @Published var isSaving: Bool = false
+    @Published var isSaved: Bool = false
+    @Published var savedRecipeId: String? = nil
     @Published var errorMessage: String?
 
     let sourceURL: URL
     private let onFinish: (ShareViewController.Outcome) -> Void
+    private var autoDismissTask: Task<Void, Never>?
 
     init(sourceURL: URL, onFinish: @escaping (ShareViewController.Outcome) -> Void) {
         self.sourceURL = sourceURL
@@ -26,13 +29,12 @@ final class ShareFormViewModel: ObservableObject {
             if title.isEmpty { title = preview.title.isEmpty ? sourceURL.host ?? "Recipe" : preview.title }
             if let s = preview.imageUrl, let u = URL(string: s) { imageUrl = u }
         } catch {
-            // Placeholder state: title = host, no image. User can still save.
             if title.isEmpty { title = sourceURL.host ?? "Recipe" }
         }
     }
 
     func save() {
-        guard !isSaving else { return }
+        guard !isSaving && !isSaved else { return }
         isSaving = true
         errorMessage = nil
         let titleSnapshot = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -73,9 +75,12 @@ final class ShareFormViewModel: ObservableObject {
                     imageUrl: imageSnapshot,
                     jwt: jwt
                 )
-                await MainActor.run { self.onFinish(.saved(recipeId: result.recipeId)) }
+                await MainActor.run {
+                    self.isSaved = true
+                    self.savedRecipeId = result.recipeId
+                    self.startAutoDismiss()
+                }
             } catch WorkerClientError.unauthenticated {
-                // Token expired — purge it so next share doesn't loop on 401.
                 SharedKeychain.clearJwt()
                 await self.surfaceAndFallback(reason: "worker 401 (jwt expired)")
             } catch let err as WorkerClientError {
@@ -86,18 +91,32 @@ final class ShareFormViewModel: ObservableObject {
         }
     }
 
+    /// Dismiss the extension 5s after a successful save unless the user dismisses first.
+    private func startAutoDismiss() {
+        autoDismissTask?.cancel()
+        autoDismissTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled, let id = self.savedRecipeId else { return }
+            self.onFinish(.saved(recipeId: id))
+        }
+    }
+
     @MainActor
     private func surfaceAndFallback(reason: String) async {
-        // Diagnostic path: show the reason on-screen for ~2.5s, then fall back
-        // to the main app. Lets user/dev see whether it was a keychain miss,
-        // a 401, or a network error without attaching to Xcode console.
         self.errorMessage = "Falling back to app: \(reason)"
         try? await Task.sleep(nanoseconds: 2_500_000_000)
         self.onFinish(.fallback)
     }
 
     func cancel() {
+        autoDismissTask?.cancel()
         onFinish(.cancelled)
+    }
+
+    func openInApp() {
+        guard let id = savedRecipeId else { return }
+        autoDismissTask?.cancel()
+        onFinish(.viewInApp(recipeId: id))
     }
 }
 
@@ -106,50 +125,119 @@ struct ShareFormView: View {
 
     var body: some View {
         NavigationView {
-            Form {
-                Section {
-                    HStack(alignment: .top, spacing: 12) {
-                        thumbnailView
-                            .frame(width: 72, height: 72)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                        VStack(alignment: .leading, spacing: 4) {
-                            TextField("Title", text: $viewModel.title)
-                                .font(.headline)
-                                .disabled(viewModel.isSaving)
-                            Text(viewModel.sourceURL.host ?? "")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 6)
-                }
+            VStack(spacing: 20) {
+                recipeCard
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
 
                 if let error = viewModel.errorMessage {
-                    Section {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundColor(.red)
-                    }
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
                 }
+
+                saveButton
+                    .padding(.top, 4)
+
+                Spacer(minLength: 0)
             }
-            .navigationTitle("Save Recipe")
+            .navigationTitle("Save to ReciFriend")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", action: viewModel.cancel)
-                        .disabled(viewModel.isSaving)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if viewModel.isSaving {
-                        ProgressView()
-                    } else {
-                        Button("Save", action: viewModel.save)
-                            .disabled(viewModel.title.trimmingCharacters(in: .whitespaces).isEmpty)
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: viewModel.cancel) {
+                        Image(systemName: "xmark")
+                            .font(.body.weight(.semibold))
+                            .foregroundColor(.secondary)
                     }
+                    .disabled(viewModel.isSaving)
+                    .accessibilityLabel("Close")
                 }
             }
         }
     }
+
+    // MARK: - Recipe card
+
+    private var recipeCard: some View {
+        HStack(alignment: .top, spacing: 12) {
+            thumbnailView
+                .frame(width: 72, height: 72)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 6) {
+                titleField
+                if viewModel.isSaved {
+                    Button(action: viewModel.openInApp) {
+                        Text("View on ReciFriend")
+                            .font(.footnote)
+                            .foregroundColor(.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+    }
+
+    @ViewBuilder
+    private var titleField: some View {
+        if #available(iOS 16.0, *) {
+            TextField("Title", text: $viewModel.title, axis: .vertical)
+                .font(.subheadline)
+                .lineLimit(2, reservesSpace: false)
+                .disabled(viewModel.isSaving || viewModel.isSaved)
+        } else {
+            TextField("Title", text: $viewModel.title)
+                .font(.subheadline)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .disabled(viewModel.isSaving || viewModel.isSaved)
+        }
+    }
+
+    // MARK: - Save button
+
+    private var saveButton: some View {
+        Button(action: viewModel.save) {
+            Group {
+                if viewModel.isSaved {
+                    Label("Saved", systemImage: "checkmark")
+                } else if viewModel.isSaving {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                        Text("Saving…")
+                    }
+                } else {
+                    Text("Save")
+                }
+            }
+            .font(.body.weight(.semibold))
+            .frame(minWidth: 180)
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .disabled(saveDisabled)
+        .animation(.default, value: viewModel.isSaved)
+    }
+
+    private var saveDisabled: Bool {
+        viewModel.isSaving || viewModel.isSaved ||
+            viewModel.title.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    // MARK: - Thumbnail
 
     @ViewBuilder
     private var thumbnailView: some View {
