@@ -1369,6 +1369,7 @@ function App() {
           if (prev) setCurrentView('home');
           return false;
         });
+        setAuthDialogReason(null);
         setAuthError('');
         setIsAuthLoading(false);
       }
