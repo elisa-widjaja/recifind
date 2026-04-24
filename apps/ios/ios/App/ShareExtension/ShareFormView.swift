@@ -181,17 +181,24 @@ struct ShareFormView: View {
             ProgressView()
                 .controlSize(.small)
                 .accessibilityLabel("Saving")
-        } else {
-            // Let iOS 26's toolbar button chrome BE the filled circle —
-            // previous attempts put a custom Circle() inside it and produced
-            // a halo. glassProminent + .tint(.blue) renders the native
-            // toolbar pill/circle with a prominent blue fill; a bare
-            // checkmark glyph inside.
+        } else if #available(iOS 26.0, *) {
+            // Native iOS 26 toolbar action — Liquid Glass prominent chrome
+            // tinted blue. Matches iOS Reminders' "done" affordance.
             Button(action: viewModel.save) {
                 Image(systemName: "checkmark")
                     .font(.body.weight(.semibold))
             }
-            .modifier(ProminentToolbarButtonStyle())
+            .buttonStyle(.glassProminent)
+            .tint(.blue)
+            .disabled(saveDisabled || viewModel.isSaved)
+            .accessibilityLabel(viewModel.isSaved ? "Saved" : "Save")
+        } else {
+            // Pre-iOS-26 fallback.
+            Button(action: viewModel.save) {
+                Image(systemName: "checkmark")
+                    .font(.body.weight(.semibold))
+            }
+            .buttonStyle(.borderedProminent)
             .tint(.blue)
             .disabled(saveDisabled || viewModel.isSaved)
             .accessibilityLabel(viewModel.isSaved ? "Saved" : "Save")
@@ -307,16 +314,3 @@ private struct GlassButtonStyle: ViewModifier {
     }
 }
 
-/// Filled prominent style for toolbar actions — Liquid Glass prominent on
-/// iOS 26+, borderedProminent fallback. When combined with .tint(.blue) on
-/// the button, iOS renders its native toolbar button chrome as a solid blue
-/// shape without requiring a manual background.
-private struct ProminentToolbarButtonStyle: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content.buttonStyle(.glassProminent)
-        } else {
-            content.buttonStyle(.borderedProminent)
-        }
-    }
-}
