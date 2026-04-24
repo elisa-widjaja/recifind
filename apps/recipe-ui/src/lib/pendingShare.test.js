@@ -8,10 +8,13 @@ vi.mock('@capacitor/core', () => ({
   Capacitor: {
     isNativePlatform: () => isNative,
   },
-  registerPlugin: () => ({
+}));
+
+vi.mock('../native/SharedAuthStore', () => ({
+  SharedAuthStoreNative: {
     readPendingShare: (...a) => mockRead(...a),
     clearPendingShare: (...a) => mockClear(...a),
-  }),
+  },
 }));
 
 let readPendingShare, clearPendingShare;

@@ -3,7 +3,9 @@ import { registerPlugin, Capacitor } from '@capacitor/core';
 // Registered in apps/ios/ios/App/App/MainViewController.swift via
 // bridge?.registerPluginInstance(SharedAuthStorePlugin()). Plugin class
 // lives in apps/ios/ios/App/App/Plugins/SharedAuthStore/.
-const SharedAuthStoreNative = registerPlugin('SharedAuthStore');
+// Exported so other wrappers (e.g., lib/pendingShare.js) can call plugin
+// methods without re-registering the same plugin name.
+export const SharedAuthStoreNative = registerPlugin('SharedAuthStore');
 
 // Thin wrapper that no-ops on non-iOS platforms. Write-and-verify pattern
 // catches silent plugin-registration regressions — if the native plugin
