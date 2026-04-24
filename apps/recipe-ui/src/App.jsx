@@ -1355,8 +1355,15 @@ function App() {
       }
 
       if (event === 'SIGNED_IN') {
-        setCurrentView('home');
-        setIsAuthDialogOpen(false);  // close sign-in dialog (e.g. after native OAuth returns)
+        // Only redirect to 'home' if the user was actively signing in (dialog
+        // open). On cold launch with a restored session Supabase also fires
+        // SIGNED_IN, and resetting currentView there clobbers deep-link
+        // destinations like /recipes from the share extension's "View on
+        // ReciFriend" link.
+        setIsAuthDialogOpen(prev => {
+          if (prev) setCurrentView('home');
+          return false;
+        });
         setAuthError('');
         setIsAuthLoading(false);
       }

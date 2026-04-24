@@ -108,42 +108,48 @@ final class ShareViewController: UIViewController {
                 userInfo: [NSLocalizedDescriptionKey: "Cancelled"]
             ))
         case .fallback:
-            openDeepLink(for: sourceURL)
-            self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+            // Wait for the URL to actually be delivered before the extension
+            // dismisses — iOS can tear us down before completing the open,
+            // causing the main app to miss the appUrlOpen event.
+            openDeepLink(for: sourceURL) { [weak self] _ in
+                self?.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+            }
         case .viewInApp(let recipeId):
-            openRecipeInApp(recipeId: recipeId)
-            self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+            openRecipeInApp(recipeId: recipeId) { [weak self] _ in
+                self?.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+            }
         }
     }
 
-    private func openDeepLink(for sourceURL: URL) {
+    private func openDeepLink(for sourceURL: URL, completion: @escaping (Bool) -> Void) {
         var components = URLComponents()
         components.scheme = "recifriend"
         components.host = "add-recipe"
         components.queryItems = [URLQueryItem(name: "url", value: sourceURL.absoluteString)]
-        guard let deepLink = components.url else { return }
-        openURL(deepLink)
+        guard let deepLink = components.url else { completion(false); return }
+        openURL(deepLink, completion: completion)
     }
 
-    private func openRecipeInApp(recipeId: String) {
+    private func openRecipeInApp(recipeId: String, completion: @escaping (Bool) -> Void) {
         // recifriend://recipes (no id) opens the recipe collection page.
         // Handled by the main app's deepLinkDispatch recipes_list kind.
         // recipeId unused for now — kept on the outcome for a possible future
         // "open this specific recipe" flavor.
         _ = recipeId
-        guard let url = URL(string: "recifriend://recipes") else { return }
-        openURL(url)
+        guard let url = URL(string: "recifriend://recipes") else { completion(false); return }
+        openURL(url, completion: completion)
     }
 
-    private func openURL(_ url: URL) {
+    private func openURL(_ url: URL, completion: @escaping (Bool) -> Void) {
         var responder: UIResponder? = self
         while responder != nil {
             if let application = responder as? UIApplication {
-                application.open(url, options: [:], completionHandler: nil)
+                application.open(url, options: [:], completionHandler: completion)
                 return
             }
             responder = responder?.next
         }
+        completion(false)
     }
 
     private func completeWithError(_ message: String) {
