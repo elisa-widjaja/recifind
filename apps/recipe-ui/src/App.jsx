@@ -4225,7 +4225,7 @@ function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       {sharedAuthDebug && (
-        <Box sx={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999, bgcolor: sharedAuthDebug.lastAttempt?.ok ? 'success.light' : 'warning.light', color: 'common.black', fontSize: 10, p: 0.5, fontFamily: 'monospace', paddingTop: 'env(safe-area-inset-top)', textAlign: 'left', whiteSpace: 'pre-wrap' }}>
+        <Box sx={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 9999, bgcolor: sharedAuthDebug.lastAttempt?.ok ? 'success.light' : 'warning.light', color: 'common.black', fontSize: 10, p: 0.5, fontFamily: 'monospace', paddingBottom: 'env(safe-area-inset-bottom)', textAlign: 'left', whiteSpace: 'pre-wrap', pointerEvents: 'none', opacity: 0.9 }}>
           {`native=${sharedAuthDebug.isNative} plugin=${sharedAuthDebug.pluginHasSetJwt}
 initialResolved=${authEvents.initialResolved} initialHasToken=${authEvents.initialHasToken}
 events(${authEvents.events.length}): ${authEvents.events.map(e => `${e.event}/${e.hasToken ? 'tok='+e.len : 'no-tok'}`).join(', ') || '(none)'}
