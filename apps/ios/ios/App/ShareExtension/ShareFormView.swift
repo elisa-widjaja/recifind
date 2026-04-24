@@ -182,21 +182,17 @@ struct ShareFormView: View {
                 .controlSize(.small)
                 .accessibilityLabel("Saving")
         } else {
-            let enabled = !(saveDisabled || viewModel.isSaved)
-            // Solid circular action: the button's own background IS the
-            // circle. No ZStack / no inner container — the Image is simply
-            // centered in a square frame with a Circle background.
-            // buttonStyle(.plain) prevents SwiftUI from wrapping the label
-            // in the default chrome, which was producing a second circular
-            // halo around our fill.
+            // Let iOS 26's toolbar button chrome BE the filled circle —
+            // previous attempts put a custom Circle() inside it and produced
+            // a halo. glassProminent + .tint(.blue) renders the native
+            // toolbar pill/circle with a prominent blue fill; a bare
+            // checkmark glyph inside.
             Button(action: viewModel.save) {
                 Image(systemName: "checkmark")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(width: 28, height: 28)
-                    .background(Circle().fill(enabled ? Color.blue : Color(.systemGray3)))
+                    .font(.body.weight(.semibold))
             }
-            .buttonStyle(.plain)
+            .modifier(ProminentToolbarButtonStyle())
+            .tint(.blue)
             .disabled(saveDisabled || viewModel.isSaved)
             .accessibilityLabel(viewModel.isSaved ? "Saved" : "Save")
         }
@@ -307,6 +303,20 @@ private struct GlassButtonStyle: ViewModifier {
             content.buttonStyle(.glass)
         } else {
             content.buttonStyle(.bordered)
+        }
+    }
+}
+
+/// Filled prominent style for toolbar actions — Liquid Glass prominent on
+/// iOS 26+, borderedProminent fallback. When combined with .tint(.blue) on
+/// the button, iOS renders its native toolbar button chrome as a solid blue
+/// shape without requiring a manual background.
+private struct ProminentToolbarButtonStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.buttonStyle(.glassProminent)
+        } else {
+            content.buttonStyle(.borderedProminent)
         }
     }
 }
