@@ -21,6 +21,18 @@ private let keychainAccount = "supabase-jwt"
 // extension read/write the same keychain bucket.
 private let keychainAccessGroup = "7C6PMUN99K.com.recifriend.app.shared"
 
+// MIRRORS apps/ios/ios/App/ShareExtension/SharedPendingShare.swift —
+// keep the app-group id and defaults key in sync.
+private let pendingShareAppGroupId = "group.com.recifriend.app"
+private let pendingShareKey = "pending_share.v1"
+
+// Keep the JSON shape identical to the extension's PendingShare Codable.
+private struct PendingSharePayload: Codable {
+    let url: String
+    let title: String
+    let createdAt: TimeInterval
+}
+
 @objc(SharedAuthStorePlugin)
 public class SharedAuthStorePlugin: CAPPlugin {
 
@@ -97,5 +109,24 @@ public class SharedAuthStorePlugin: CAPPlugin {
         } else {
             call.reject("keychain-delete-failed (OSStatus \(status))")
         }
+    }
+
+    @objc func readPendingShare(_ call: CAPPluginCall) {
+        guard let d = UserDefaults(suiteName: pendingShareAppGroupId),
+              let data = d.data(forKey: pendingShareKey),
+              let share = try? JSONDecoder().decode(PendingSharePayload.self, from: data) else {
+            call.reject("no-pending-share")
+            return
+        }
+        call.resolve([
+            "url": share.url,
+            "title": share.title,
+            "createdAt": share.createdAt,
+        ])
+    }
+
+    @objc func clearPendingShare(_ call: CAPPluginCall) {
+        UserDefaults(suiteName: pendingShareAppGroupId)?.removeObject(forKey: pendingShareKey)
+        call.resolve()
     }
 }
