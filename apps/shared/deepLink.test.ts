@@ -164,6 +164,11 @@ describe('parseDeepLink — /add-recipe with optional title', () => {
     expect(result?.kind).toBe('add_recipe');
     expect((result as { title?: string }).title?.length).toBe(200);
   });
+  it('ignores whitespace-only title', () => {
+    expect(parseDeepLink('recifriend://add-recipe?url=https%3A%2F%2Ftiktok.com%2Fx&title=%20%20%20')).toEqual({
+      kind: 'add_recipe', url: 'https://tiktok.com/x',
+    });
+  });
 });
 
 describe('parseDeepLink — /open-pending-share', () => {

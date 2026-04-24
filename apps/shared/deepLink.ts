@@ -53,7 +53,7 @@ export function parseDeepLink(raw: string): DeepLink | null {
     const shared = url.searchParams.get('url');
     if (!shared || !/^https?:\/\//.test(shared)) return null;
     const rawTitle = url.searchParams.get('title') ?? '';
-    const title = rawTitle.slice(0, 200);
+    const title = rawTitle.trim().slice(0, 200);
     return title ? { kind: 'add_recipe', url: shared, title } : { kind: 'add_recipe', url: shared };
   }
 
