@@ -403,26 +403,34 @@ callers see a simple { url, title, createdAt } | null contract."
 
 ---
 
-## Task 4: `SharedPendingShare.swift` — App Group helper
+## Task 4: `SharedPendingShare.swift` — App Group helper (ShareExtension-side)
 
 **Files:**
-- Create: `apps/ios/ios/App/Shared/SharedPendingShare.swift`
+- Create: `apps/ios/ios/App/ShareExtension/SharedPendingShare.swift`
+
+**Architectural note:** The Xcode project uses a `PBXFileSystemSynchronizedRootGroup` for `ShareExtension/` — any file in that directory is automatically compiled into the ShareExtension target with no `project.pbxproj` edit required. The App target uses explicit file references, and cross-membership across the sync group and explicit-ref group is fragile. So we do **not** share this file across both targets — instead, the App target's plugin code (Task 5) duplicates the tiny set of constants (app group id, defaults key) and reimplements read/clear inline. The schema is the single source of truth shared between them, pinned by the constants and a comment.
 
 No Swift test target exists — coverage is via the manual matrix in Task 10 and via Vitest on `pendingShare.js` (Task 3), which calls through the plugin that wraps this helper.
 
-- [ ] **Step 4.1: Create the Shared directory (if missing) and helper file**
+- [ ] **Step 4.1: Create the helper file**
 
-Create `apps/ios/ios/App/Shared/SharedPendingShare.swift`:
+Create `apps/ios/ios/App/ShareExtension/SharedPendingShare.swift`:
 
 ```swift
 import Foundation
 
-// Writes/reads a small JSON blob in the App Group shared UserDefaults so
-// the share extension can hand off a pending share to the main app
-// without depending on deep-link timing. Key is versioned ("v1") so a
-// future schema bump (e.g., carry preview imageUrl) can ship alongside
-// older app/extension binaries that will just ignore what they can't
-// decode.
+// App Group shared UserDefaults read/write for the share extension's
+// pending handoff. The main app's SharedAuthStorePlugin duplicates the
+// app-group id and defaults key (constants below) because the Xcode
+// project's ShareExtension folder is a PBXFileSystemSynchronizedRootGroup
+// while the App target uses explicit file refs — sharing a Swift file
+// across the two requires fragile project.pbxproj edits. Schema
+// (PendingShare JSON) is the single source of truth; keep the constants
+// in sync if either side changes.
+//
+// Versioned key ("v1") leaves headroom for a future schema bump (e.g.,
+// carry preview imageUrl) alongside older binaries that will ignore
+// what they can't decode.
 //
 // Entitlement required on both targets:
 //   com.apple.security.application-groups = [ group.com.recifriend.app ]
@@ -460,30 +468,30 @@ enum SharedPendingShare {
 }
 ```
 
-- [ ] **Step 4.2: Add file to Xcode target membership**
+- [ ] **Step 4.2: Build to verify compilation**
 
-Manual Xcode step (the engineer opens `apps/ios/ios/App/App.xcworkspace` in Xcode):
-
-1. In the Project Navigator, right-click the `App` group → **Add Files to "App"…**
-2. Select `apps/ios/ios/App/Shared/SharedPendingShare.swift`.
-3. In the dialog, tick **both** targets: `App` and `ShareExtension`. Tick **"Create folder reference"** OFF (create groups). Tick **"Copy items if needed"** OFF.
-4. Click Add.
-5. Verify by selecting the file in the navigator → File Inspector → **Target Membership** shows both `App` and `ShareExtension`.
-
-- [ ] **Step 4.3: Build both targets to verify compilation**
-
-In Xcode: select `App` scheme → `⌘B`. Expected: build succeeds.
-Then select `ShareExtension` scheme → `⌘B`. Expected: build succeeds.
-
-- [ ] **Step 4.4: Commit**
+From the command line:
 
 ```bash
-git add apps/ios/ios/App/Shared/SharedPendingShare.swift apps/ios/ios/App/App.xcodeproj/project.pbxproj
-git commit -m "ios(shared): App Group helper for pending share handoff
+cd apps/ios/ios/App && xcodebuild -workspace App.xcworkspace -scheme ShareExtension -configuration Debug -destination 'generic/platform=iOS Simulator' build-for-testing 2>&1 | tail -30
+```
+
+Expected: `** TEST BUILD SUCCEEDED **` or at minimum no errors referencing SharedPendingShare.swift (warnings about code signing / provisioning are acceptable for this verification step).
+
+If you don't have access to run xcodebuild, note that the file must compile — the Swift code above is self-contained (imports only Foundation, uses only Codable / UserDefaults) and will be picked up automatically by the synchronized group.
+
+- [ ] **Step 4.3: Commit**
+
+```bash
+git add apps/ios/ios/App/ShareExtension/SharedPendingShare.swift
+git commit -m "ios(share-ext): App Group helper for pending share handoff
 
 UserDefaults suite keyed pending_share.v1 holding { url, title,
-createdAt }. Extension writes, main app reads + clears. Added to
-both targets via Xcode target membership."
+createdAt }. Auto-included in ShareExtension target via the
+PBXFileSystemSynchronizedRootGroup. The main-app plugin (next
+commit) duplicates the app-group id + key constants because
+sharing a Swift file across the sync-group and the App target's
+explicit-ref group requires fragile project.pbxproj edits."
 ```
 
 ---
@@ -494,13 +502,33 @@ both targets via Xcode target membership."
 - Modify: `apps/ios/ios/App/App/Plugins/SharedAuthStore/SharedAuthStorePlugin.swift`
 - Modify: `apps/ios/ios/App/App/Plugins/SharedAuthStore/SharedAuthStorePlugin.m`
 
-- [ ] **Step 5.1: Add plugin methods**
+- [ ] **Step 5.1: Add plugin methods (inline App Group access)**
 
-Append to `apps/ios/ios/App/App/Plugins/SharedAuthStore/SharedAuthStorePlugin.swift` **before the closing brace of `SharedAuthStorePlugin`**:
+The App target cannot easily import `SharedPendingShare.swift` (it lives in the ShareExtension's synchronized group). Instead, implement the read/clear logic inline using the same constants and schema. Keep the schema identical — if you change field names here, update the extension's `PendingShare` struct too.
+
+Append to `apps/ios/ios/App/App/Plugins/SharedAuthStore/SharedAuthStorePlugin.swift` — first add two private constants below the existing `keychain*` constants at the top:
+
+```swift
+// MIRRORS apps/ios/ios/App/ShareExtension/SharedPendingShare.swift —
+// keep the app-group id and defaults key in sync.
+private let pendingShareAppGroupId = "group.com.recifriend.app"
+private let pendingShareKey = "pending_share.v1"
+
+// Keep the JSON shape identical to the extension's PendingShare Codable.
+private struct PendingSharePayload: Codable {
+    let url: String
+    let title: String
+    let createdAt: TimeInterval
+}
+```
+
+Then append two methods **before the closing brace of `SharedAuthStorePlugin`**:
 
 ```swift
     @objc func readPendingShare(_ call: CAPPluginCall) {
-        guard let share = SharedPendingShare.read() else {
+        guard let d = UserDefaults(suiteName: pendingShareAppGroupId),
+              let data = d.data(forKey: pendingShareKey),
+              let share = try? JSONDecoder().decode(PendingSharePayload.self, from: data) else {
             call.reject("no-pending-share")
             return
         }
@@ -512,7 +540,7 @@ Append to `apps/ios/ios/App/App/Plugins/SharedAuthStore/SharedAuthStorePlugin.sw
     }
 
     @objc func clearPendingShare(_ call: CAPPluginCall) {
-        SharedPendingShare.clear()
+        UserDefaults(suiteName: pendingShareAppGroupId)?.removeObject(forKey: pendingShareKey)
         call.resolve()
     }
 ```
