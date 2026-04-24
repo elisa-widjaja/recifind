@@ -177,22 +177,20 @@ struct ShareFormView: View {
 
     @ViewBuilder
     private var saveToolbarButton: some View {
-        if viewModel.isSaved {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.body.weight(.semibold))
-                .foregroundColor(.green)
-                .accessibilityLabel("Saved")
-        } else if viewModel.isSaving {
+        if viewModel.isSaving {
             ProgressView()
                 .controlSize(.small)
                 .accessibilityLabel("Saving")
         } else {
+            // Button stays as a checkmark through all non-saving states so
+            // the nav slot doesn't jump. Enabled (iOS accent blue) before
+            // save; disabled (grey) when title empty OR after save succeeds.
             Button(action: viewModel.save) {
                 Image(systemName: "checkmark")
                     .font(.body.weight(.semibold))
             }
-            .disabled(saveDisabled)
-            .accessibilityLabel("Save")
+            .disabled(saveDisabled || viewModel.isSaved)
+            .accessibilityLabel(viewModel.isSaved ? "Saved" : "Save")
         }
     }
 
