@@ -182,15 +182,17 @@ struct ShareFormView: View {
                 .controlSize(.small)
                 .accessibilityLabel("Saving")
         } else {
-            // Button stays as a checkmark through all non-saving states so
-            // the nav slot doesn't jump. Tint forces iOS system blue when
-            // enabled; SwiftUI auto-dims to secondary when disabled (empty
-            // title or saved state).
+            let enabled = !(saveDisabled || viewModel.isSaved)
             Button(action: viewModel.save) {
-                Image(systemName: "checkmark")
-                    .font(.body.weight(.semibold))
+                ZStack {
+                    Circle()
+                        .fill(enabled ? Color.blue : Color(.systemGray4))
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(.white)
+                }
+                .frame(width: 28, height: 28)
             }
-            .tint(.blue)
             .disabled(saveDisabled || viewModel.isSaved)
             .accessibilityLabel(viewModel.isSaved ? "Saved" : "Save")
         }
