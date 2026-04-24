@@ -1775,14 +1775,16 @@ async function handleCreateRecipe(
   }
 
   await env.DB.prepare(
-    `INSERT INTO recipes (id, user_id, title, source_url, image_url, image_path, meal_types, ingredients, steps, duration_minutes, notes, preview_image, shared_with_friends, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO recipes (id, user_id, title, source_url, image_url, image_path, meal_types, ingredients, steps, duration_minutes, notes, preview_image, shared_with_friends, provenance, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     recipe.id, recipe.userId, recipe.title, recipe.sourceUrl, recipe.imageUrl,
     recipe.imagePath ?? null, JSON.stringify(recipe.mealTypes), JSON.stringify(recipe.ingredients),
     JSON.stringify(recipe.steps), recipe.durationMinutes, recipe.notes || '',
     recipe.previewImage ? JSON.stringify(recipe.previewImage) : null,
-    recipe.sharedWithFriends ? 1 : 0, recipe.createdAt, recipe.updatedAt
+    recipe.sharedWithFriends ? 1 : 0,
+    recipe.provenance ?? null,
+    recipe.createdAt, recipe.updatedAt
   ).run();
   await updateCollectionMeta(env, user.userId, { countDelta: 1 });
 
@@ -2786,7 +2788,8 @@ function normalizeRecipePayload(
         updatedAt: now,
         notes: '',
         previewImage: null,
-        sharedWithFriends: true
+        sharedWithFriends: true,
+        provenance: null
       };
 
   recipe.updatedAt = now;
@@ -2829,6 +2832,19 @@ function normalizeRecipePayload(
 
   if ('sharedWithFriends' in payload) {
     recipe.sharedWithFriends = Boolean(payload.sharedWithFriends);
+  }
+
+  if ('provenance' in payload) {
+    const value = payload.provenance;
+    if (value === 'extracted' || value === 'inferred' || value === null) {
+      recipe.provenance = value;
+    } else if (value === undefined) {
+      recipe.provenance = null;
+    } else {
+      throw new HttpError(400, 'provenance must be "extracted", "inferred", or null');
+    }
+  } else if (!existing) {
+    recipe.provenance = null;
   }
 
   return {

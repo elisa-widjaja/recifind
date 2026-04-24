@@ -288,3 +288,42 @@ describe('handleCreateRecipe fires ctx.waitUntil(enrichAfterSave)', () => {
     expect(waitUntil).not.toHaveBeenCalled();
   });
 });
+
+describe('handleCreateRecipe provenance', () => {
+  it('persists provenance from the POST body into the INSERT binding list', async () => {
+    const { db, runCalls } = makeMockDb({ existingRecipe: null });
+    const env = { DB: db as unknown as D1Database } as Env;
+    const ctx = { waitUntil: vi.fn() } as unknown as ExecutionContext;
+    const user = { userId: 'user-abc', email: 'a@b.c' };
+
+    const req = new Request('https://worker/recipes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Pasta', sourceUrl: 'https://example.com/pasta', provenance: 'inferred' }),
+    });
+
+    await handleCreateRecipe(req, env, ctx, user as any);
+    const insert = runCalls.find(c => c.sql.includes('INSERT INTO recipes'));
+    expect(insert).toBeDefined();
+    expect(insert!.binds).toContain('inferred');
+  });
+
+  it('defaults provenance to null when the POST body omits it', async () => {
+    const { db, runCalls } = makeMockDb({ existingRecipe: null });
+    const env = { DB: db as unknown as D1Database } as Env;
+    const ctx = { waitUntil: vi.fn() } as unknown as ExecutionContext;
+    const user = { userId: 'user-abc', email: 'a@b.c' };
+
+    const req = new Request('https://worker/recipes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Pasta', sourceUrl: 'https://example.com/pasta' }),
+    });
+
+    await handleCreateRecipe(req, env, ctx, user as any);
+    const insert = runCalls.find(c => c.sql.includes('INSERT INTO recipes'));
+    expect(insert).toBeDefined();
+    expect(insert!.binds).not.toContain('inferred');
+    expect(insert!.binds).not.toContain('extracted');
+  });
+});
