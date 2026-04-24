@@ -183,19 +183,18 @@ struct ShareFormView: View {
                 .accessibilityLabel("Saving")
         } else {
             let enabled = !(saveDisabled || viewModel.isSaved)
-            // Filled-pill action (à la iOS Notes "Done") but in blue.
-            // Explicit Capsule background + white glyph so the checkmark stays
-            // visible in the disabled state — .buttonStyle(.borderedProminent)
-            // dims both fill AND glyph on disable, leaving the pill blank.
+            // Solid circular action: the button's own background IS the
+            // circle. No ZStack / no inner container — the Image is simply
+            // centered in a square frame with a Circle background.
+            // buttonStyle(.plain) prevents SwiftUI from wrapping the label
+            // in the default chrome, which was producing a second circular
+            // halo around our fill.
             Button(action: viewModel.save) {
                 Image(systemName: "checkmark")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundColor(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule().fill(enabled ? Color.blue : Color(.systemGray3))
-                    )
+                    .frame(width: 28, height: 28)
+                    .background(Circle().fill(enabled ? Color.blue : Color(.systemGray3)))
             }
             .buttonStyle(.plain)
             .disabled(saveDisabled || viewModel.isSaved)
