@@ -1414,14 +1414,23 @@ function App() {
         await supabase.auth.exchangeCodeForSession(code);
         try { await Browser.close(); } catch { /* ignore if already closed */ }
       },
-      onAddRecipe: (url) => {
-        // Pre-fill source URL and open Add Recipe dialog directly (user is already authed on native)
-        setNewRecipeForm((prev) => ({ ...prev, sourceUrl: url }));
-        setNewRecipeErrors({});
-        setNewRecipePrefillInfo({ matched: false, hasIngredients: false, hasSteps: false });
-        setSourceParseState({ status: 'idle', message: '' });
-        setAddRecipeSource('share-extension');
-        setIsAddDialogOpen(true);
+      onAddRecipe: (url, title) => {
+        // Route through pendingShare so the session gate in the drain effect
+        // handles both logged-in (open drawer) and logged-out (open auth
+        // dialog + preserve across OAuth) cases consistently.
+        setPendingShare({
+          url,
+          title: typeof title === 'string' && title.length > 0 ? title : '',
+          createdAt: Math.floor(Date.now() / 1000),
+        });
+      },
+      onOpenPendingShare: () => {
+        // App Group storage is read on mount; this deep link is just a
+        // wake-up ping. If the app was already foregrounded, re-read so
+        // an extension fire after the mount effect still drains.
+        readPendingShare().then((share) => {
+          if (share) setPendingShare(share);
+        });
       },
       onFriendRequests: () => {
         setCurrentView('friend-requests');
