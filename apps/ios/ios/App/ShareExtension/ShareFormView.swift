@@ -172,7 +172,7 @@ struct ShareFormView: View {
                 if viewModel.isSaved {
                     Button(action: viewModel.openInApp) {
                         Text("View on ReciFriend")
-                            .font(.footnote)
+                            .font(.system(size: 14))
                             .foregroundColor(.accentColor)
                     }
                     .buttonStyle(.plain)
@@ -192,12 +192,12 @@ struct ShareFormView: View {
     private var titleField: some View {
         if #available(iOS 16.0, *) {
             TextField("Title", text: $viewModel.title, axis: .vertical)
-                .font(.subheadline)
+                .font(.system(size: 16, weight: .semibold))
                 .lineLimit(2, reservesSpace: false)
                 .disabled(viewModel.isSaving || viewModel.isSaved)
         } else {
             TextField("Title", text: $viewModel.title)
-                .font(.subheadline)
+                .font(.system(size: 16, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .disabled(viewModel.isSaving || viewModel.isSaved)
@@ -215,7 +215,6 @@ struct ShareFormView: View {
                     HStack(spacing: 8) {
                         ProgressView()
                             .controlSize(.small)
-                            .tint(.white)
                         Text("Saving…")
                     }
                 } else {
@@ -223,10 +222,10 @@ struct ShareFormView: View {
                 }
             }
             .font(.body.weight(.semibold))
-            .frame(minWidth: 180)
-            .padding(.vertical, 4)
+            .frame(minWidth: 100)
+            .padding(.vertical, 2)
         }
-        .buttonStyle(.borderedProminent)
+        .modifier(SaveButtonStyle())
         .controlSize(.large)
         .disabled(saveDisabled)
         .animation(.default, value: viewModel.isSaved)
@@ -257,5 +256,16 @@ struct ShareFormView: View {
 
     private var placeholder: some View {
         Rectangle().fill(Color(.systemGray5))
+    }
+}
+
+/// Liquid Glass on iOS 26+, bordered-prominent fallback otherwise.
+private struct SaveButtonStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.buttonStyle(.glassProminent)
+        } else {
+            content.buttonStyle(.borderedProminent)
+        }
     }
 }
