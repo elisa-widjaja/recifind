@@ -931,6 +931,12 @@ function getHomeGreetingMessage(date = new Date()) {
 
 const PENDING_SHARE_TTL_MS = 24 * 60 * 60 * 1000;
 
+// Tracks recipe ids whose empty-state silent retry has already run in the
+// current session. Prevents rapid open/close/open from spamming re-enrich.
+// Resets on page reload (intentional — a fresh load is a reasonable signal
+// that the user wants another shot).
+const silentRetryAttempted = new Set();
+
 function App() {
   // Use window width directly for reliable mobile detection
   const [isMobile, setIsMobile] = useState(() => {
@@ -2775,6 +2781,22 @@ function App() {
     setIsInferredCaveatOpen(false);
     setIsReEnriching(false);
   }, [activeRecipe?.id]);
+
+  useEffect(() => {
+    if (!activeRecipe) return;
+    const r = activeRecipe;
+    if (silentRetryAttempted.has(r.id)) return;
+    const ingredientsLen = Array.isArray(r.ingredients) ? r.ingredients.length : 0;
+    const stepsLen = Array.isArray(r.steps) ? r.steps.length : 0;
+    const isEmpty = ingredientsLen === 0 && stepsLen === 0;
+    const hasSource = Boolean(r.sourceUrl);
+    const provenanceIsNull = !r.provenance;
+    const createdAtMs = r.createdAt ? new Date(r.createdAt).getTime() : 0;
+    const withinWindow = Number.isFinite(createdAtMs) && (Date.now() - createdAtMs) < 24 * 60 * 60 * 1000;
+    if (!provenanceIsNull || !isEmpty || !hasSource || !withinWindow) return;
+    silentRetryAttempted.add(r.id);
+    handleReEnrichActiveRecipe({ silent: true });
+  }, [activeRecipe?.id, handleReEnrichActiveRecipe]);
 
   // Handle URL parameters to open recipe modal on page load
   useEffect(() => {
@@ -5377,28 +5399,35 @@ function App() {
                           stepsLen === 0 &&
                           Boolean(activeRecipeView.sourceUrl);
                         if (showEmptyState) {
-                          return (
+                          return isReEnriching ? (
+                            <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
+                              <CircularProgress size={14} />
+                              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                                Checking for ingredients…
+                              </Typography>
+                            </Box>
+                          ) : (
                             <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                               We couldn't read this recipe.{' '}
                               <Typography
                                 component="button"
-                                onClick={isReEnriching ? undefined : () => handleReEnrichActiveRecipe({ silent: false })}
+                                onClick={() => handleReEnrichActiveRecipe({ silent: false })}
                                 sx={{
                                   display: 'inline-flex',
                                   alignItems: 'center',
                                   gap: 0.25,
                                   background: 'none',
                                   border: 'none',
-                                  cursor: isReEnriching ? 'default' : 'pointer',
-                                  color: isReEnriching ? 'text.disabled' : 'primary.main',
+                                  cursor: 'pointer',
+                                  color: 'primary.main',
                                   fontSize: 'inherit',
                                   fontWeight: 500,
                                   p: 0,
                                   verticalAlign: 'baseline',
-                                  '&:hover': isReEnriching ? {} : { textDecoration: 'underline' },
+                                  '&:hover': { textDecoration: 'underline' },
                                 }}
                               >
-                                {isReEnriching ? <CircularProgress size={14} sx={{ mr: 0.5 }} /> : <AutoAwesomeIcon sx={{ fontSize: 14, mr: 0.25 }} />}
+                                <AutoAwesomeIcon sx={{ fontSize: 14, mr: 0.25 }} />
                                 Enhance with AI
                               </Typography>
                               {' '}or refer to the source.
