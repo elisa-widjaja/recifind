@@ -520,3 +520,17 @@ describe('runEnrichmentChain', () => {
     expect(winningStrategy).toBeNull();
   });
 });
+
+describe('EnrichmentResult shape', () => {
+  it('EMPTY_ENRICHMENT carries provenance: null', async () => {
+    // Every strategy returns EMPTY_ENRICHMENT on empty paths; provenance must default to null
+    // so the orchestrator + enrichAfterSave can rely on it.
+    const emptyFromStrategy = await captionExtract(
+      {} as Env,
+      'https://example.com/not-social',
+      '',
+      { fetchOembedCaption: async () => null, fetchImpl: vi.fn() as any, getAccessToken: async () => 'x', getServiceAccount: async () => ({ client_email: '', private_key: '', token_uri: '', project_id: '' }) }
+    );
+    expect(emptyFromStrategy).toMatchObject({ ingredients: [], steps: [], provenance: null });
+  });
+});
