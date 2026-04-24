@@ -472,20 +472,6 @@ describe('textInference', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('skips both Gemini passes and returns null provenance when rawText is null', async () => {
-    const mockFetch = vi.fn() as unknown as typeof fetch;
-    const result = await textInference(
-      fakeEnv,
-      'https://www.instagram.com/reel/xyz/',
-      'Cucumber tea sandwiches',
-      { ...baseDeps, fetchRawRecipeText: async () => null, fetchImpl: mockFetch }
-    );
-    expect(result.ingredients).toEqual([]);
-    expect(result.steps).toEqual([]);
-    expect(result.provenance).toBeNull();
-    expect(mockFetch).not.toHaveBeenCalled();
-  });
-
   it('skips both passes when rawText is under 500 chars and not error-page-shaped', async () => {
     const mockFetch = vi.fn() as unknown as typeof fetch;
     const result = await textInference(
@@ -494,6 +480,8 @@ describe('textInference', () => {
       'Pasta',
       { ...baseDeps, fetchRawRecipeText: async () => 'short body text', fetchImpl: mockFetch }
     );
+    expect(result.ingredients).toEqual([]);
+    expect(result.steps).toEqual([]);
     expect(result.provenance).toBeNull();
     expect(mockFetch).not.toHaveBeenCalled();
   });

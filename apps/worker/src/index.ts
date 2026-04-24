@@ -4288,6 +4288,12 @@ type TextInferenceDeps = {
   getServiceAccount?: (env: Env) => Promise<GeminiServiceAccount>;
 };
 
+// Minimum rawText length that's considered substantive enough to run Gemini on.
+// Typical r.jina.ai rate-limit error pages are ~300 bytes; real recipe pages
+// are well above 500. Below this threshold we'd either waste a Gemini call on
+// an error page or let pass-2 hallucinate from sparse text.
+const MIN_RAW_TEXT_LENGTH = 500;
+
 async function textInference(
   env: Env,
   sourceUrl: string,
@@ -4311,10 +4317,14 @@ async function textInference(
     console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: 0, outcome: 'empty', reason: 'no-raw-text', duration_ms: Date.now() - startedAt });
     return EMPTY_ENRICHMENT;
   }
-  if (rawText.length < 500) {
+  if (rawText.length < MIN_RAW_TEXT_LENGTH) {
     console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText.length, outcome: 'empty', reason: 'too-short', duration_ms: Date.now() - startedAt });
     return EMPTY_ENRICHMENT;
   }
+  // Only reachable for rawText >= MIN_RAW_TEXT_LENGTH. The length gate above
+  // already handles the short error-page case (e.g. a ~300-byte Jina 429 body).
+  // This branch catches long, well-formed error pages (e.g. a 600+ byte blog
+  // 502 page) whose structure would otherwise pass the length gate.
   if (/HTTP ERROR \d{3}|Too Many Requests|Target URL returned error/i.test(rawText)) {
     console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText.length, outcome: 'empty', reason: 'fetch-error', duration_ms: Date.now() - startedAt });
     return EMPTY_ENRICHMENT;
