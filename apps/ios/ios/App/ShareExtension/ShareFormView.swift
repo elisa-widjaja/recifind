@@ -44,8 +44,22 @@ final class ShareFormViewModel: ObservableObject {
             let jwt: String
             do {
                 jwt = try SharedKeychain.readJwt()
-            } catch let err as SharedKeychainError {
-                await self.surfaceAndFallback(reason: "keychain \(err)")
+            } catch SharedKeychainError.notFound {
+                await self.surfaceAndFallback(reason: "keychain notFound (no JWT written by main app)")
+                return
+            } catch SharedKeychainError.readFailed(let status) {
+                let hint: String
+                switch status {
+                case -34018: hint = "missingEntitlement — keychain-access-groups not in provisioning profile"
+                case -25291: hint = "notAvailable — device locked or keychain offline"
+                case -25300: hint = "itemNotFound (unexpected — should surface as .notFound)"
+                case -50:    hint = "param — malformed query"
+                default:     hint = "see osstatus.com"
+                }
+                await self.surfaceAndFallback(reason: "keychain readFailed OSStatus \(status) — \(hint)")
+                return
+            } catch SharedKeychainError.corruptData {
+                await self.surfaceAndFallback(reason: "keychain corruptData")
                 return
             } catch {
                 await self.surfaceAndFallback(reason: "keychain unknown: \(error)")
