@@ -6931,22 +6931,24 @@ function App() {
                   >
                     Verify code
                   </Button>
-                  <Button
-                    size="small"
-                    onClick={handleResendOtpCode}
-                    disabled={isAuthLoading}
-                    sx={{ textTransform: 'none' }}
-                  >
-                    Resend code
-                  </Button>
-                  <Button
-                    size="small"
-                    onClick={() => { clearPendingOtpEmail(); setOtpSentToEmail(''); setOtpCode(''); setAuthError(''); }}
-                    disabled={isAuthLoading}
-                    sx={{ textTransform: 'none' }}
-                  >
-                    Use a different email
-                  </Button>
+                  <Stack spacing={0.25} alignItems="center">
+                    <Button
+                      size="small"
+                      onClick={handleResendOtpCode}
+                      disabled={isAuthLoading}
+                      sx={{ textTransform: 'none' }}
+                    >
+                      Resend code
+                    </Button>
+                    <Button
+                      size="small"
+                      onClick={() => { clearPendingOtpEmail(); setOtpSentToEmail(''); setOtpCode(''); setAuthError(''); }}
+                      disabled={isAuthLoading}
+                      sx={{ textTransform: 'none' }}
+                    >
+                      Use a different email
+                    </Button>
+                  </Stack>
                 </Stack>
               </Box>
             ) : (
