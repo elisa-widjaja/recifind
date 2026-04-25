@@ -7,4 +7,7 @@ CAP_PLUGIN(SharedAuthStorePlugin, "SharedAuthStore",
   CAP_PLUGIN_METHOD(clearJwt, CAPPluginReturnPromise);
   CAP_PLUGIN_METHOD(readPendingShare, CAPPluginReturnPromise);
   CAP_PLUGIN_METHOD(clearPendingShare, CAPPluginReturnPromise);
+  CAP_PLUGIN_METHOD(setKeychainItem, CAPPluginReturnPromise);
+  CAP_PLUGIN_METHOD(getKeychainItem, CAPPluginReturnPromise);
+  CAP_PLUGIN_METHOD(removeKeychainItem, CAPPluginReturnPromise);
 )

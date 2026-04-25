@@ -21,6 +21,11 @@ private let keychainAccount = "supabase-jwt"
 // extension read/write the same keychain bucket.
 private let keychainAccessGroup = "7C6PMUN99K.com.recifriend.app.shared"
 
+// Generic keychain service for Supabase auth-state storage. Distinct from
+// the JWT keychainService above so the two never collide on key naming.
+// Not in any access group — only the main app reads/writes Supabase state.
+private let supabaseStorageService = "com.recifriend.app.supabase"
+
 // MIRRORS apps/ios/ios/App/ShareExtension/SharedPendingShare.swift —
 // keep the app-group id and defaults key in sync.
 private let pendingShareAppGroupId = "group.com.recifriend.app"
@@ -128,5 +133,98 @@ public class SharedAuthStorePlugin: CAPPlugin {
     @objc func clearPendingShare(_ call: CAPPluginCall) {
         UserDefaults(suiteName: pendingShareAppGroupId)?.removeObject(forKey: pendingShareKey)
         call.resolve()
+    }
+
+    // MARK: - Generic Keychain key/value (used as Supabase storage backend)
+    //
+    // Supabase auth state was previously stored via Capacitor Preferences
+    // (UserDefaults). UserDefaults writes are async-to-disk — iOS flushes
+    // periodically but if the app is killed (memory pressure when switching
+    // to a memory-heavy app like Mail/Gmail) before the flush the write is
+    // lost. That manifested as "PKCE code verifier not found in storage"
+    // when users tapped the magic link in their email and the app cold-booted
+    // on the deep-link return trip.
+    //
+    // Keychain writes are synchronous — SecItemAdd/Update returns only after
+    // the data is durable on disk. No access group on these entries (unlike
+    // setJwt) because Supabase storage is read only by the main app.
+
+    @objc func setKeychainItem(_ call: CAPPluginCall) {
+        guard let key = call.getString("key"), !key.isEmpty else {
+            call.reject("key is required")
+            return
+        }
+        let value = call.getString("value", "")
+        guard let data = value.data(using: .utf8) else {
+            call.reject("value is not UTF-8")
+            return
+        }
+
+        let base: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: supabaseStorageService,
+            kSecAttrAccount as String: key,
+        ]
+        SecItemDelete(base as CFDictionary)
+
+        var add = base
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+
+        let status = SecItemAdd(add as CFDictionary, nil)
+        if status == errSecSuccess {
+            call.resolve()
+        } else {
+            call.reject("keychain-write-failed (OSStatus \(status))")
+        }
+    }
+
+    @objc func getKeychainItem(_ call: CAPPluginCall) {
+        guard let key = call.getString("key"), !key.isEmpty else {
+            call.reject("key is required")
+            return
+        }
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: supabaseStorageService,
+            kSecAttrAccount as String: key,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+
+        if status == errSecItemNotFound {
+            call.resolve(["value": NSNull()])
+            return
+        }
+        if status != errSecSuccess {
+            call.reject("keychain-read-failed (OSStatus \(status))")
+            return
+        }
+        guard let data = item as? Data, let value = String(data: data, encoding: .utf8) else {
+            call.reject("keychain-read-failed (corrupt data)")
+            return
+        }
+        call.resolve(["value": value])
+    }
+
+    @objc func removeKeychainItem(_ call: CAPPluginCall) {
+        guard let key = call.getString("key"), !key.isEmpty else {
+            call.reject("key is required")
+            return
+        }
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: supabaseStorageService,
+            kSecAttrAccount as String: key,
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        if status == errSecSuccess || status == errSecItemNotFound {
+            call.resolve()
+        } else {
+            call.reject("keychain-delete-failed (OSStatus \(status))")
+        }
     }
 }
