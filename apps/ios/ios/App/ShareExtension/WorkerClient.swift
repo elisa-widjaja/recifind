@@ -74,13 +74,18 @@ enum WorkerClient {
         title: String,
         jwt: String
     ) async -> EnrichResult? {
+        let started = Date()
         let url = apiBase.appendingPathComponent("recipes/enrich")
+        NSLog("[ShareExt] enrichRecipe START url=%@ title=%@", sourceUrl, title)
         var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
         let body: [String: Any] = ["sourceUrl": sourceUrl, "title": title]
-        guard let httpBody = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        guard let httpBody = try? JSONSerialization.data(withJSONObject: body) else {
+            NSLog("[ShareExt] enrichRecipe body-encode-failed")
+            return nil
+        }
         req.httpBody = httpBody
 
         // Dedicated session so timeoutIntervalForResource enforces an
@@ -93,13 +98,18 @@ enum WorkerClient {
 
         do {
             let (data, response) = try await session.data(for: req)
+            let elapsed = Date().timeIntervalSince(started)
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                NSLog("[ShareExt] enrichRecipe BAD status=%d elapsed=%.2fs", (response as? HTTPURLResponse)?.statusCode ?? -1, elapsed)
                 return nil
             }
             guard
                 let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                 let enriched = json["enriched"] as? [String: Any]
-            else { return nil }
+            else {
+                NSLog("[ShareExt] enrichRecipe DECODE-FAIL elapsed=%.2fs", elapsed)
+                return nil
+            }
 
             let titleValue = (enriched["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             let imageValue = (enriched["imageUrl"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -109,7 +119,7 @@ enum WorkerClient {
                 if let d = enriched["durationMinutes"] as? Double, d.isFinite { return Int(d) }
                 return nil
             }()
-            return EnrichResult(
+            let result = EnrichResult(
                 title: titleValue,
                 imageUrl: imageValue,
                 mealTypes: (enriched["mealTypes"] as? [String]) ?? [],
@@ -119,7 +129,12 @@ enum WorkerClient {
                 notes: notesValue,
                 provenance: enriched["provenance"] as? String
             )
+            NSLog("[ShareExt] enrichRecipe OK elapsed=%.2fs ingredients=%d steps=%d provenance=%@",
+                  elapsed, result.ingredients.count, result.steps.count, result.provenance ?? "nil")
+            return result
         } catch {
+            let elapsed = Date().timeIntervalSince(started)
+            NSLog("[ShareExt] enrichRecipe ERROR elapsed=%.2fs err=%@", elapsed, String(describing: error))
             return nil
         }
     }
