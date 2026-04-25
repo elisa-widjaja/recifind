@@ -178,6 +178,37 @@ function clearRecipesCache() {
   }
 }
 
+// Pending OTP email — survives iOS WebView reloads when the user backgrounds
+// the app to read the 6-digit code from email. 1-hour TTL.
+const PENDING_OTP_KEY = 'recifriend-pending-otp-v1';
+const PENDING_OTP_TTL_MS = 60 * 60 * 1000;
+
+function readPendingOtpEmail() {
+  try {
+    const raw = localStorage.getItem(PENDING_OTP_KEY);
+    if (!raw) return '';
+    const { email, sentAt } = JSON.parse(raw);
+    if (!email || !sentAt || Date.now() - sentAt > PENDING_OTP_TTL_MS) {
+      localStorage.removeItem(PENDING_OTP_KEY);
+      return '';
+    }
+    return email;
+  } catch {
+    try { localStorage.removeItem(PENDING_OTP_KEY); } catch {}
+    return '';
+  }
+}
+
+function writePendingOtpEmail(email) {
+  try {
+    localStorage.setItem(PENDING_OTP_KEY, JSON.stringify({ email, sentAt: Date.now() }));
+  } catch {}
+}
+
+function clearPendingOtpEmail() {
+  try { localStorage.removeItem(PENDING_OTP_KEY); } catch {}
+}
+
 // Capture accept_friend and invite_token URL params immediately at module load time.
 {
   const _url = new URL(window.location.href);
@@ -1219,7 +1250,8 @@ function App() {
     () => !!(
       sessionStorage.getItem('pending_open_invite') ||
       sessionStorage.getItem('pending_invite_token') ||
-      sessionStorage.getItem('pending_accept_friend')
+      sessionStorage.getItem('pending_accept_friend') ||
+      readPendingOtpEmail()
     )
   );
   const [authEmail, setAuthEmail] = useState('');
@@ -1378,6 +1410,9 @@ function App() {
         setAuthDialogReason(null);
         setAuthError('');
         setIsAuthLoading(false);
+        clearPendingOtpEmail();
+        setOtpSentToEmail('');
+        setOtpCode('');
       }
       if (event === 'SIGNED_OUT') {
         setCurrentView('home');
@@ -2095,8 +2130,10 @@ function App() {
   };
   // === [/S09] ===
 
-  // === [S09] OTP state — mobile uses 6-digit code instead of magic link ===
-  const [otpSentToEmail, setOtpSentToEmail] = useState('');  // email that received a code; empty = input email
+  // === [S09] OTP state — both web and native show 6-digit code field after sending ===
+  // Persisted to localStorage so the code-entry view survives iOS WebView reloads
+  // when the user backgrounds the app to fetch the code from email.
+  const [otpSentToEmail, setOtpSentToEmail] = useState(readPendingOtpEmail);
   const [otpCode, setOtpCode] = useState('');
   // === [/S09] ===
 
@@ -2120,8 +2157,6 @@ function App() {
       const pendingId = sessionStorage.getItem('pending_accept_friend');
       const pendingInvite = sessionStorage.getItem('pending_invite_token');
       const pendingOpenInvite = sessionStorage.getItem('pending_open_invite');
-      const pendingShareToken = sessionStorage.getItem('pending_share_token');
-      const pendingSaveShare = sessionStorage.getItem('pending_save_share');
       // === [S09] Native uses recifriend:// custom scheme for magic link redirect.
       // Flow: user taps email link in Mail → opens Safari → Safari GETs Supabase's
       // /verify → Supabase 302s to `recifriend://auth/callback?token_hash=…` →
@@ -2132,15 +2167,17 @@ function App() {
         ? 'recifriend://auth/callback'
         : 'https://recifriend.com/auth/callback';
       // === [/S09] ===
+      // Note: share-recipe carry-through is intentionally NOT propagated via the
+      // magic-link redirect URL. Users in the share flow who pick magic link will
+      // be signed in but need to re-share the recipe. OAuth flows still preserve
+      // the share via sessionStorage across the in-app browser roundtrip.
       const emailRedirectTo = pendingId
         ? `${emailBase}?accept_friend=${encodeURIComponent(pendingId)}`
         : pendingInvite
           ? `${emailBase}?invite_token=${encodeURIComponent(pendingInvite)}`
           : pendingOpenInvite
             ? `${emailBase}?invite=${encodeURIComponent(pendingOpenInvite)}`
-            : (pendingShareToken && pendingSaveShare)
-              ? `${emailBase}?share=${encodeURIComponent(pendingShareToken)}`
-              : emailBase;
+            : emailBase;
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: { emailRedirectTo }
@@ -2148,12 +2185,12 @@ function App() {
 
       if (error) throw error;
 
-      setIsAuthDialogOpen(false);
-      setAuthDialogReason(null);
-      setAuthEmail('');
+      writePendingOtpEmail(email);
+      setOtpSentToEmail(email);
+      setOtpCode('');
       setSnackbarState({
         open: true,
-        message: 'Check your email for a magic link to sign in.',
+        message: 'Check your email for a verification code or magic link.',
         severity: 'success'
       });
     } catch (error) {
@@ -2163,13 +2200,13 @@ function App() {
     }
   };
 
-  // === [S09] Verify the 6-digit OTP code (mobile only) ===
+  // === [S09] Verify the 6-digit OTP code ===
   const handleVerifyOtpCode = async (event) => {
     event.preventDefault();
     if (!supabase) return;
     const code = otpCode.trim();
     if (code.length < 6) {
-      setAuthError('Enter the 6-digit code from your email.');
+      setAuthError('Enter the verification code from your email.');
       return;
     }
     setIsAuthLoading(true);
@@ -2182,6 +2219,7 @@ function App() {
       });
       if (error) throw error;
       // onAuthStateChange will close the dialog + clear UI
+      clearPendingOtpEmail();
       setOtpSentToEmail('');
       setOtpCode('');
       setAuthEmail('');
@@ -6820,27 +6858,27 @@ function App() {
 
             <Divider sx={{ fontSize: '0.8rem', color: 'text.secondary' }}>or</Divider>
 
-            {/* === [S09] Native: show OTP code input after email sent === */}
+            {/* === [S09] Show OTP code input after email sent === */}
             {otpSentToEmail ? (
               <Box component="form" onSubmit={handleVerifyOtpCode}>
                 <Stack spacing={2}>
                   <Typography variant="body2" color="text.secondary">
-                    We sent a 6-digit code to <strong>{otpSentToEmail}</strong>. Enter it below.
+                    We sent a code to <strong>{otpSentToEmail}</strong>. Enter it below.
                   </Typography>
                   <TextField
-                    label="6-digit code"
+                    label="Verification code"
                     type="text"
                     inputMode="numeric"
                     autoComplete="one-time-code"
                     value={otpCode}
                     onChange={(e) => {
-                      setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6));
+                      setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 10));
                       setAuthError('');
                     }}
                     required
                     fullWidth
-                    placeholder="123456"
-                    inputProps={{ maxLength: 6, pattern: '[0-9]*' }}
+                    placeholder="12345678"
+                    inputProps={{ maxLength: 10, pattern: '[0-9]*' }}
                   />
                   <Button
                     type="submit"
@@ -6853,7 +6891,7 @@ function App() {
                   </Button>
                   <Button
                     size="small"
-                    onClick={() => { setOtpSentToEmail(''); setOtpCode(''); setAuthError(''); }}
+                    onClick={() => { clearPendingOtpEmail(); setOtpSentToEmail(''); setOtpCode(''); setAuthError(''); }}
                     disabled={isAuthLoading}
                     sx={{ textTransform: 'none' }}
                   >
