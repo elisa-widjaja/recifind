@@ -155,6 +155,7 @@ public class SharedAuthStorePlugin: CAPPlugin {
             return
         }
         let value = call.getString("value", "")
+        NSLog("[KCDIAG] setKeychainItem key=%@ len=%d", key, value.count)
         guard let data = value.data(using: .utf8) else {
             call.reject("value is not UTF-8")
             return
@@ -172,6 +173,7 @@ public class SharedAuthStorePlugin: CAPPlugin {
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
 
         let status = SecItemAdd(add as CFDictionary, nil)
+        NSLog("[KCDIAG] setKeychainItem key=%@ SecItemAdd OSStatus=%d", key, Int(status))
         if status == errSecSuccess {
             call.resolve()
         } else {
@@ -196,17 +198,21 @@ public class SharedAuthStorePlugin: CAPPlugin {
         let status = SecItemCopyMatching(query as CFDictionary, &item)
 
         if status == errSecItemNotFound {
+            NSLog("[KCDIAG] getKeychainItem key=%@ -> NOT_FOUND", key)
             call.resolve(["value": NSNull()])
             return
         }
         if status != errSecSuccess {
+            NSLog("[KCDIAG] getKeychainItem key=%@ -> ERROR OSStatus=%d", key, Int(status))
             call.reject("keychain-read-failed (OSStatus \(status))")
             return
         }
         guard let data = item as? Data, let value = String(data: data, encoding: .utf8) else {
+            NSLog("[KCDIAG] getKeychainItem key=%@ -> CORRUPT", key)
             call.reject("keychain-read-failed (corrupt data)")
             return
         }
+        NSLog("[KCDIAG] getKeychainItem key=%@ -> OK len=%d", key, value.count)
         call.resolve(["value": value])
     }
 
