@@ -14,8 +14,10 @@ export const keychainStorage = {
     if (!Capacitor.isNativePlatform()) return null;
     try {
       const { value } = await SharedAuthStoreNative.getKeychainItem({ key });
-      // Native plugin returns NSNull when the item is missing; bridge it as null.
-      return value == null ? null : value;
+      const found = value != null;
+      // eslint-disable-next-line no-console
+      console.log('[keychainStorage] getItem', key, '->', found ? `len=${value.length}` : 'NULL');
+      return found ? value : null;
     } catch (err) {
       // eslint-disable-next-line no-console
       console.warn('[keychainStorage] getItem failed:', key, err?.message ?? err);
@@ -26,6 +28,8 @@ export const keychainStorage = {
     if (!Capacitor.isNativePlatform()) return;
     try {
       await SharedAuthStoreNative.setKeychainItem({ key, value });
+      // eslint-disable-next-line no-console
+      console.log('[keychainStorage] setItem', key, 'len=', value?.length ?? 0);
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('[keychainStorage] setItem failed:', key, err?.message ?? err);
@@ -35,6 +39,8 @@ export const keychainStorage = {
     if (!Capacitor.isNativePlatform()) return;
     try {
       await SharedAuthStoreNative.removeKeychainItem({ key });
+      // eslint-disable-next-line no-console
+      console.log('[keychainStorage] removeItem', key);
     } catch (err) {
       // eslint-disable-next-line no-console
       console.warn('[keychainStorage] removeItem failed:', key, err?.message ?? err);

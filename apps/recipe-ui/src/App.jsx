@@ -2137,15 +2137,15 @@ function App() {
   const [otpCode, setOtpCode] = useState('');
   // === [/S09] ===
 
-  const handleSendMagicLink = async (event) => {
-    event.preventDefault();
+  // Shared core that signInWithOtp uses — called by both the initial send
+  // (handleSendMagicLink) and the "Resend code" link in the OTP entry view.
+  const sendOtpToEmail = async (email, { resend = false } = {}) => {
     if (!supabase) {
       setAuthError('Authentication is not configured.');
       return;
     }
-
-    const email = authEmail.trim();
-    if (!email) {
+    const trimmed = email.trim();
+    if (!trimmed) {
       setAuthError('Please enter your email address.');
       return;
     }
@@ -2179,25 +2179,36 @@ function App() {
             ? `${emailBase}?invite=${encodeURIComponent(pendingOpenInvite)}`
             : emailBase;
       const { error } = await supabase.auth.signInWithOtp({
-        email,
+        email: trimmed,
         options: { emailRedirectTo }
       });
 
       if (error) throw error;
 
-      writePendingOtpEmail(email);
-      setOtpSentToEmail(email);
+      writePendingOtpEmail(trimmed);
+      setOtpSentToEmail(trimmed);
       setOtpCode('');
       setSnackbarState({
         open: true,
-        message: 'Check your email for a verification code or magic link.',
+        message: resend
+          ? `New code sent to ${trimmed}.`
+          : 'Check your email for a verification code or magic link.',
         severity: 'success'
       });
     } catch (error) {
-      setAuthError(error.message || 'Failed to send magic link.');
+      setAuthError(error.message || (resend ? 'Failed to resend code.' : 'Failed to send magic link.'));
     } finally {
       setIsAuthLoading(false);
     }
+  };
+
+  const handleSendMagicLink = async (event) => {
+    event.preventDefault();
+    await sendOtpToEmail(authEmail);
+  };
+
+  const handleResendOtpCode = async () => {
+    await sendOtpToEmail(otpSentToEmail, { resend: true });
   };
 
   // === [S09] Verify the 6-digit OTP code ===
@@ -6796,7 +6807,16 @@ function App() {
           <Typography
             variant="body2"
             color="text.secondary"
-            sx={{ px: 3, pb: 1, mt: -1 }}
+            sx={{
+              px: 3,
+              pb: 1,
+              mt: -1,
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              wordBreak: 'break-word',
+            }}
           >
             {authDialogReason}
           </Typography>
@@ -6888,6 +6908,14 @@ function App() {
                     startIcon={isAuthLoading ? <CircularProgress size={18} /> : null}
                   >
                     Verify code
+                  </Button>
+                  <Button
+                    size="small"
+                    onClick={handleResendOtpCode}
+                    disabled={isAuthLoading}
+                    sx={{ textTransform: 'none' }}
+                  >
+                    Resend code
                   </Button>
                   <Button
                     size="small"
