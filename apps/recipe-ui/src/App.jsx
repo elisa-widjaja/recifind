@@ -1426,7 +1426,15 @@ function App() {
     const dispatch = createDispatcher({
       onAuthCallback: async (code) => {
         if (!supabase) return;
-        await supabase.auth.exchangeCodeForSession(code);
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        if (error) {
+          console.warn('[deeplink] exchangeCodeForSession failed:', error.message);
+          setSnackbarState({
+            open: true,
+            message: `Sign-in link failed: ${error.message}. Request a new one.`,
+            severity: 'error',
+          });
+        }
         try { await Browser.close(); } catch { /* ignore if already closed */ }
       },
       onAddRecipe: (url, title) => {
