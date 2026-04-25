@@ -1436,7 +1436,24 @@ function App() {
   const recipesRef = useRef(recipes);
   useEffect(() => { recipesRef.current = recipes; }, [recipes]);
 
+  // Within-session dedup of deep links. Capacitor's appUrlOpen listener and
+  // getLaunchUrl() both fire for the SAME URL on cold-boot from a deep link,
+  // so dispatchDeepLink can be invoked twice. For auth callbacks that's fatal
+  // — Supabase's exchangeCodeForSession consumes the PKCE code_verifier from
+  // storage on first read; the second invocation throws "PKCE code verifier
+  // not found in storage". Deduping at the dispatch level guarantees each
+  // URL is acted on exactly once per app session.
+  const dispatchedUrlsRef = useRef(new Set());
+
   const dispatchDeepLink = useCallback(async (urlString) => {
+    // Within-session dedup — see dispatchedUrlsRef declaration for rationale.
+    if (dispatchedUrlsRef.current.has(urlString)) {
+      // eslint-disable-next-line no-console
+      console.warn('[deeplink] dedup skip — URL already dispatched this session');
+      return;
+    }
+    dispatchedUrlsRef.current.add(urlString);
+
     // Magic link URLs (?token_hash=&type=magiclink) bypass the OAuth
     // dispatcher because they need verifyOtp instead of exchangeCodeForSession.
     try {
