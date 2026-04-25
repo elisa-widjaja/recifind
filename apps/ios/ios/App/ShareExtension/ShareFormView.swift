@@ -81,10 +81,33 @@ final class ShareFormViewModel: ObservableObject {
             }
 
             do {
-                let result = try await WorkerClient.createRecipe(
-                    title: titleSnapshot.isEmpty ? (self.sourceURL.host ?? "Recipe") : titleSnapshot,
+                // Synchronous enrich pre-save so the initial POST /recipes lands
+                // with ingredients/steps already populated (matches web-drawer
+                // behavior). Returns nil on any failure path — including the 10s
+                // timeout — so we silently fall back to today's fast save when
+                // Gemini stalls or r.jina.ai is rate-limited.
+                let enrichTitle = titleSnapshot.isEmpty ? (self.sourceURL.host ?? "Recipe") : titleSnapshot
+                let enriched = await WorkerClient.enrichRecipe(
                     sourceUrl: urlSnapshot,
-                    imageUrl: imageSnapshot,
+                    title: enrichTitle,
+                    jwt: jwt
+                )
+
+                // User-typed title wins; fall back to enriched.title only when
+                // the user left the field empty AND we got one back.
+                let finalTitle: String = {
+                    if !titleSnapshot.isEmpty { return titleSnapshot }
+                    if let t = enriched?.title, !t.isEmpty { return t }
+                    return self.sourceURL.host ?? "Recipe"
+                }()
+                // Preview image takes priority; enriched.imageUrl is the fallback.
+                let finalImageUrl: String? = imageSnapshot ?? enriched?.imageUrl
+
+                let result = try await WorkerClient.createRecipe(
+                    title: finalTitle,
+                    sourceUrl: urlSnapshot,
+                    imageUrl: finalImageUrl,
+                    enriched: enriched,
                     jwt: jwt
                 )
                 await MainActor.run {
