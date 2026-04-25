@@ -962,6 +962,14 @@ function getHomeGreetingMessage(date = new Date()) {
 
 const PENDING_SHARE_TTL_MS = 24 * 60 * 60 * 1000;
 
+// Module-scope dedup of deep-link URLs already dispatched this run. See the
+// dispatchDeepLink call site for the why. Module scope (not useRef) so that
+// React remounts during HMR / sign-in/out cycles don't reset it and let a
+// retained appUrlOpen + a getLaunchUrl re-dispatch the same auth callback,
+// which would race exchangeCodeForSession and consume the PKCE verifier
+// twice.
+const dispatchedDeepLinks = new Set();
+
 function App() {
   // Use window width directly for reliable mobile detection
   const [isMobile, setIsMobile] = useState(() => {
@@ -1436,23 +1444,20 @@ function App() {
   const recipesRef = useRef(recipes);
   useEffect(() => { recipesRef.current = recipes; }, [recipes]);
 
-  // Within-session dedup of deep links. Capacitor's appUrlOpen listener and
-  // getLaunchUrl() both fire for the SAME URL on cold-boot from a deep link,
-  // so dispatchDeepLink can be invoked twice. For auth callbacks that's fatal
-  // — Supabase's exchangeCodeForSession consumes the PKCE code_verifier from
-  // storage on first read; the second invocation throws "PKCE code verifier
-  // not found in storage". Deduping at the dispatch level guarantees each
-  // URL is acted on exactly once per app session.
-  const dispatchedUrlsRef = useRef(new Set());
-
   const dispatchDeepLink = useCallback(async (urlString) => {
-    // Within-session dedup — see dispatchedUrlsRef declaration for rationale.
-    if (dispatchedUrlsRef.current.has(urlString)) {
+    // Within-session dedup. Capacitor's appUrlOpen listener and getLaunchUrl()
+    // both fire for the SAME URL on cold-boot from a deep link. For auth
+    // callbacks that's fatal — Supabase's exchangeCodeForSession consumes the
+    // PKCE code_verifier from storage on first read; the second invocation
+    // throws "PKCE code verifier not found in storage". The Set lives at
+    // module scope (NOT useRef) so React remounts (HMR, sign-in/out cycles,
+    // navigation) don't reset it within a single app run.
+    if (dispatchedDeepLinks.has(urlString)) {
       // eslint-disable-next-line no-console
-      console.warn('[deeplink] dedup skip — URL already dispatched this session');
+      console.warn('[deeplink] dedup skip — URL already dispatched this run');
       return;
     }
-    dispatchedUrlsRef.current.add(urlString);
+    dispatchedDeepLinks.add(urlString);
 
     // Magic link URLs (?token_hash=&type=magiclink) bypass the OAuth
     // dispatcher because they need verifyOtp instead of exchangeCodeForSession.
