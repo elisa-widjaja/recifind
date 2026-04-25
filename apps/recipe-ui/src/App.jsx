@@ -5389,7 +5389,63 @@ function App() {
 
               <Box sx={isMobile ? { px: 3, pt: '20px' } : { pt: '20px' }}>
 
-              <Stack spacing={3}>
+              {(() => {
+                const emptyStateIngredients = (activeRecipeView.ingredients || []).length;
+                const emptyStateSteps = (activeRecipeView.steps || []).length;
+                const showEmptyState =
+                  !isEditMode &&
+                  !activeRecipeView.provenance &&
+                  emptyStateIngredients === 0 &&
+                  emptyStateSteps === 0 &&
+                  Boolean(activeRecipeView.sourceUrl);
+                return (
+                  <Stack spacing={3}>
+                    {showEmptyState && (
+                      <Box
+                        sx={{
+                          borderRadius: 2,
+                          border: 1,
+                          borderColor: 'divider',
+                          bgcolor: 'action.hover',
+                          p: 2,
+                        }}
+                      >
+                        {isReEnriching ? (
+                          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
+                            <CircularProgress size={14} />
+                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                              Checking for ingredients…
+                            </Typography>
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                            We couldn't read this recipe.{' '}
+                            <Typography
+                              component="button"
+                              onClick={() => handleReEnrichActiveRecipe({ silent: false })}
+                              sx={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                color: 'primary.main',
+                                fontSize: 'inherit',
+                                fontFamily: 'inherit',
+                                fontWeight: 500,
+                                lineHeight: 'inherit',
+                                p: 0,
+                                verticalAlign: 'baseline',
+                                '&:hover': { textDecoration: 'underline' },
+                              }}
+                            >
+                              <AutoAwesomeIcon sx={{ fontSize: 14, verticalAlign: '-2px', mr: 0.25 }} />
+                              Enhance with AI
+                            </Typography>
+                            {' '}or refer to the source.
+                          </Typography>
+                        )}
+                      </Box>
+                    )}
+                    {!showEmptyState && (
                 <Box>
                   {isEditMode && !isSharedRecipeView ? (
                     <>
@@ -5428,64 +5484,21 @@ function App() {
                       <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                         Ingredients
                       </Typography>
-                      {(() => {
-                        const ingredientsLen = (activeRecipeView.ingredients || []).length;
-                        const stepsLen = (activeRecipeView.steps || []).length;
-                        const showEmptyState =
-                          !activeRecipeView.provenance &&
-                          ingredientsLen === 0 &&
-                          stepsLen === 0 &&
-                          Boolean(activeRecipeView.sourceUrl);
-                        if (showEmptyState) {
-                          return isReEnriching ? (
-                            <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
-                              <CircularProgress size={14} />
-                              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                                Checking for ingredients…
-                              </Typography>
-                            </Box>
-                          ) : (
-                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                              We couldn't read this recipe.{' '}
-                              <Typography
-                                component="button"
-                                onClick={() => handleReEnrichActiveRecipe({ silent: false })}
-                                sx={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 0.25,
-                                  background: 'none',
-                                  border: 'none',
-                                  cursor: 'pointer',
-                                  color: 'primary.main',
-                                  fontSize: 'inherit',
-                                  fontWeight: 500,
-                                  p: 0,
-                                  verticalAlign: 'baseline',
-                                  '&:hover': { textDecoration: 'underline' },
-                                }}
-                              >
-                                <AutoAwesomeIcon sx={{ fontSize: 14, mr: 0.25 }} />
-                                Enhance with AI
-                              </Typography>
-                              {' '}or refer to the source.
-                            </Typography>
-                          );
-                        }
-                        return (activeRecipeView.ingredients || []).map((item, i) => (
-                          <Typography key={i} variant="body1" sx={{ mb: 1 }}>
-                            {item}
-                          </Typography>
-                        ));
-                      })()}
+                      {(activeRecipeView.ingredients || []).map((item, i) => (
+                        <Typography key={i} variant="body1" sx={{ mb: 1 }}>
+                          {item}
+                        </Typography>
+                      ))}
                     </>
                   )}
                 </Box>
-
+                    )}
+                    {!showEmptyState && (
                 <Box sx={{ mt: '0 !important', pt: '20px', pb: '4px' }}>
                   <Divider />
                 </Box>
-
+                    )}
+                    {!showEmptyState && (
                 <Box>
                   {isEditMode && !isSharedRecipeView ? (
                     <>
@@ -5540,6 +5553,7 @@ function App() {
                     </>
                   )}
                 </Box>
+                    )}
 
                 {activeRecipeView.sourceUrl && (
                   <Box>
@@ -5634,6 +5648,8 @@ function App() {
                   </Box>
                 )}
               </Stack>
+                );
+              })()}
               </Box>
             </DialogContent>
             <DialogActions sx={{ justifyContent: (isSharedRecipeView || !session) ? 'space-between' : 'flex-end', gap: 1, px: (isSharedRecipeView || !session) ? '24px' : (isEditMode && !isSharedRecipeView ? 0 : 1), ...(isEditMode && !isSharedRecipeView ? (darkMode ? { backgroundColor: '#121212', borderTop: '1px solid rgba(255, 255, 255, 0.13)' } : { backgroundColor: '#fff', borderTop: '1px solid rgba(0, 0, 0, 0.12)' }) : (darkMode ? { backgroundColor: '#121212', borderTop: '1px solid rgba(255, 255, 255, 0.13)' } : {})) }}>
