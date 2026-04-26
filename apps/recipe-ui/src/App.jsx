@@ -2865,6 +2865,13 @@ function App() {
 
   // Handle URL parameters to open recipe modal on page load
   useEffect(() => {
+    // Wait for Supabase to resolve auth — without this, on iOS app resume
+    // the brief window where session is rehydrating causes own-recipe URLs
+    // (?recipe=xxx&user=me) to be misread as shared-recipe URLs (since
+    // currentUserId is undefined, sharedUserId !== currentUserId), flashing
+    // the share/save layout before re-correcting to the owner layout.
+    if (!isAuthChecked) return;
+
     const url = new URL(window.location.href);
     const shareToken = url.searchParams.get('share');
     const recipeId = url.searchParams.get('recipe');
@@ -2935,7 +2942,7 @@ function App() {
       };
       fetchSharedRecipe();
     }
-  }, [recipes, activeRecipe, handleOpenRecipeDetails, session]);
+  }, [recipes, activeRecipe, handleOpenRecipeDetails, session, isAuthChecked]);
 
   // Fetch oEmbed author for Instagram/TikTok recipes when dialog opens
   useEffect(() => {
@@ -3641,9 +3648,6 @@ function App() {
 
   const closeDialog = () => {
     sessionStorage.removeItem('pending_save_share');
-    if (session) {
-      setCurrentView('recipes');
-    }
     setActiveRecipe(null);
     setActiveRecipeDraft(null);
     setIsDeleteConfirmOpen(false);
@@ -4726,6 +4730,8 @@ function App() {
                 component="button"
                 onClick={() => {
                   setCurrentView('recipes');
+                  setShowFavoritesOnly(false);
+                  setSelectedMealType('');
                   setMobileFilterDrawerOpen(false);
                 }}
                 sx={(theme) => ({
@@ -6838,6 +6844,8 @@ function App() {
               WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
               wordBreak: 'break-word',
+              lineHeight: 1.43,
+              maxHeight: 'calc(1.43em * 2)',
             }}
           >
             {authDialogReason}

@@ -16,7 +16,19 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Fraunces:ital,wght@0,400;0,500;0,600;1,400;1,500&family=DM+Serif+Display&display=swap" rel="stylesheet">
     <style>
       html, body { margin: 0; padding: 0; background: #fafafa; }
+      html.dark, html.dark body { background: #121212; }
     </style>
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('recifriend-dark-mode');
+          var isDark = saved !== null
+            ? saved === 'true'
+            : window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (isDark) document.documentElement.classList.add('dark');
+        } catch (e) {}
+      })();
+    </script>
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-W2LEPNDMF0"></script>
     <script>
       window.dataLayer = window.dataLayer || [];

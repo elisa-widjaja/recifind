@@ -253,16 +253,24 @@ struct ShareFormView: View {
     @ViewBuilder
     private var signInToolbarButton: some View {
         if #available(iOS 26.0, *) {
-            Button("Sign in", action: viewModel.signIn)
-                .buttonStyle(.glassProminent)
-                .tint(Color.blue)
-                .disabled(viewModel.isSigningIn)
-                .accessibilityLabel("Sign in on ReciFriend")
+            Button(action: viewModel.signIn) {
+                Text("Sign in")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Color.white)
+            }
+            .buttonStyle(.glassProminent)
+            .tint(Color.blue)
+            .disabled(viewModel.isSigningIn)
+            .accessibilityLabel("Sign in on ReciFriend")
         } else {
-            Button("Sign in", action: viewModel.signIn)
-                .buttonStyle(.borderedProminent)
-                .disabled(viewModel.isSigningIn)
-                .accessibilityLabel("Sign in on ReciFriend")
+            Button(action: viewModel.signIn) {
+                Text("Sign in")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Color.white)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(viewModel.isSigningIn)
+            .accessibilityLabel("Sign in on ReciFriend")
         }
     }
 
