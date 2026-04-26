@@ -67,17 +67,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		4C2C03CB2F94A43C00D55BD7 /* ShareExtension */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = ShareExtension;
-			sourceTree = "<group>";
-		};
+		4C2C03CB2F94A43C00D55BD7 /* ShareExtension */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = ShareExtension; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -152,7 +142,6 @@
 				13E74A975FCFE9BDD89EA618 /* SharedAuthStorePlugin.swift */,
 				8E42D8D36C338E24CC717CE2 /* SharedAuthStorePlugin.m */,
 			);
-			name = SharedAuthStore;
 			path = SharedAuthStore;
 			sourceTree = "<group>";
 		};
@@ -170,7 +159,6 @@
 			children = (
 				5417372F63B79013773DADFF /* SharedAuthStore */,
 			);
-			name = Plugins;
 			path = Plugins;
 			sourceTree = "<group>";
 		};
