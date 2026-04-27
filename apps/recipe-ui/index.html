@@ -24,11 +24,11 @@
          the WebView underneath is already fully transparent by the time
          the native splash finishes its fade.
 
-         Logo is 112px to visually match the native LaunchScreen logo
-         (which renders at ~110pt — the Splash imageset is 2732×2732 and
-         the rounded-square logo within it occupies ~28% of canvas width,
-         scaleAspectFit'd to viewport width on phones). Keeping these in
-         sync prevents the "logo snaps to a different size" handoff. */
+         Logo size tracks the native Splash.imageset (2732×2732 canvas
+         with the logo at 800px ≈ 29% of canvas width, scaleAspectFit'd
+         to the device width on phones). Using 29vw with a clamp keeps
+         the HTML logo and the native logo at the same on-screen size
+         across iPhone SE → Pro Max, while bounding both for desktop. */
       .app-splash {
         position: fixed;
         inset: 0;
@@ -47,8 +47,8 @@
         pointer-events: none;
       }
       .app-splash-logo {
-        width: 112px;
-        height: 112px;
+        width: clamp(96px, 29vw, 144px);
+        height: clamp(96px, 29vw, 144px);
       }
     </style>
     <script>
