@@ -21,7 +21,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 // paints (~50ms with cached bundle), which reads as a flash rather than
 // a deliberate handoff.
 const SPLASH_MIN_VISIBLE_MS = 800;
-const SPLASH_FADE_MS = 800;
+const SPLASH_FADE_MS = 500;
 const startedAt = performance.now();
 const fadeSplash = () => {
   const wait = Math.max(0, SPLASH_MIN_VISIBLE_MS - (performance.now() - startedAt));
