@@ -16,6 +16,20 @@ const config: CapacitorConfig = {
     // components (AppBar, drawers, dialogs, FABs). Setting contentInset here
     // would cause double-padding since env() still returns device insets.
   },
+  plugins: {
+    SplashScreen: {
+      // Native splash holds over the WebView until JS calls hide() — this is
+      // what fades the LaunchScreen logo away. Without launchAutoHide:false
+      // the native splash dismisses the moment Capacitor finishes booting,
+      // leaving a flash of empty WebView before React's first paint.
+      launchAutoHide: false,
+      // Safety net: auto-dismiss after 4s if JS never calls hide() (crash etc.)
+      launchShowDuration: 4000,
+      backgroundColor: '#ffffff',
+      splashFullScreen: true,
+      splashImmersive: true,
+    },
+  },
 };
 
 export default config;

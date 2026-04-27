@@ -17,6 +17,39 @@
     <style>
       html, body { margin: 0; padding: 0; background: #fafafa; }
       html.dark, html.dark body { background: #121212; }
+
+      /* Web splash + iOS WebView defensive layer. On web this is the only
+         splash. On iOS the native @capacitor/splash-screen plugin sits on
+         top of this until JS calls hide() — both fades fire together so
+         the WebView underneath is already fully transparent by the time
+         the native splash finishes its fade.
+
+         Logo is 112px to visually match the native LaunchScreen logo
+         (which renders at ~110pt — the Splash imageset is 2732×2732 and
+         the rounded-square logo within it occupies ~28% of canvas width,
+         scaleAspectFit'd to viewport width on phones). Keeping these in
+         sync prevents the "logo snaps to a different size" handoff. */
+      .app-splash {
+        position: fixed;
+        inset: 0;
+        background: #ffffff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        transition: opacity 800ms cubic-bezier(0.22, 0.61, 0.36, 1);
+      }
+      html.dark .app-splash {
+        background: #000000;
+      }
+      body.app-ready .app-splash {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .app-splash-logo {
+        width: 112px;
+        height: 112px;
+      }
     </style>
     <script>
       (function () {
@@ -39,6 +72,9 @@
   </head>
   <body>
     <div id="root"></div>
+    <div id="app-splash" class="app-splash" aria-hidden="true">
+      <img src="/icon.svg" alt="" class="app-splash-logo" />
+    </div>
     <!-- Visible privacy link so OAuth consent screen verifiers (Google etc.)
          can confirm the home page links to the privacy policy. Subtle in the
          corner, doesn't interfere with the app UI. -->
