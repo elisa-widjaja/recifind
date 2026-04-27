@@ -99,6 +99,7 @@ import WelcomeModal from './components/WelcomeModal';
 import OnboardingFlow from './components/OnboardingFlow';
 import FriendSections from './components/FriendSections';
 import StatsTiles from './components/StatsTiles';
+import PullToRefresh from './components/PullToRefresh';
 import RecipeListCard from './components/RecipeListCard';
 import RecipesPage from './RecipesPage';
 import SuggestionsShelf from './components/SuggestionsShelf';
@@ -2608,6 +2609,19 @@ function App() {
       listenerHandle?.remove();
     };
   }, [session?.user?.id, syncRecipesFromApi]);
+
+  // Pull-to-refresh handler — fans out to the same fetchers that fire on
+  // foreground/login so the user gets a real refresh on the home + recipes
+  // views, not just a recipes list re-sync.
+  const handlePullRefresh = useCallback(async () => {
+    if (!session?.user?.id) return;
+    await Promise.allSettled([
+      syncRecipesFromApi({ forceUpdate: true }),
+      fetchProfile(),
+      fetchFriendRequests(),
+      fetchNotifications(),
+    ]);
+  }, [session?.user?.id, syncRecipesFromApi, fetchProfile, fetchFriendRequests, fetchNotifications]);
 
   useEffect(() => {
     setVisibleCount(RESULTS_PAGE_SIZE);
@@ -6736,6 +6750,21 @@ function App() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Pull-to-refresh — only on the feed-style views, only when there's
+          a session to refresh against, and only on native iOS for now
+          (we'll extend to mobile web after we've validated the gesture). */}
+      <PullToRefresh
+        enabled={
+          Capacitor.isNativePlatform()
+          && !!session
+          && (currentView === 'home' || currentView === 'recipes')
+          && !isAddDialogOpen
+          && !isFriendsDialogOpen
+          && !mobileFilterDrawerOpen
+        }
+        onRefresh={handlePullRefresh}
+      />
 
       <Snackbar
         open={snackbarState.open}
