@@ -5070,6 +5070,24 @@ function App() {
                       color: 'text.secondary',
                       mt: '4px',
                       lineHeight: 1.25,
+                      // Typewriter-style reveal: clip-path peels back from the
+                      // right edge in discrete steps so the line reads as being
+                      // typed left-to-right. inline-block sizes the Typography
+                      // to its text width so the clip animates over the text
+                      // (not trailing empty space). 120ms delay lets the user's
+                      // name register first; `both` holds the pre-animation
+                      // clip so there's no pre-flash of full text.
+                      display: 'inline-block',
+                      maxWidth: '100%',
+                      animation: 'greetingType 500ms steps(30, end) 120ms both',
+                      '@keyframes greetingType': {
+                        '0%':   { clipPath: 'inset(0 100% 0 0)' },
+                        '100%': { clipPath: 'inset(0 0 0 0)' },
+                      },
+                      '@media (prefers-reduced-motion: reduce)': {
+                        animation: 'none',
+                        clipPath: 'inset(0 0 0 0)',
+                      },
                     }}
                   >
                     {getHomeGreetingMessage()}
