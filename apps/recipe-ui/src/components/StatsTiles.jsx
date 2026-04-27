@@ -1,11 +1,58 @@
 import { Box, Typography, Stack, useTheme } from '@mui/material';
+import { useEffect, useRef, useState } from 'react';
+
+// Count-up animation. Eases the number from the prior in-flight value to
+// the new target over `duration` ms (easeOutCubic — fast start, gentle
+// landing). Non-numeric targets (null/'--' loading state) pass through
+// untouched. Honors prefers-reduced-motion by snapping to the target.
+function useAnimatedNumber(target, duration = 700) {
+  const [display, setDisplay] = useState(typeof target === 'number' ? 0 : target);
+  const displayRef = useRef(0);
+  const rafRef = useRef(null);
+
+  useEffect(() => {
+    if (typeof target !== 'number' || Number.isNaN(target)) {
+      setDisplay(target);
+      return undefined;
+    }
+    const reduced = typeof window !== 'undefined'
+      && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) {
+      displayRef.current = target;
+      setDisplay(target);
+      return undefined;
+    }
+    const from = displayRef.current;
+    const to = target;
+    if (from === to) return undefined;
+
+    const start = performance.now();
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const value = Math.round(from + (to - from) * eased);
+      displayRef.current = value;
+      setDisplay(value);
+      if (t < 1) rafRef.current = requestAnimationFrame(tick);
+    };
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [target, duration]);
+
+  return display;
+}
 
 export default function StatsTiles({ recipeCount, friendCount, onAddRecipe, onViewRecipes, onAddFriends, onViewFriends }) {
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
 
   const friendsEmpty = friendCount === 0;
-  const friendDisplay = friendCount === null ? '--' : friendCount;
+  const animatedRecipeCount = useAnimatedNumber(recipeCount);
+  const animatedFriendCount = useAnimatedNumber(friendCount);
+  const friendDisplay = friendCount === null ? '--' : animatedFriendCount;
 
   const t1 = dark
     ? { bg: 'linear-gradient(135deg, #1e1b4b, #1a1a2e)', border: '#3730a3', label: '#818cf8', count: '#fff', sub: '#a5b4fc', btn: '#6366f1', btnText: '#fff', link: '#818cf8' }
@@ -59,8 +106,8 @@ export default function StatsTiles({ recipeCount, friendCount, onAddRecipe, onVi
         <Typography sx={{ fontSize: 10, fontWeight: 700, color: t1.label, letterSpacing: '0.8px', textTransform: 'uppercase', mb: 1 }}>
           RECIPES
         </Typography>
-        <Typography sx={{ fontSize: 28, fontWeight: 800, color: t1.count, lineHeight: 1, mb: 0.5 }}>
-          {recipeCount}
+        <Typography sx={{ fontSize: 28, fontWeight: 800, color: t1.count, lineHeight: 1, mb: 0.5, fontVariantNumeric: 'tabular-nums' }}>
+          {animatedRecipeCount}
         </Typography>
         <Typography sx={{ fontSize: 12, color: t1.sub, flex: 1 }}>
           Saved recipes
@@ -81,7 +128,7 @@ export default function StatsTiles({ recipeCount, friendCount, onAddRecipe, onVi
         <Typography sx={{ fontSize: 10, fontWeight: 700, color: t2.label, letterSpacing: '0.8px', textTransform: 'uppercase', mb: 1 }}>
           FRIENDS
         </Typography>
-        <Typography sx={{ fontSize: 28, fontWeight: 800, color: t2.count, lineHeight: 1, mb: 0.5 }}>
+        <Typography sx={{ fontSize: 28, fontWeight: 800, color: t2.count, lineHeight: 1, mb: 0.5, fontVariantNumeric: 'tabular-nums' }}>
           {friendDisplay}
         </Typography>
         <Typography sx={{
