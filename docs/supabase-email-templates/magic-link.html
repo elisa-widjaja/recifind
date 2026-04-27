@@ -8,15 +8,14 @@
   Subject suggestion: "Your ReciFriend sign-in code"
 
   Variables used:
-    {{ .Token }}            — 8-digit OTP code (PRIMARY path; never blocks
-                              on PKCE storage or email link wrappers)
-    {{ .ConfirmationURL }}  — magic-link URL (kept as a fallback, de-emphasized)
-    {{ .Email }}            — recipient address
+    {{ .Token }}  — 8-digit OTP code (the only sign-in path)
+    {{ .Email }}  — recipient address
 
-  Order rationale: the code is shown first because it's the path that
-  actually works on iOS (PKCE-free verifyOtp({type:'email'})). The link is
-  retained for users who prefer one-click on web, but is visually secondary
-  so users naturally reach for the code on mobile.
+  Code-only: we removed the magic link entirely. The link path was unreliable
+  on iOS (PKCE verifier loss after cold-boot, custom-scheme/Universal-Link
+  handoff issues) and even fired stale "PKCE code verifier not found" errors
+  for already-signed-in users. {{ .ConfirmationURL }} is intentionally NOT
+  rendered — do not add it back without re-evaluating that decision.
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -63,17 +62,6 @@
                     {{ .Token }}
                   </div>
                 </div>
-              </td>
-            </tr>
-
-            <!-- Secondary: magic-link fallback -->
-            <tr>
-              <td style="padding:0 32px 28px 32px;">
-                <p style="margin:0; font-size:13px; line-height:1.5; color:#7a7f8a;">
-                  Prefer a one-tap option? You can also
-                  <a href="{{ .ConfirmationURL }}" style="color:#4f6df5; text-decoration:underline;">tap this link</a>
-                  to sign in. If the link doesn't open the app, copy the code above instead.
-                </p>
               </td>
             </tr>
 

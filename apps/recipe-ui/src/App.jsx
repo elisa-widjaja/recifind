@@ -209,6 +209,31 @@ function clearPendingOtpEmail() {
   try { localStorage.removeItem(PENDING_OTP_KEY); } catch {}
 }
 
+// Profile cache: keyed by Supabase user id so the displayName renders
+// instantly on sign-in instead of flashing the email local-part fallback
+// while the /profile fetch is in flight. Stale-while-revalidate — fetchProfile
+// always overwrites the cache with the canonical server value.
+const PROFILE_CACHE_PREFIX = 'recifriend-profile:';
+
+function readCachedProfile(userId) {
+  if (!userId) return null;
+  try {
+    const raw = localStorage.getItem(`${PROFILE_CACHE_PREFIX}${userId}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedProfile(userId, profile) {
+  if (!userId || !profile) return;
+  try {
+    localStorage.setItem(`${PROFILE_CACHE_PREFIX}${userId}`, JSON.stringify(profile));
+  } catch {
+    // Quota / private mode — caching is best-effort, ignore.
+  }
+}
+
 // Capture accept_friend and invite_token URL params immediately at module load time.
 {
   const _url = new URL(window.location.href);
@@ -1361,21 +1386,15 @@ function App() {
       return;
     }
 
-    // Magic-link fallback: when emailRedirectTo lands on /?token_hash=xxx&type=magiclink
-    // (Supabase PKCE magic-link format), detectSessionInUrl doesn't auto-exchange.
-    // We verifyOtp manually and then strip the params from the URL.
+    // Strip any stale magic-link params from a URL we may have been opened with —
+    // we don't honour the link anymore (8-digit code only), but we don't want
+    // them lingering in the address bar either.
     const urlParams = new URLSearchParams(window.location.search);
-    const tokenHash = urlParams.get('token_hash');
-    const magicType = urlParams.get('type');
-    if (tokenHash && magicType) {
-      supabase.auth.verifyOtp({ token_hash: tokenHash, type: magicType }).then(({ error }) => {
-        if (error) console.warn('Magic link verifyOtp failed:', error.message);
-        // Clean the URL regardless so stale params don't persist
-        const cleanUrl = new URL(window.location.href);
-        cleanUrl.searchParams.delete('token_hash');
-        cleanUrl.searchParams.delete('type');
-        window.history.replaceState({}, '', cleanUrl.toString());
-      });
+    if (urlParams.has('token_hash') || urlParams.get('type') === 'magiclink') {
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('token_hash');
+      cleanUrl.searchParams.delete('type');
+      window.history.replaceState({}, '', cleanUrl.toString());
     }
 
     // Get initial session
@@ -1386,6 +1405,14 @@ function App() {
       // INITIAL_SESSION on cold launch with restored auth.
       if (session?.access_token) {
         SharedAuthStore.setJwt(session.access_token);
+      }
+      // Hydrate userProfile from localStorage so the displayName renders
+      // immediately instead of flashing the email-local-part fallback while
+      // the /profile fetch round-trips. fetchProfile will overwrite with
+      // canonical server data shortly after.
+      if (session?.user?.id) {
+        const cached = readCachedProfile(session.user.id);
+        if (cached) setUserProfile(cached);
       }
       if (window.gtag && session?.user?.id) {
         window.gtag('config', 'G-W2LEPNDMF0', { user_id: session.user.id });
@@ -1403,6 +1430,15 @@ function App() {
       // USER_UPDATED after profile changes).
       if (session?.access_token) {
         SharedAuthStore.setJwt(session.access_token);
+      }
+
+      // Same flash fix as the cold-restore path above — pull the cached
+      // profile in synchronously when the session lands, before fetchProfile
+      // has a chance to network. Use prev ?? cached so we don't clobber a
+      // freshly-fetched profile with a stale cache entry on TOKEN_REFRESHED.
+      if (session?.user?.id) {
+        const cached = readCachedProfile(session.user.id);
+        if (cached) setUserProfile(prev => prev ?? cached);
       }
 
       if (event === 'SIGNED_IN') {
@@ -1425,6 +1461,7 @@ function App() {
       if (event === 'SIGNED_OUT') {
         setCurrentView('home');
         SharedAuthStore.clearJwt();
+        setUserProfile(null);
       }
       if (window.gtag) {
         window.gtag('config', 'G-W2LEPNDMF0', { user_id: session?.user?.id ?? undefined });
@@ -1459,22 +1496,12 @@ function App() {
     }
     dispatchedDeepLinks.add(urlString);
 
-    // Magic link URLs (?token_hash=&type=magiclink) bypass the OAuth
-    // dispatcher because they need verifyOtp instead of exchangeCodeForSession.
+    // Magic-link sign-in is no longer supported — only the 8-digit code flow.
+    // Drop any stale `?token_hash=&type=magiclink` deep links silently so the
+    // PKCE / verifyOtp errors that used to leak into a snackbar are gone.
     try {
       const parsed = new URL(urlString);
-      const tokenHash = parsed.searchParams.get('token_hash');
-      const otpType = parsed.searchParams.get('type');
-      if (tokenHash && otpType && supabase) {
-        const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: otpType });
-        if (error) {
-          console.warn('[deeplink] verifyOtp failed:', error.message);
-          setSnackbarState({
-            open: true,
-            message: `Sign-in link failed: ${error.message}. Request a new one.`,
-            severity: 'error',
-          });
-        }
+      if (parsed.searchParams.has('token_hash')) {
         try { await Browser.close(); } catch { /* ignore */ }
         return;
       }
@@ -1483,14 +1510,29 @@ function App() {
     const dispatch = createDispatcher({
       onAuthCallback: async (code) => {
         if (!supabase) return;
+        // If we already have a session, the OAuth callback is stale (e.g. iOS
+        // re-fired a retained launch URL after the app was killed and resumed).
+        // Calling exchangeCodeForSession here would throw "PKCE code verifier
+        // not found in storage" — surface nothing, since the user is signed in.
+        const { data: { session: existingSession } } = await supabase.auth.getSession();
+        if (existingSession) {
+          try { await Browser.close(); } catch { /* ignore */ }
+          return;
+        }
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (error) {
           console.warn('[deeplink] exchangeCodeForSession failed:', error.message);
-          setSnackbarState({
-            open: true,
-            message: `Sign-in link failed: ${error.message}. Request a new one.`,
-            severity: 'error',
-          });
+          // Swallow PKCE-verifier errors silently — they only happen on stale
+          // callbacks where there's nothing the user can do. Surface real
+          // errors (network, expired code) so the user knows to retry.
+          const isPkceVerifierError = /code verifier|pkce/i.test(error.message);
+          if (!isPkceVerifierError) {
+            setSnackbarState({
+              open: true,
+              message: `Sign-in failed: ${error.message}. Try again.`,
+              severity: 'error',
+            });
+          }
         }
         try { await Browser.close(); } catch { /* ignore if already closed */ }
       },
@@ -1695,11 +1737,14 @@ function App() {
     if (!accessToken) return;
     try {
       const res = await callRecipesApi('/profile', {}, accessToken);
-      if (res) setUserProfile(res);
+      if (res) {
+        setUserProfile(res);
+        if (session?.user?.id) writeCachedProfile(session.user.id, res);
+      }
     } catch (error) {
       console.error('Error fetching profile:', error);
     }
-  }, [accessToken]);
+  }, [accessToken, session?.user?.id]);
 
   const updateDisplayName = async (name) => {
     try {
@@ -1707,7 +1752,11 @@ function App() {
         method: 'PATCH',
         body: JSON.stringify({ displayName: name })
       }, accessToken);
-      setUserProfile(prev => prev ? { ...prev, displayName: name } : prev);
+      setUserProfile(prev => {
+        const next = prev ? { ...prev, displayName: name } : prev;
+        if (next && session?.user?.id) writeCachedProfile(session.user.id, next);
+        return next;
+      });
       setIsEditNameOpen(false);
       setIsDrawerEditingName(false);
       setSnackbarState({ open: true, message: 'Display name updated.', severity: 'success' });
@@ -2160,7 +2209,7 @@ function App() {
   // === [/S09] ===
 
   // Shared core that signInWithOtp uses — called by both the initial send
-  // (handleSendMagicLink) and the "Resend code" link in the OTP entry view.
+  // (handleSendOtpCode) and the "Resend code" link in the OTP entry view.
   const sendOtpToEmail = async (email, { resend = false } = {}) => {
     if (!supabase) {
       setAuthError('Authentication is not configured.');
@@ -2176,33 +2225,11 @@ function App() {
     setAuthError('');
 
     try {
-      const pendingId = sessionStorage.getItem('pending_accept_friend');
-      const pendingInvite = sessionStorage.getItem('pending_invite_token');
-      const pendingOpenInvite = sessionStorage.getItem('pending_open_invite');
-      // === [S09] Native uses recifriend:// custom scheme for magic link redirect.
-      // Flow: user taps email link in Mail → opens Safari → Safari GETs Supabase's
-      // /verify → Supabase 302s to `recifriend://auth/callback?token_hash=…` →
-      // Safari detects custom scheme → iOS opens ReciFriend app → app's
-      // appUrlOpen listener fires → verifyOtp. Universal Link approach doesn't
-      // work because Safari doesn't re-fire Universal Links mid-session.
-      const emailBase = Capacitor.isNativePlatform()
-        ? 'recifriend://auth/callback'
-        : 'https://recifriend.com/auth/callback';
-      // === [/S09] ===
-      // Note: share-recipe carry-through is intentionally NOT propagated via the
-      // magic-link redirect URL. Users in the share flow who pick magic link will
-      // be signed in but need to re-share the recipe. OAuth flows still preserve
-      // the share via sessionStorage across the in-app browser roundtrip.
-      const emailRedirectTo = pendingId
-        ? `${emailBase}?accept_friend=${encodeURIComponent(pendingId)}`
-        : pendingInvite
-          ? `${emailBase}?invite_token=${encodeURIComponent(pendingInvite)}`
-          : pendingOpenInvite
-            ? `${emailBase}?invite=${encodeURIComponent(pendingOpenInvite)}`
-            : emailBase;
+      // No emailRedirectTo — we sign in via the 8-digit code only. The
+      // Supabase email template should render `{{ .Token }}` and omit
+      // `{{ .ConfirmationURL }}` so users never see a tappable link.
       const { error } = await supabase.auth.signInWithOtp({
         email: trimmed,
-        options: { emailRedirectTo }
       });
 
       if (error) throw error;
@@ -2214,17 +2241,17 @@ function App() {
         open: true,
         message: resend
           ? `New code sent to ${trimmed}.`
-          : 'Check your email for a verification code or magic link.',
-        severity: 'success'
+          : 'Check your email for your sign-in code.',
+        severity: 'success',
       });
     } catch (error) {
-      setAuthError(error.message || (resend ? 'Failed to resend code.' : 'Failed to send magic link.'));
+      setAuthError(error.message || (resend ? 'Failed to resend code.' : 'Failed to send code.'));
     } finally {
       setIsAuthLoading(false);
     }
   };
 
-  const handleSendMagicLink = async (event) => {
+  const handleSendOtpCode = async (event) => {
     event.preventDefault();
     await sendOtpToEmail(authEmail);
   };
@@ -6827,6 +6854,14 @@ function App() {
         fullWidth
         maxWidth="xs"
         aria-labelledby="auth-dialog-title"
+        // Skip the open transition on first mount. When iOS evicts the
+        // WebView and the user comes back from their email app with the
+        // 8-digit code, the dialog re-mounts with open=true and would
+        // otherwise replay its fade/grow animation — the "flash" the
+        // user sees. Subsequent open/close (e.g. clicking Sign in
+        // normally) still animates because `appear` only affects the
+        // initial-mount transition.
+        TransitionProps={{ appear: false }}
       >
         <DialogTitle id="auth-dialog-title">
           Sign in
@@ -6962,11 +6997,11 @@ function App() {
             ) : (
             <Box
               component="form"
-              onSubmit={handleSendMagicLink}
+              onSubmit={handleSendOtpCode}
             >
               <Stack spacing={2}>
                 <Typography variant="body2" color="text.secondary">
-                  Enter your email and we'll send you a magic link to sign in.
+                  Enter your email and we'll send you a sign-in code.
                 </Typography>
                 <TextField
                   label="Email"
@@ -6987,7 +7022,7 @@ function App() {
                   disabled={isAuthLoading}
                   startIcon={isAuthLoading ? <CircularProgress size={18} /> : null}
                 >
-                  Send Magic Link
+                  Send code
                 </Button>
               </Stack>
             </Box>

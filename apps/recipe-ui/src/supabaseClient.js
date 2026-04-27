@@ -8,9 +8,9 @@ const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
 // Native (iOS): PKCE is required — OAuth returns via custom-scheme/Universal Link
 // and PKCE's code_verifier prevents code interception by other apps. We back
 // auth state with iOS Keychain rather than Capacitor Preferences (UserDefaults)
-// because UserDefaults writes are async-to-disk; iOS killing the app for memory
-// pressure between signInWithOtp and the magic-link return-trip otherwise lost
-// the code_verifier. Keychain writes are synchronous and durable.
+// because UserDefaults writes are async-to-disk; if iOS kills the app between
+// the OAuth start and its callback, the code_verifier needs to have been
+// flushed durably. Keychain writes are synchronous, so they survive.
 //
 // Web: implicit flow is Supabase's default and backward-compatible with any
 // existing logged-in users. detectSessionInUrl handles the #access_token hash.

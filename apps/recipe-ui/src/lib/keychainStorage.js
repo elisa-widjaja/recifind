@@ -1,8 +1,8 @@
 // Supabase auth-state storage backed by iOS Keychain (via SharedAuthStorePlugin).
 // Replaces Capacitor Preferences (UserDefaults) which writes asynchronously to
-// disk — that lost the PKCE code_verifier when iOS killed the app between
-// signInWithOtp and the magic-link return trip. Keychain writes are synchronous
-// and durable before the call returns.
+// disk — UserDefaults could lose the OAuth PKCE code_verifier if iOS killed
+// the app between the OAuth start and its callback. Keychain writes are
+// synchronous and durable before the call returns.
 //
 // On web this falls through to localStorage via Supabase's default (caller
 // passes `undefined` for storage on web, which we don't override).
