@@ -6751,12 +6751,13 @@ function App() {
         </DialogActions>
       </Dialog>
 
-      {/* Pull-to-refresh — only on the feed-style views, only when there's
-          a session to refresh against, and only on native iOS for now
-          (we'll extend to mobile web after we've validated the gesture). */}
+      {/* Pull-to-refresh — feed-style views only, with an active session,
+          on any touch-capable device. The 'ontouchstart' check captures
+          mobile web (Safari/Chrome) alongside the native iOS Capacitor
+          WebView; desktop browsers without touch stay opted out. */}
       <PullToRefresh
         enabled={
-          Capacitor.isNativePlatform()
+          (Capacitor.isNativePlatform() || (typeof window !== 'undefined' && 'ontouchstart' in window))
           && !!session
           && (currentView === 'home' || currentView === 'recipes')
           && !isAddDialogOpen
