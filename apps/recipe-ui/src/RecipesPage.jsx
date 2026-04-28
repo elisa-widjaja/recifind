@@ -134,7 +134,12 @@ export default function RecipesPage({
                 setTimeout(() => {
                   const el = searchBarRef.current?.closest('.MuiTextField-root');
                   if (el) {
-                    const top = el.getBoundingClientRect().top + window.scrollY - 16;
+                    const probe = document.createElement('div');
+                    probe.style.cssText = 'position:fixed;top:0;visibility:hidden;padding-top:env(safe-area-inset-top)';
+                    document.body.appendChild(probe);
+                    const safeTop = parseFloat(getComputedStyle(probe).paddingTop) || 0;
+                    document.body.removeChild(probe);
+                    const top = el.getBoundingClientRect().top + window.scrollY - 16 - safeTop;
                     window.scrollTo({ top, behavior: 'smooth' });
                   }
                 }, 100);

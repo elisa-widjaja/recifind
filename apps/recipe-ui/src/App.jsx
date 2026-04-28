@@ -6910,6 +6910,13 @@ function App() {
         // normally) still animates because `appear` only affects the
         // initial-mount transition.
         TransitionProps={{ appear: false }}
+        // disableScrollLock: bypass MUI's body overflow:hidden lock.
+        // With `appear: false` above, MUI's scroll-lock cleanup doesn't
+        // fire on dialog close — body keeps overflow:hidden and the
+        // page becomes unscrollable. Skipping the lock entirely dodges
+        // that interaction; on this centered auth dialog letting the
+        // page scroll behind the backdrop is fine UX.
+        disableScrollLock
       >
         <DialogTitle id="auth-dialog-title">
           Sign in
