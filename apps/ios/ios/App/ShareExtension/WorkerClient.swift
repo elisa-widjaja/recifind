@@ -39,18 +39,27 @@ enum WorkerClientError: Error {
 }
 
 enum WorkerClient {
-    /// Fetches og:title + og:image preview. 2s timeout per spec.
+    /// Fetches og:title + og:image preview. 4s wall-clock deadline.
     static func parseRecipe(sourceUrl: String) async throws -> ParsePreview {
         let url = apiBase.appendingPathComponent("recipes/parse")
-        // 4s (not 2s): each share invocation spawns a fresh extension process
-        // with a cold TLS connection to api.recifriend.com. 2s was hitting
-        // intermittent timeouts on second-and-later shares.
         var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 4.0)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["sourceUrl": sourceUrl])
 
-        let (data, response) = try await URLSession.shared.data(for: req)
+        // Ephemeral + timeoutIntervalForResource enforces an absolute wall-clock
+        // limit (vs. per-request timeoutInterval which is per-segment and can
+        // hang indefinitely on DNS/TLS in extension processes). Ephemeral also
+        // discards any stale connection state from the previous extension
+        // invocation — fixes the "blank drawer freezes, kill app to recover"
+        // bug where URLSession.shared got wedged on a stale connection.
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 4.0
+        config.timeoutIntervalForResource = 4.0
+        config.waitsForConnectivity = false
+        let session = URLSession(configuration: config)
+
+        let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw WorkerClientError.badResponse((response as? HTTPURLResponse)?.statusCode ?? -1)
         }

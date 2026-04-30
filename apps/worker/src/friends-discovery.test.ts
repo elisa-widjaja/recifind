@@ -135,6 +135,46 @@ describe('getFriendActivity', () => {
     expect(result[0].resolved).toBe(true);
   });
 
+  it('drops notifications whose referenced recipe was deleted', async () => {
+    // Two notifications: one for a recipe that still exists, one for a deleted
+    // recipe. The deleted-recipe one would render as an untappable feed item
+    // if not filtered out — that's the bug this guards against.
+    const notificationRows = [
+      {
+        id: 10,
+        type: 'friend_saved_recipe',
+        message: 'Alex saved Pasta Carbonara',
+        data: JSON.stringify({ recipeId: 'recipe-alive', friendName: 'Alex' }),
+        created_at: '2026-04-29T12:00:00Z',
+        read: 0,
+      },
+      {
+        id: 11,
+        type: 'friend_cooked_recipe',
+        message: 'Sarah cooked Deleted Recipe 🍳',
+        data: JSON.stringify({ recipeId: 'recipe-deleted', friendName: 'Sarah' }),
+        created_at: '2026-04-29T11:00:00Z',
+        read: 0,
+      },
+    ];
+    // Only recipe-alive comes back from the batch fetch — recipe-deleted is gone.
+    const recipeRows = [
+      { id: 'recipe-alive', title: 'Pasta Carbonara', image_url: '', source_url: '', ingredients: '[]', steps: '[]' },
+    ];
+
+    const mockDb = {
+      prepare: vi.fn()
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: notificationRows }) })
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [] }) })
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: recipeRows }) }),
+    } as unknown as D1Database;
+
+    const result = await getFriendActivity(mockDb, 'user-123');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(10);
+    expect(result[0].recipe?.id).toBe('recipe-alive');
+  });
+
   it('omits fromUserId when notification data blob does not have it', async () => {
     const notificationRows = [
       {

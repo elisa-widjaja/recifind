@@ -20,7 +20,7 @@
                                 <rect key="frame" x="0.0" y="0.0" width="375" height="667"/>
                             </imageView>
                         </subviews>
-                        <color key="backgroundColor" systemColor="systemBackgroundColor"/>
+                        <color key="backgroundColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                         <constraints>
                             <constraint firstItem="rcf-im-vw1" firstAttribute="leading" secondItem="snD-IY-ifK" secondAttribute="leading" id="rcf-im-c01"/>
                             <constraint firstItem="rcf-im-vw1" firstAttribute="trailing" secondItem="snD-IY-ifK" secondAttribute="trailing" id="rcf-im-c02"/>
@@ -36,8 +36,5 @@
     </scenes>
     <resources>
         <image name="Splash" width="2732" height="2732"/>
-        <systemColor name="systemBackgroundColor">
-            <color white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
-        </systemColor>
     </resources>
 </document>

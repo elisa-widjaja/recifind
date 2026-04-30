@@ -343,14 +343,17 @@ struct ShareFormView: View {
 
     @ViewBuilder
     private var titleField: some View {
+        // Show "Loading recipe…" while parseRecipe is in flight so the title row
+        // doesn't look like a blank empty field during the cold-launch wait.
+        let placeholderText = viewModel.isLoadingPreview ? "Loading recipe…" : "Title"
         if #available(iOS 16.0, *) {
-            TextField("Title", text: $viewModel.title, axis: .vertical)
+            TextField(placeholderText, text: $viewModel.title, axis: .vertical)
                 .font(.system(size: 16, weight: .semibold))
                 .lineLimit(2, reservesSpace: false)
                 .focused($titleFocused)
                 .disabled(viewModel.isSaving || viewModel.isSaved)
         } else {
-            TextField("Title", text: $viewModel.title)
+            TextField(placeholderText, text: $viewModel.title)
                 .font(.system(size: 16, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -391,7 +394,13 @@ struct ShareFormView: View {
     }
 
     private var placeholder: some View {
-        Rectangle().fill(Color(.systemGray5))
+        ZStack {
+            Rectangle().fill(Color(.systemGray5))
+            if viewModel.isLoadingPreview {
+                ProgressView()
+                    .tint(.secondary)
+            }
+        }
     }
 }
 

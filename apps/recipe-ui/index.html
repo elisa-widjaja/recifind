@@ -24,6 +24,12 @@
          the WebView underneath is already fully transparent by the time
          the native splash finishes its fade.
 
+         Background follows the OS theme via prefers-color-scheme — NOT the
+         html.dark class — so it always matches the native iOS launch screen
+         (which uses systemBackgroundColor + a luminosity-keyed splash image
+         and can't read JS pref). This decoupling means the user's app-theme
+         choice never causes a launch-screen split when it differs from OS.
+
          Logo size tracks the native Splash.imageset (2732×2732 canvas
          with the logo at 800px ≈ 29% of canvas width, scaleAspectFit'd
          to the device width on phones). Using 29vw with a clamp keeps
@@ -39,9 +45,11 @@
         z-index: 9999;
         transition: opacity 500ms cubic-bezier(0.22, 0.61, 0.36, 1);
       }
-      html.dark .app-splash {
-        background: #000000;
-      }
+      /* Splash background is hardcoded white to match the native iOS launch
+         screen (which is also fixed white now — dark variant dropped because
+         systemBackgroundColor created a split with the bundled image). Users
+         in dark app/OS mode see a brief white splash then transition into
+         their preferred theme during the splash fade-out. */
       body.app-ready .app-splash {
         opacity: 0;
         pointer-events: none;
@@ -52,12 +60,17 @@
       }
     </style>
     <script>
+      // Pre-React boot: paint the WebView splash to match the OS theme so it
+      // lines up with the native iOS launch screen (which reads system theme
+      // and we can't override before JS runs). User's app pref kicks in after
+      // React mounts via App.jsx's useEffect; the brief OS→pref transition
+      // happens concurrently with the splash fade-out so it's not visible.
+      // The migration of the legacy 'recifriend-dark-mode' key happens in
+      // App.jsx — it doesn't matter for the initial paint.
       (function () {
         try {
-          var saved = localStorage.getItem('recifriend-dark-mode');
-          var isDark = saved !== null
-            ? saved === 'true'
-            : window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var isDark = window.matchMedia
+            && window.matchMedia('(prefers-color-scheme: dark)').matches;
           if (isDark) document.documentElement.classList.add('dark');
         } catch (e) {}
       })();

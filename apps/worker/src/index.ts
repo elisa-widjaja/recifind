@@ -1629,27 +1629,35 @@ export async function getFriendActivity(
     }
   }
 
-  return parsed.map(item => {
-    const d = item.data as Record<string, unknown>;
-    const recipeId = d.recipeId as string | undefined;
-    const friendName: string | null =
-      (d.friendName as string | undefined) ?? item.message.split(' ')[0] ?? null;
-    const fromUserId = typeof d.fromUserId === 'string' ? d.fromUserId : undefined;
-    const resolved = item.type === 'friend_request' && fromUserId
-      ? !pendingFromUserIds.has(fromUserId)
-      : undefined;
-    return {
-      id: item.id,
-      type: item.type,
-      message: item.message,
-      friendName,
-      ...(fromUserId ? { fromUserId } : {}),
-      ...(resolved !== undefined ? { resolved } : {}),
-      recipe: recipeId ? (recipeMap.get(recipeId) ?? null) : null,
-      createdAt: item.createdAt,
-      read: item.read,
-    };
-  });
+  return parsed
+    .filter(item => {
+      // Drop notifications that reference a deleted recipe — they'd render as
+      // untappable items in the activity feed. friend_request items have no
+      // recipeId and pass through unaffected.
+      const recipeId = (item.data as Record<string, unknown>).recipeId as string | undefined;
+      return !recipeId || recipeMap.has(recipeId);
+    })
+    .map(item => {
+      const d = item.data as Record<string, unknown>;
+      const recipeId = d.recipeId as string | undefined;
+      const friendName: string | null =
+        (d.friendName as string | undefined) ?? item.message.split(' ')[0] ?? null;
+      const fromUserId = typeof d.fromUserId === 'string' ? d.fromUserId : undefined;
+      const resolved = item.type === 'friend_request' && fromUserId
+        ? !pendingFromUserIds.has(fromUserId)
+        : undefined;
+      return {
+        id: item.id,
+        type: item.type,
+        message: item.message,
+        friendName,
+        ...(fromUserId ? { fromUserId } : {}),
+        ...(resolved !== undefined ? { resolved } : {}),
+        recipe: recipeId ? (recipeMap.get(recipeId) ?? null) : null,
+        createdAt: item.createdAt,
+        read: item.read,
+      };
+    });
 }
 
 export async function getFriendsRecentlySaved(db: D1Database, userId: string): Promise<FriendRecipeItem[]> {
@@ -2042,6 +2050,14 @@ async function handleDeleteRecipe(env: Env, user: AuthenticatedUser, recipeId: s
   await env.DB.prepare(
     'DELETE FROM recipes WHERE user_id = ? AND id = ?'
   ).bind(user.userId, recipeId).run();
+  // Clear orphan rows that reference this recipe so friends' activity feeds
+  // and recently-shared sections don't show stale, untappable items.
+  await env.DB.prepare(
+    `DELETE FROM notifications WHERE json_extract(data, '$.recipeId') = ?`
+  ).bind(recipeId).run();
+  await env.DB.prepare(
+    'DELETE FROM recipe_shares WHERE recipe_id = ?'
+  ).bind(recipeId).run();
   await updateCollectionMeta(env, user.userId, { countDelta: -1 });
   return new Response(null, { status: 204, headers: withCors() });
 }
@@ -2363,7 +2379,7 @@ async function handleSendFriendRequest(request: Request, env: Env, user: Authent
     `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
       <h2 style="margin: 0 0 16px; font-size: 20px; color: #1a1a1a;">${senderProfile.displayName}'s request to add you</h2>
       <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;"><strong>${senderProfile.displayName}</strong> wants to add you as a friend on <a href="https://recifriend.com" style="color: #6200EA; text-decoration: none;">ReciFriend</a> and share recipes together.</p>
-      <a href="https://recifriend.com?accept_friend=${encodeURIComponent(user.userId)}" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Accept</a>
+      <a href="https://recifriend.com/friend-requests?accept_friend=${encodeURIComponent(user.userId)}" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Accept</a>
       <p style="margin: 24px 0 0; font-size: 13px; color: #999;">You received this because someone sent you a friend request on ReciFriend.</p>
     </div>`
   ));

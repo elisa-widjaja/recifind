@@ -4,17 +4,6 @@
       "idiom" : "universal",
       "filename" : "splash-light.png",
       "scale" : "1x"
-    },
-    {
-      "idiom" : "universal",
-      "filename" : "splash-dark.png",
-      "scale" : "1x",
-      "appearances" : [
-        {
-          "appearance" : "luminosity",
-          "value" : "dark"
-        }
-      ]
     }
   ],
   "info" : {

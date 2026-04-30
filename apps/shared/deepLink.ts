@@ -62,9 +62,16 @@ export function parseDeepLink(raw: string): DeepLink | null {
     return { kind: 'open_pending_share' };
   }
 
-  // /friend-requests
+  // /friend-requests — optional ?accept_friend=<userId> auto-accepts on landing.
+  // Sent by the friend-invite email; on iOS this opens the app via Universal
+  // Link and auto-accepts; on web the existing module-load + sessionStorage
+  // path already handles it, but we surface accept_id here so iOS can call
+  // the accept handler directly via the dispatcher.
   if (fullPath === '/friend-requests' || fullPath === '/friend-requests/') {
-    return { kind: 'friend_requests' };
+    const acceptId = url.searchParams.get('accept_friend');
+    return acceptId
+      ? { kind: 'friend_requests', accept_id: acceptId }
+      : { kind: 'friend_requests' };
   }
 
   return null;

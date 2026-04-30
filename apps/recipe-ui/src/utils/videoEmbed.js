@@ -36,14 +36,20 @@ export function buildVideoEmbedUrl(sourceUrl) {
   if (sourceUrl.includes('tiktok.com')) {
     const id = extractTikTokVideoId(sourceUrl);
     return id
-      ? `https://www.tiktok.com/embed/v2/${id}?autoplay=1&muted=1`
+      ? `https://www.tiktok.com/embed/v2/${id}?autoplay=1&muted=1&playsinline=1`
       : null;
   }
 
   if (sourceUrl.includes('youtube.com') || sourceUrl.includes('youtu.be')) {
     const id = extractYouTubeVideoId(sourceUrl);
+    // youtube-nocookie.com (privacy-enhanced mode) is functionally identical for
+    // embedding but is far more permissive in restrictive contexts like iOS
+    // WKWebView, where the regular host returns "Video player configurator
+    // error 153" because it can't validate the embed origin (capacitor://).
+    // The loop=1&playlist=ID combo also triggers 153 in WKWebView — dropped it.
+    // rel=0 keeps unrelated-video thumbnails out of the end-card.
     return id
-      ? `https://www.youtube.com/embed/${id}?autoplay=1&mute=1&loop=1&playlist=${id}`
+      ? `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1&playsinline=1&rel=0`
       : null;
   }
 

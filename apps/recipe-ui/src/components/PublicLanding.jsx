@@ -432,21 +432,28 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare 
 
   const visibleEditors = editorsExpanded ? editorsPick : editorsPick.slice(0, 3);
 
-  // First 2 slots: YouTube Shorts (autoplay); remaining slots: other social videos
+  // YouTube Shorts dropped — the embed hits Error 153 in WKWebView and the
+  // nocookie/UA workarounds didn't fix it. Instagram + TikTok reels are the
+  // preferred video sources here. TikTok autoplays via iframe; Instagram
+  // reels render as thumbnail cards (Instagram blocks iframing).
   const trendingIds = new Set(trending.map(r => r.id));
-  // Deduplicate by source_url (same video saved by multiple users → keep first)
   const seenUrls = new Set();
   const discoverUniq = discover.filter(r => {
     if (trendingIds.has(r.id)) return false;
     if (!r.sourceUrl || seenUrls.has(r.sourceUrl)) return false;
+    if (r.sourceUrl.includes('youtube.com') || r.sourceUrl.includes('youtu.be')) return false;
     seenUrls.add(r.sourceUrl);
     return true;
   });
-  const youtubeShorts = discoverUniq.filter(r => r.sourceUrl?.includes('/shorts/')).slice(0, 2);
-  const youtubeShortsIds = new Set(youtubeShorts.map(r => r.id));
-  const otherVideos = discoverUniq.filter(r => !youtubeShortsIds.has(r.id) && isEmbeddable(r.sourceUrl));
-  const nonEmbeddable = discoverUniq.filter(r => !youtubeShortsIds.has(r.id) && !isEmbeddable(r.sourceUrl));
-  const videoRecipes = [...youtubeShorts, ...otherVideos, ...nonEmbeddable].slice(0, 5);
+  // First slots: Instagram reels + TikTok videos (the "reels" experience).
+  const reels = discoverUniq.filter(r => {
+    const u = r.sourceUrl || '';
+    return u.includes('tiktok.com') || u.includes('instagram.com/reel');
+  }).slice(0, 2);
+  const reelIds = new Set(reels.map(r => r.id));
+  const otherVideos = discoverUniq.filter(r => !reelIds.has(r.id) && isEmbeddable(r.sourceUrl));
+  const nonEmbeddable = discoverUniq.filter(r => !reelIds.has(r.id) && !isEmbeddable(r.sourceUrl));
+  const videoRecipes = [...reels, ...otherVideos, ...nonEmbeddable].slice(0, 5);
 
   const trendingFiltered = trending.slice(0, 5);
 

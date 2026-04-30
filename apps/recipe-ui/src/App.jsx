@@ -33,6 +33,7 @@ import {
   Menu,
   MenuItem,
   ListItemIcon,
+  ListSubheader,
   Switch,
   FormControlLabel,
   Slider,
@@ -86,6 +87,8 @@ import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
+import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined';
+import SettingsBrightnessOutlinedIcon from '@mui/icons-material/SettingsBrightnessOutlined';
 import SoupKitchenOutlinedIcon from '@mui/icons-material/SoupKitchenOutlined';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
@@ -1337,12 +1340,47 @@ function App() {
   const [editNameValue, setEditNameValue] = useState('');
   const [isDrawerEditingName, setIsDrawerEditingName] = useState(false);
 
-  // Dark mode state
-  const [darkMode, setDarkMode] = useState(() => {
-    const saved = localStorage.getItem('recifriend-dark-mode');
-    if (saved !== null) return saved === 'true';
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  // Theme preference: 'system' (follow OS), 'light', or 'dark'.
+  // Migration: previously stored binary at 'recifriend-dark-mode' — fold those
+  // explicit choices into 'light'/'dark' so users don't get re-defaulted to
+  // System on first launch after upgrade.
+  const [themePref, setThemePref] = useState(() => {
+    const newPref = localStorage.getItem('recifriend-theme-pref');
+    if (newPref === 'system' || newPref === 'light' || newPref === 'dark') return newPref;
+    const legacy = localStorage.getItem('recifriend-dark-mode');
+    if (legacy !== null) {
+      const migrated = legacy === 'true' ? 'dark' : 'light';
+      try {
+        localStorage.setItem('recifriend-theme-pref', migrated);
+        localStorage.removeItem('recifriend-dark-mode');
+      } catch {}
+      return migrated;
+    }
+    return 'system';
   });
+  const [systemPrefersDark, setSystemPrefersDark] = useState(() =>
+    window.matchMedia('(prefers-color-scheme: dark)').matches
+  );
+  // Track live OS theme changes so 'system' mode follows iOS sunset auto-switch.
+  // No-op for explicit 'light'/'dark' since darkMode is computed from themePref.
+  useEffect(() => {
+    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (e) => setSystemPrefersDark(e.matches);
+    if (mql.addEventListener) mql.addEventListener('change', handler);
+    else mql.addListener(handler); // older Safari
+    return () => {
+      if (mql.removeEventListener) mql.removeEventListener('change', handler);
+      else mql.removeListener(handler);
+    };
+  }, []);
+  const darkMode = themePref === 'system' ? systemPrefersDark : themePref === 'dark';
+  // Keep the <html>.dark class in sync so index.html's background CSS matches
+  // the active MUI theme. Without this, the background stayed black after
+  // toggling Dark→Light because the pre-React boot script set .dark and
+  // nothing removed it.
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', darkMode);
+  }, [darkMode]);
   const theme = useMemo(() => createTheme({
     palette: {
       mode: darkMode ? 'dark' : 'light',
@@ -1369,12 +1407,9 @@ function App() {
     },
   }), [darkMode]);
 
-  const toggleDarkMode = () => {
-    setDarkMode(prev => {
-      const next = !prev;
-      localStorage.setItem('recifriend-dark-mode', String(next));
-      return next;
-    });
+  const updateThemePref = (next) => {
+    setThemePref(next);
+    try { localStorage.setItem('recifriend-theme-pref', next); } catch {}
   };
 
   // Get access token from session
@@ -1481,6 +1516,11 @@ function App() {
   const handleOpenRecipeDetailsRef = useRef(null);
   const recipesRef = useRef(recipes);
   useEffect(() => { recipesRef.current = recipes; }, [recipes]);
+  // Friend-accept handler is bound at module load to the latest closure so
+  // the deep-link dispatcher (created once) can fire it for accept_friend
+  // links arriving via Universal Link / appUrlOpen on already-running app.
+  const acceptFriendRequestRef = useRef(null);
+  const accessTokenRef = useRef(null);
 
   const dispatchDeepLink = useCallback(async (urlString) => {
     // Within-session dedup. Capacitor's appUrlOpen listener and getLaunchUrl()
@@ -1555,8 +1595,16 @@ function App() {
           if (share) setPendingShare(share);
         });
       },
-      onFriendRequests: () => {
+      onFriendRequests: (acceptId) => {
         setCurrentView('friend-requests');
+        if (!acceptId) return;
+        // Already signed in → accept now. Not signed in → defer via
+        // sessionStorage; the existing post-sign-in effect picks it up.
+        if (accessTokenRef.current) {
+          acceptFriendRequestRef.current?.(acceptId);
+        } else {
+          sessionStorage.setItem('pending_accept_friend', acceptId);
+        }
       },
       onRecipeDetail: (recipeId) => {
         const recipe = recipesRef.current.find((r) => r.id === recipeId);
@@ -2898,6 +2946,11 @@ function App() {
   useEffect(() => {
     handleOpenRecipeDetailsRef.current = handleOpenRecipeDetails;
   }, [handleOpenRecipeDetails]);
+
+  useEffect(() => {
+    acceptFriendRequestRef.current = acceptFriendRequest;
+    accessTokenRef.current = accessToken;
+  }, [acceptFriendRequest, accessToken]);
 
   useEffect(() => {
     setIsInferredCaveatOpen(false);
@@ -4643,13 +4696,20 @@ function App() {
                       </ListItemIcon>
                       Copy user ID
                     </MenuItem>
-                    <MenuItem onClick={toggleDarkMode}>
-                      <ListItemIcon>
-                        <DarkModeOutlinedIcon fontSize="small" />
-                      </ListItemIcon>
-                      Dark mode
-                      <Switch size="small" checked={darkMode} sx={{ ml: 'auto' }} />
-                    </MenuItem>
+                    <ListSubheader sx={{ bgcolor: 'transparent', lineHeight: '32px', fontSize: 12 }}>Theme</ListSubheader>
+                    {[
+                      { key: 'system', label: 'System', Icon: SettingsBrightnessOutlinedIcon },
+                      { key: 'light',  label: 'Light',  Icon: LightModeOutlinedIcon },
+                      { key: 'dark',   label: 'Dark',   Icon: DarkModeOutlinedIcon },
+                    ].map(({ key, label, Icon }) => (
+                      <MenuItem key={key} onClick={() => updateThemePref(key)} selected={themePref === key}>
+                        <ListItemIcon>
+                          <Icon fontSize="small" />
+                        </ListItemIcon>
+                        {label}
+                        {themePref === key && <CheckIcon fontSize="small" sx={{ ml: 'auto' }} />}
+                      </MenuItem>
+                    ))}
                     <Divider />
                     <MenuItem onClick={handleLogout}>
                       <ListItemIcon>
@@ -4941,20 +5001,72 @@ function App() {
         <Box>
           {session && <Divider />}
           <Box sx={{ py: 1 }}>
-            {/* Dark mode */}
-            <Box
-              component="button"
-              onClick={toggleDarkMode}
-              sx={(theme) => ({
-                display: 'flex', alignItems: 'center', width: '100%',
-                px: 2.5, py: 1.25, gap: 1.5, border: 'none', bgcolor: 'transparent',
-                cursor: 'pointer', fontFamily: 'inherit', color: 'text.primary',
-                '&:hover': { bgcolor: theme.palette.action.hover },
-              })}
-            >
-              <DarkModeOutlinedIcon sx={{ fontSize: 22, color: 'text.secondary' }} />
-              <Typography variant="body2" fontWeight={500} sx={{ flex: 1, textAlign: 'left' }}>Dark mode</Typography>
-              <Switch size="small" checked={darkMode} sx={{ pointerEvents: 'none' }} />
+            {/* Theme — iOS-style pill segmented control */}
+            <Box sx={{ px: 2.5, py: 1.25 }}>
+              <Typography variant="caption" sx={{ display: 'block', mb: 0.75, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Theme
+              </Typography>
+              <ToggleButtonGroup
+                value={themePref}
+                exclusive
+                size="small"
+                fullWidth
+                onChange={(_, next) => { if (next) updateThemePref(next); }}
+                sx={(theme) => ({
+                  // Pill container — iOS UISegmentedControl look.
+                  bgcolor: theme.palette.mode === 'dark'
+                    ? 'rgba(118, 118, 128, 0.24)'
+                    : 'rgba(118, 118, 128, 0.12)',
+                  borderRadius: '999px',
+                  p: '3px',
+                  gap: 0,
+                  '& .MuiToggleButtonGroup-grouped': {
+                    border: 0,
+                    borderRadius: '999px',
+                    mx: 0,
+                    '&:not(:first-of-type)': { borderLeft: 0, borderRadius: '999px' },
+                    '&:first-of-type': { borderRadius: '999px' },
+                  },
+                  '& .MuiToggleButton-root': {
+                    py: 0.75,
+                    gap: 0.5,
+                    fontSize: 12,
+                    fontWeight: 500,
+                    textTransform: 'none',
+                    color: 'text.primary',
+                    transition: 'background-color 150ms, box-shadow 150ms',
+                  },
+                  // Selected segment — white pill with subtle shadow, like iOS.
+                  '& .Mui-selected': {
+                    bgcolor: theme.palette.mode === 'dark'
+                      ? 'rgba(99, 99, 102, 1)'
+                      : '#ffffff !important',
+                    color: 'text.primary',
+                    boxShadow: theme.palette.mode === 'dark'
+                      ? 'none'
+                      : '0 3px 8px rgba(0, 0, 0, 0.12), 0 3px 1px rgba(0, 0, 0, 0.04)',
+                    '&:hover': {
+                      bgcolor: theme.palette.mode === 'dark'
+                        ? 'rgba(99, 99, 102, 1)'
+                        : '#ffffff',
+                    },
+                  },
+                  '& .MuiToggleButton-root:hover': { bgcolor: 'transparent' },
+                })}
+              >
+                <ToggleButton value="system">
+                  <SettingsBrightnessOutlinedIcon sx={{ fontSize: 16 }} />
+                  System
+                </ToggleButton>
+                <ToggleButton value="light">
+                  <LightModeOutlinedIcon sx={{ fontSize: 16 }} />
+                  Light
+                </ToggleButton>
+                <ToggleButton value="dark">
+                  <DarkModeOutlinedIcon sx={{ fontSize: 16 }} />
+                  Dark
+                </ToggleButton>
+              </ToggleButtonGroup>
             </Box>
           </Box>
         </Box>

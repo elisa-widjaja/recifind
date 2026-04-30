@@ -94,6 +94,16 @@ describe('parseDeepLink — /friend-requests', () => {
   it('accepts via custom scheme', () => {
     expect(parseDeepLink('recifriend://friend-requests')).toEqual({ kind: 'friend_requests' });
   });
+  it('extracts accept_friend query param into accept_id', () => {
+    expect(parseDeepLink('https://recifriend.com/friend-requests?accept_friend=user-abc')).toEqual({
+      kind: 'friend_requests',
+      accept_id: 'user-abc',
+    });
+  });
+  it('omits accept_id when accept_friend param is absent', () => {
+    const result = parseDeepLink('https://recifriend.com/friend-requests?other=x');
+    expect(result).toEqual({ kind: 'friend_requests' });
+  });
 });
 
 describe('parseDeepLink — unknown paths', () => {

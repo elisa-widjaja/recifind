@@ -5,7 +5,7 @@ import { parseDeepLink } from '../../../shared/deepLink';
  * @param {{
  *   onAuthCallback: (code: string) => Promise<void>,
  *   onAddRecipe: (url: string, title?: string) => void,
- *   onFriendRequests: () => void,
+ *   onFriendRequests: (acceptId?: string) => void,
  *   onRecipeDetail: (recipeId: string) => void,
  *   onRecipesList: () => void,
  *   onOpenPendingShare: () => void,
@@ -19,7 +19,7 @@ export function createDispatcher(handlers) {
     switch (link.kind) {
       case 'auth_callback':      return await handlers.onAuthCallback(link.code);
       case 'add_recipe':         return handlers.onAddRecipe(link.url, link.title);
-      case 'friend_requests':    return handlers.onFriendRequests();
+      case 'friend_requests':    return handlers.onFriendRequests(link.accept_id);
       case 'recipe_detail':      return handlers.onRecipeDetail(link.recipe_id);
       case 'recipes_list':       return handlers.onRecipesList();
       case 'open_pending_share': return handlers.onOpenPendingShare();
