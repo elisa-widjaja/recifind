@@ -5536,23 +5536,27 @@ function App() {
                         View source
                       </Typography>
                     </Box>
-                    {/* Close button overlay on thumbnail — hidden when stuck */}
+                    {/* Close button overlay on thumbnail — hidden when stuck.
+                        iOS-style: small circular translucent backdrop in the
+                        top-left corner with safe-area-aware padding. */}
                     {isMobile && !isStickyStuck && (
                       <IconButton
                         aria-label="Close recipe details"
                         onClick={(e) => { e.stopPropagation(); closeDialog(); }}
                         sx={{
                           position: 'absolute',
-                          top: 0,
-                          right: 0,
-                          backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                          borderRadius: 0,
-                          p: 0.5,
-                          color: 'white',
-                          '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.8)' }
+                          top: 12,
+                          left: 12,
+                          width: 40,
+                          height: 40,
+                          backgroundColor: 'rgba(0, 0, 0, 0.55)',
+                          color: '#fff',
+                          backdropFilter: 'blur(10px)',
+                          WebkitBackdropFilter: 'blur(10px)',
+                          '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.7)' },
                         }}
                       >
-                        <CloseIcon sx={{ fontSize: 22 }} />
+                        <CloseIcon sx={{ fontSize: 24 }} />
                       </IconButton>
                     )}
                   </Box>
