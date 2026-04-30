@@ -40,9 +40,16 @@ const config: CapacitorConfig = {
       // the native splash dismisses the moment Capacitor finishes booting,
       // leaving a flash of empty WebView before React's first paint.
       launchAutoHide: false,
-      // Safety net: auto-dismiss after 4s if JS never calls hide() (crash etc.)
+      // Note: launchShowDuration is ignored when launchAutoHide is false — the
+      // native splash stays until SplashScreen.hide() is called from JS. The
+      // actual JS-crash safety net lives in apps/recipe-ui/src/main.jsx
+      // (SPLASH_MAX_VISIBLE_MS hard cap). Kept here only so flipping
+      // launchAutoHide:true in a debug build still has a sane duration.
       launchShowDuration: 4000,
-      backgroundColor: '#ffffff',
+      // Solid fallback shown only if the SplashBackground asset fails to load
+      // and at the seam during scaleAspectFill cropping. Picked as the rough
+      // midpoint of the gradient (#7028F0 → #4F00C8).
+      backgroundColor: '#5C14DC',
       splashFullScreen: true,
       splashImmersive: true,
     },

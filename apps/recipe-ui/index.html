@@ -35,43 +35,58 @@
          to the device width on phones). Using 29vw with a clamp keeps
          the HTML logo and the native logo at the same on-screen size
          across iPhone SE → Pro Max, while bounding both for desktop. */
+      /* Splash hidden by default — web users get no splash, just the React
+         app's first paint. The boot script flips it visible only when running
+         in Capacitor (iOS WebView), where it bridges between the native
+         LaunchScreen and React mount. */
       .app-splash {
+        display: none;
         position: fixed;
         inset: 0;
-        background: #ffffff;
-        display: flex;
+        /* Linear gradient mirrors the native LaunchScreen background
+           (apps/ios/.../SplashBackground.imageset/splash-bg.svg). Stops
+           come from the design reference (image assets/App Logo/
+           splashscreen gradient.png). */
+        background: linear-gradient(315deg, #B68CF2 0%, #7B2FFF 30%, #5600EC 65%);
         align-items: center;
         justify-content: center;
         z-index: 9999;
         transition: opacity 500ms cubic-bezier(0.22, 0.61, 0.36, 1);
       }
-      /* Splash background is hardcoded white to match the native iOS launch
-         screen (which is also fixed white now — dark variant dropped because
-         systemBackgroundColor created a split with the bundled image). Users
-         in dark app/OS mode see a brief white splash then transition into
-         their preferred theme during the splash fade-out. */
+      html.capacitor-platform .app-splash {
+        display: flex;
+      }
       body.app-ready .app-splash {
         opacity: 0;
         pointer-events: none;
       }
       .app-splash-logo {
         width: clamp(96px, 29vw, 144px);
-        height: clamp(96px, 29vw, 144px);
+        /* Aspect ratio (516:566) of /logo-with-text.png — height follows. */
+        height: auto;
+        object-fit: contain;
       }
     </style>
     <script>
-      // Pre-React boot: paint the WebView splash to match the OS theme so it
-      // lines up with the native iOS launch screen (which reads system theme
-      // and we can't override before JS runs). User's app pref kicks in after
-      // React mounts via App.jsx's useEffect; the brief OS→pref transition
-      // happens concurrently with the splash fade-out so it's not visible.
-      // The migration of the legacy 'recifriend-dark-mode' key happens in
-      // App.jsx — it doesn't matter for the initial paint.
+      // Pre-React boot:
+      // - .dark class follows OS theme so body bg matches the native iOS launch
+      //   screen on first frame; React's useEffect re-syncs to user pref after
+      //   mount. Migration of the legacy 'recifriend-dark-mode' key happens
+      //   in App.jsx and doesn't matter for the initial paint.
+      // - .capacitor-platform class enables the WebView splash only inside
+      //   Capacitor (iOS WebView). Web users get no splash. Capacitor injects
+      //   its bridge before page scripts run, so window.Capacitor is reliably
+      //   available here.
       (function () {
         try {
           var isDark = window.matchMedia
             && window.matchMedia('(prefers-color-scheme: dark)').matches;
           if (isDark) document.documentElement.classList.add('dark');
+        } catch (e) {}
+        try {
+          if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+            document.documentElement.classList.add('capacitor-platform');
+          }
         } catch (e) {}
       })();
     </script>
@@ -86,7 +101,7 @@
   <body>
     <div id="root"></div>
     <div id="app-splash" class="app-splash" aria-hidden="true">
-      <img src="/icon.svg" alt="" class="app-splash-logo" />
+      <img src="/logo-with-text.png" alt="" class="app-splash-logo" />
     </div>
     <!-- Visible privacy link so OAuth consent screen verifiers (Google etc.)
          can confirm the home page links to the privacy policy. Subtle in the

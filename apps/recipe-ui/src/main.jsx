@@ -22,8 +22,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 // a deliberate handoff.
 const SPLASH_MIN_VISIBLE_MS = 800;
 const SPLASH_FADE_MS = 500;
+// Hard cap: once JS is running, never let the native splash sit longer than this.
+// Catches the case where rAF fires but React throws synchronously before we
+// reach fadeSplash, or where the splash overlay element somehow blocks input.
+const SPLASH_MAX_VISIBLE_MS = 4000;
 const startedAt = performance.now();
+let splashHidden = false;
 const fadeSplash = () => {
+  if (splashHidden) return;
+  splashHidden = true;
   const wait = Math.max(0, SPLASH_MIN_VISIBLE_MS - (performance.now() - startedAt));
   setTimeout(() => {
     document.body.classList.add('app-ready');
@@ -37,3 +44,4 @@ const fadeSplash = () => {
   }, wait);
 };
 requestAnimationFrame(() => requestAnimationFrame(fadeSplash));
+setTimeout(fadeSplash, SPLASH_MAX_VISIBLE_MS);
