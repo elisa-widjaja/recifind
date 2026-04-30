@@ -667,6 +667,14 @@ export default {
           return json(suggestions, 200, withCors());
         })();
       }
+
+      // POST /friends/suggestions/dismiss — permanently hide a suggestion.
+      // Inserts (current user, target) into dismissed_suggestions; the
+      // suggestion query filters that set out, so the card never returns.
+      if (url.pathname === '/friends/suggestions/dismiss' && request.method === 'POST') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return await handleDismissSuggestion(request, env, user);
+      }
       const cancelSentMatch = url.pathname.match(/^\/friends\/requests\/sent\/([^/]+)\/cancel$/);
       if (cancelSentMatch && request.method === 'DELETE') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
@@ -689,6 +697,19 @@ export default {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
         const friendId = decodeURIComponent(friendRecipesMatch[1]);
         return await handleGetFriendRecipes(request, env, user, friendId);
+      }
+
+      // GET /users/:id/recipes — preview a non-friend's shared recipes.
+      // Used by the "Friends You May Know" suggestion cards: tap a suggestion
+      // to peek at their shared recipes before deciding to send a friend
+      // request. Returns the same `shared_with_friends = 1` set as the friends
+      // endpoint but without the friendship check, since that flag is the
+      // public-share flag (see isPublic = Boolean(recipe.sharedWithFriends)).
+      const userRecipesMatch = url.pathname.match(/^\/users\/([^/]+)\/recipes$/);
+      if (userRecipesMatch && request.method === 'GET') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        const targetId = decodeURIComponent(userRecipesMatch[1]);
+        return await handleGetUserSharedRecipes(request, env, user, targetId);
       }
 
       const friendRecipeShareMatch = url.pathname.match(/^\/friends\/([^/]+)\/recipes\/([^/]+)\/share$/);
@@ -2201,11 +2222,23 @@ export async function handleFriendSuggestions(
   userId: string
 ): Promise<{
   suggestions: Array<
-    | { userId: string; name: string; kind: 'fof'; mutualCount: number }
-    | { userId: string; name: string; kind: 'pref'; sharedPref: string }
+    | { userId: string; name: string; kind: 'fof'; mutualCount: number; requestSent: boolean }
+    | { userId: string; name: string; kind: 'pref'; sharedPref: string; requestSent: boolean }
   >;
 }> {
+  // Pre-load this user's pending sent-request set so we can surface a
+  // requestSent flag on each suggestion (instead of excluding them — that
+  // dropped the "Requested" card from the list after relaunch).
+  // Accepted friendships are still excluded by the friends-table NOT IN
+  // clauses, so cards disappear once the request becomes a connection.
+  const sentRows = await db.prepare(
+    'SELECT to_user_id FROM friend_requests_sent WHERE from_user_id = ?'
+  ).bind(userId).all<{ to_user_id: string }>();
+  const sentToIds = new Set((sentRows.results || []).map(r => String(r.to_user_id)));
+
   // --- FOF pass (no GROUP_CONCAT, no name leak) ---
+  // Excludes already-friends AND any user this person previously dismissed
+  // via the X on a suggestion card (dismissed_suggestions).
   const fofRows = await db.prepare(`
     SELECT
       f2.friend_id                  AS userId,
@@ -2217,7 +2250,7 @@ export async function handleFriendSuggestions(
     WHERE f1.user_id = ?
       AND f2.friend_id != ?
       AND f2.friend_id NOT IN (SELECT friend_id FROM friends WHERE user_id = ?)
-      AND f2.friend_id NOT IN (SELECT to_user_id FROM friend_requests_sent WHERE from_user_id = ?)
+      AND f2.friend_id NOT IN (SELECT dismissed_user_id FROM dismissed_suggestions WHERE user_id = ?)
     GROUP BY f2.friend_id
     ORDER BY mutualCount DESC
     LIMIT 10
@@ -2228,6 +2261,7 @@ export async function handleFriendSuggestions(
     name: row.name,
     kind: 'fof' as const,
     mutualCount: row.mutualCount,
+    requestSent: sentToIds.has(row.userId),
   }));
 
   if (fofSuggestions.length >= 5) {
@@ -2257,7 +2291,7 @@ export async function handleFriendSuggestions(
     FROM profiles p
     WHERE p.user_id != ?
       AND p.user_id NOT IN (SELECT friend_id FROM friends WHERE user_id = ?)
-      AND p.user_id NOT IN (SELECT to_user_id FROM friend_requests_sent WHERE from_user_id = ?)
+      AND p.user_id NOT IN (SELECT dismissed_user_id FROM dismissed_suggestions WHERE user_id = ?)
       AND (${likeClauses})
     ORDER BY p.display_name ASC
     LIMIT ?
@@ -2280,10 +2314,24 @@ export async function handleFriendSuggestions(
         name: row.name,
         kind: 'pref' as const,
         sharedPref,
+        requestSent: sentToIds.has(row.userId),
       };
     });
 
   return { suggestions: [...fofSuggestions, ...prefSuggestions] };
+}
+
+async function handleDismissSuggestion(request: Request, env: Env, user: AuthenticatedUser) {
+  const body = await readJsonBody(request);
+  const targetId = typeof body.userId === 'string' ? body.userId.trim() : '';
+  if (!targetId) throw new HttpError(400, 'userId is required');
+  if (targetId === user.userId) {
+    return json({ ok: true }, 200, withCors());
+  }
+  await env.DB.prepare(
+    'INSERT OR IGNORE INTO dismissed_suggestions (user_id, dismissed_user_id) VALUES (?, ?)'
+  ).bind(user.userId, targetId).run();
+  return json({ ok: true }, 200, withCors());
 }
 
 async function handleSendFriendRequest(request: Request, env: Env, user: AuthenticatedUser, ctx: ExecutionContext) {
@@ -2818,6 +2866,45 @@ async function handleGetFriendRecipes(request: Request, env: Env, user: Authenti
   return json({ recipes: sharedRecipes }, 200, cacheHeaders({
     visibility: 'private', maxAge: 60, etag,
     lastModified: friendMeta?.updatedAt ? new Date(friendMeta.updatedAt) : undefined
+  }));
+}
+
+async function handleGetUserSharedRecipes(request: Request, env: Env, user: AuthenticatedUser, targetId: string) {
+  if (targetId === user.userId) {
+    return json({ recipes: [] }, 200, withCors());
+  }
+
+  const targetMeta = await getCollectionMeta(env, targetId);
+  const etag = makeEtag(`user-shared-recipes-${targetId}-${targetMeta?.version ?? 0}`);
+  const notModified = checkConditional(request, etag);
+  if (notModified) return notModified;
+
+  const result = await env.DB.prepare(
+    'SELECT * FROM recipes WHERE user_id = ? AND shared_with_friends = 1 ORDER BY created_at DESC'
+  ).bind(targetId).all();
+
+  const sharedRecipes = (result.results || []).map((row) => {
+    const r = rowToRecipe(row as Record<string, unknown>);
+    return {
+      id: r.id,
+      userId: r.userId,
+      title: r.title,
+      sourceUrl: r.sourceUrl || '',
+      imageUrl: r.imageUrl || '',
+      imagePath: r.imagePath || null,
+      mealTypes: r.mealTypes || [],
+      ingredients: r.ingredients || [],
+      steps: r.steps || [],
+      durationMinutes: r.durationMinutes || null,
+      notes: r.notes || '',
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt
+    };
+  });
+
+  return json({ recipes: sharedRecipes }, 200, cacheHeaders({
+    visibility: 'private', maxAge: 60, etag,
+    lastModified: targetMeta?.updatedAt ? new Date(targetMeta.updatedAt) : undefined
   }));
 }
 

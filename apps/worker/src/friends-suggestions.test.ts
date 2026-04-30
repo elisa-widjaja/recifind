@@ -2,6 +2,14 @@ import { describe, it, expect, vi } from 'vitest';
 import { handleFriendSuggestions, resolveEmailFromUserId } from './index';
 
 describe('handleFriendSuggestions', () => {
+  // Helper: every call to handleFriendSuggestions starts with a query against
+  // friend_requests_sent. Tests that don't care about that flag should mock it
+  // as empty results.
+  const sentQueryMock = (toIds: string[] = []) => ({
+    bind: vi.fn().mockReturnThis(),
+    all: vi.fn().mockResolvedValue({ results: toIds.map(id => ({ to_user_id: id })) }),
+  });
+
   it('returns FOF suggestions tagged kind="fof" with mutualCount, sorted desc', async () => {
     const fofResults = [
       { userId: 'user-b', name: 'Maya R.', mutualCount: 2 },
@@ -9,6 +17,7 @@ describe('handleFriendSuggestions', () => {
     ];
     const mockDb = {
       prepare: vi.fn()
+        .mockReturnValueOnce(sentQueryMock())
         .mockReturnValueOnce({
           bind: vi.fn().mockReturnThis(),
           all: vi.fn().mockResolvedValue({ results: fofResults }),
@@ -31,18 +40,48 @@ describe('handleFriendSuggestions', () => {
       name: 'Maya R.',
       kind: 'fof',
       mutualCount: 2,
+      requestSent: false,
     });
     expect(result.suggestions[1]).toEqual({
       userId: 'user-c',
       name: 'James T.',
       kind: 'fof',
       mutualCount: 1,
+      requestSent: false,
     });
+  });
+
+  it('flags suggestions with requestSent=true when a pending sent-request exists', async () => {
+    const fofResults = [
+      { userId: 'user-b', name: 'Maya R.', mutualCount: 2 },
+      { userId: 'user-c', name: 'James T.', mutualCount: 1 },
+    ];
+    const mockDb = {
+      prepare: vi.fn()
+        // user-a has already sent a request to user-b
+        .mockReturnValueOnce(sentQueryMock(['user-b']))
+        .mockReturnValueOnce({
+          bind: vi.fn().mockReturnThis(),
+          all: vi.fn().mockResolvedValue({ results: fofResults }),
+        })
+        .mockReturnValueOnce({
+          bind: vi.fn().mockReturnThis(),
+          first: vi.fn().mockResolvedValue(null),
+        }),
+    } as unknown as D1Database;
+
+    const result = await handleFriendSuggestions(mockDb, 'user-a');
+
+    // Both still surfaced (not excluded) so the "Requested" card persists.
+    expect(result.suggestions).toHaveLength(2);
+    expect(result.suggestions[0].requestSent).toBe(true);
+    expect(result.suggestions[1].requestSent).toBe(false);
   });
 
   it('returns empty array when no FOF and no prefs', async () => {
     const mockDb = {
       prepare: vi.fn()
+        .mockReturnValueOnce(sentQueryMock())
         .mockReturnValueOnce({
           bind: vi.fn().mockReturnThis(),
           all: vi.fn().mockResolvedValue({ results: [] }),
@@ -67,6 +106,7 @@ describe('handleFriendSuggestions', () => {
     ];
     const mockDb = {
       prepare: vi.fn()
+        .mockReturnValueOnce(sentQueryMock())
         .mockReturnValueOnce({
           bind: vi.fn().mockReturnThis(),
           all: vi.fn().mockResolvedValue({ results: fofResults }),
@@ -90,6 +130,7 @@ describe('handleFriendSuggestions', () => {
       name: 'Priya S.',
       kind: 'pref',
       sharedPref: 'Vegetarian',
+      requestSent: false,
     });
     // Nora K. has no dietary overlap (only meal-type), so sharedPref is empty
     // — client renders "Fellow home cook" for empty sharedPref.
@@ -98,6 +139,7 @@ describe('handleFriendSuggestions', () => {
       name: 'Nora K.',
       kind: 'pref',
       sharedPref: '',
+      requestSent: false,
     });
   });
 
@@ -110,18 +152,20 @@ describe('handleFriendSuggestions', () => {
       { userId: 'u5', name: 'E', mutualCount: 1 },
     ];
     const mockDb = {
-      prepare: vi.fn().mockReturnValueOnce({
-        bind: vi.fn().mockReturnThis(),
-        all: vi.fn().mockResolvedValue({ results: fofResults }),
-      }),
+      prepare: vi.fn()
+        .mockReturnValueOnce(sentQueryMock())
+        .mockReturnValueOnce({
+          bind: vi.fn().mockReturnThis(),
+          all: vi.fn().mockResolvedValue({ results: fofResults }),
+        }),
     } as unknown as D1Database;
 
     const result = await handleFriendSuggestions(mockDb, 'user-a');
 
     expect(result.suggestions).toHaveLength(5);
     expect(result.suggestions.every(s => s.kind === 'fof')).toBe(true);
-    // Only the FOF query should have been prepared (no profile fetch, no pref query)
-    expect((mockDb.prepare as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+    // Only the sent-set + FOF queries — no profile fetch, no pref query.
+    expect((mockDb.prepare as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(2);
   });
 });
 

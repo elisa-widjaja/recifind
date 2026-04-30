@@ -2117,6 +2117,41 @@ function App() {
     }
   };
 
+  // Tapping a "Friends You May Know" suggestion opens the same drawer as
+  // tapping a friend, but loads from /users/:id/recipes (no friendship
+  // required). Reuses the friend-recipes drawer's UI by setting selectedFriend
+  // to a friend-shaped object; isSuggestion lets the drawer hide friend-only
+  // affordances if needed. fromHomeFeed = true when the dialog wasn't already
+  // open (i.e. tapped from FriendSections) — header hides the "← Friends"
+  // back row so swipe-down is the only way back, returning to home rather
+  // than to the friends list.
+  const fetchSuggestionRecipes = async (suggestion) => {
+    const fromHomeFeed = !isFriendsDialogOpen;
+    trackEvent('view_suggestion_recipes', { name: suggestion.name || '' });
+    setIsFriendsDialogOpen(true);
+    setSelectedFriend({
+      friendId: suggestion.userId,
+      friendName: suggestion.name,
+      isSuggestion: true,
+      fromHomeFeed,
+    });
+    setVisibleRecipeCount(7);
+    setFriendRecipesLoading(true);
+    try {
+      const response = await callRecipesApi(
+        `/users/${encodeURIComponent(suggestion.userId)}/recipes`,
+        {},
+        accessToken
+      );
+      setFriendRecipes(response?.recipes ?? []);
+    } catch (error) {
+      setSnackbarState({ open: true, message: 'Failed to load recipes', severity: 'error' });
+      setFriendRecipes([]);
+    } finally {
+      setFriendRecipesLoading(false);
+    }
+  };
+
   // Fetch profile + friends data on login and poll for new requests
   useEffect(() => {
     if (!session?.user?.id || !accessToken) return;
@@ -5240,6 +5275,7 @@ function App() {
                   onShareRecipe={(recipe, event) => openShareSheet(recipe, event) /* [S04] */}
                   onInviteFriend={() => setIsFriendsDialogOpen(true)}
                   onOpenFriends={() => setIsFriendsDialogOpen(true)}
+                  onSuggestionTap={fetchSuggestionRecipes}
                   onAcceptFriendRequest={acceptFriendRequest}
                   onDeclineFriendRequest={declineFriendRequest}
                   darkMode={darkMode}
@@ -6450,18 +6486,20 @@ function App() {
         {selectedFriend && (
           <Box sx={{ display: 'flex', alignItems: 'flex-start', px: 2, pt: 0.5, pb: 1, flexShrink: 0 }}>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, flex: 1 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <IconButton onClick={() => { setSelectedFriend(null); setFriendRecipes([]); setFriendRecipeSearchOpen(false); setFriendRecipeSearchQuery(''); }} size="small" edge="start">
-                  <ArrowBackIcon fontSize="small" />
-                </IconButton>
-                <Typography
-                  variant="body2"
-                  sx={{ cursor: 'pointer', color: 'text.secondary', fontWeight: 'bold', fontSize: '1rem' }}
-                  onClick={() => { setSelectedFriend(null); setFriendRecipes([]); setFriendRecipeSearchOpen(false); setFriendRecipeSearchQuery(''); }}
-                >
-                  Friends
-                </Typography>
-              </Box>
+              {!selectedFriend.fromHomeFeed && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <IconButton onClick={() => { setSelectedFriend(null); setFriendRecipes([]); setFriendRecipeSearchOpen(false); setFriendRecipeSearchQuery(''); }} size="small" edge="start">
+                    <ArrowBackIcon fontSize="small" />
+                  </IconButton>
+                  <Typography
+                    variant="body2"
+                    sx={{ cursor: 'pointer', color: 'text.secondary', fontWeight: 'bold', fontSize: '1rem' }}
+                    onClick={() => { setSelectedFriend(null); setFriendRecipes([]); setFriendRecipeSearchOpen(false); setFriendRecipeSearchQuery(''); }}
+                  >
+                    Friends
+                  </Typography>
+                </Box>
+              )}
               <Typography variant="h6" sx={{ pl: 0.5 }}>
                 {selectedFriend.friendName}
               </Typography>
@@ -6680,7 +6718,7 @@ function App() {
                   </Box>
 
                   <Box sx={{ mt: 5, mb: 5, borderTop: 1, borderColor: 'divider' }} />
-                  <SuggestionsShelf accessToken={accessToken} variant="compact" />
+                  <SuggestionsShelf accessToken={accessToken} variant="compact" onTapCard={fetchSuggestionRecipes} />
                 </>
               )}
             </Box>

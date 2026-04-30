@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Box, Typography, IconButton, useTheme } from '@mui/material';
+import {
+  Box, Typography, IconButton, useTheme,
+  Dialog, DialogTitle, DialogContent, DialogActions, Button,
+} from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 
 const API_BASE_URL = import.meta.env.VITE_RECIPES_API_BASE_URL || '';
@@ -81,10 +84,14 @@ const COMPACT_STYLE = {
  * Props:
  *   accessToken: string (required for live fetch + add-friend POST)
  *   onOpenFriends?: () => void — if provided, renders "See all"
+ *   onTapCard?: (suggestion) => void — if provided, the card body becomes
+ *     clickable and fires this with the suggestion shape ({userId, name, ...}).
+ *     The X (dismiss) and "Add Friend" buttons stop propagation so they keep
+ *     working independently.
  *   variant?: 'feed' | 'compact' — 'feed' for home feed, 'compact' for drawer
  *   suggestions?: Array — test-only override; skips the fetch when provided
  */
-export default function SuggestionsShelf({ accessToken, onOpenFriends, variant = 'feed', suggestions: suggestionsProp }) {
+export default function SuggestionsShelf({ accessToken, onOpenFriends, onTapCard, variant = 'feed', suggestions: suggestionsProp }) {
   const theme = useTheme();
   const dark = theme.palette.mode === 'dark';
   const v = variant === 'compact' ? COMPACT_STYLE : FEED_STYLE;
@@ -92,6 +99,9 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
   const [loading, setLoading] = useState(suggestionsProp === undefined);
   const [requestedIds, setRequestedIds] = useState(() => new Set());
   const [dismissedIds, setDismissedIds] = useState(() => new Set());
+  // Suggestion currently pending dismiss-confirmation, or null. Holds the
+  // whole suggestion so the dialog can render the name without an extra lookup.
+  const [pendingDismiss, setPendingDismiss] = useState(null);
 
   useEffect(() => {
     if (suggestionsProp !== undefined) return;
@@ -103,7 +113,11 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
       .then(r => (r.ok ? r.json() : null))
       .then(data => {
         if (cancelled) return;
-        setSuggestions(data?.suggestions || []);
+        const list = data?.suggestions || [];
+        setSuggestions(list);
+        // Persist "Requested" state across reloads — server now flags any
+        // suggestion the current user has already sent a request to.
+        setRequestedIds(new Set(list.filter(s => s.requestSent).map(s => s.userId)));
         setLoading(false);
       })
       .catch(() => {
@@ -145,6 +159,24 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
 
   function handleDismiss(userId) {
     setDismissedIds(prev => new Set([...prev, userId]));
+    // Persist dismissal server-side so the suggestion is filtered out of
+    // future /friends/suggestions responses (dismissed_suggestions table).
+    // Fire-and-forget: if this fails, the local set still hides it for the
+    // current session — they'll see it again on next reload (acceptable).
+    if (accessToken) {
+      // Wrap in Promise.resolve so a synchronously-returned mock (or any
+      // non-thenable) doesn't throw on .catch.
+      Promise.resolve(
+        fetch(`${API_BASE_URL}/friends/suggestions/dismiss`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ userId }),
+        })
+      ).catch(() => {});
+    }
   }
 
   if (loading) return null;
@@ -195,9 +227,20 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
       >
         {visible.map(s => {
           const isRequested = requestedIds.has(s.userId);
+          const tappable = typeof onTapCard === 'function';
           return (
             <Box
               key={s.userId}
+              role={tappable ? 'button' : undefined}
+              tabIndex={tappable ? 0 : undefined}
+              aria-label={tappable ? `View ${s.name}'s recipes` : undefined}
+              onClick={tappable ? () => onTapCard(s) : undefined}
+              onKeyDown={tappable ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onTapCard(s);
+                }
+              } : undefined}
               sx={{
                 position: 'relative',
                 minWidth: v.cardSize,
@@ -213,12 +256,20 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
                 alignItems: 'center',
                 boxShadow: dark ? 'none' : '0 1px 3px rgba(0,0,0,0.06)',
                 flexShrink: 0,
+                cursor: tappable ? 'pointer' : 'default',
+                transition: tappable ? 'transform 120ms ease, box-shadow 120ms ease' : 'none',
+                '&:active': tappable ? { transform: 'scale(0.98)' } : undefined,
+                '&:focus-visible': tappable ? {
+                  outline: '2px solid',
+                  outlineColor: 'primary.main',
+                  outlineOffset: 2,
+                } : undefined,
               }}
             >
               <IconButton
                 aria-label={`Dismiss ${s.name}`}
                 size="small"
-                onClick={() => handleDismiss(s.userId)}
+                onClick={(e) => { e.stopPropagation(); setPendingDismiss(s); }}
                 sx={{
                   position: 'absolute',
                   top: v.closeTop,
@@ -279,7 +330,10 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
               <Box
                 component="button"
                 disabled={isRequested}
-                onClick={() => !isRequested && handleAdd(s.userId)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isRequested) handleAdd(s.userId);
+                }}
                 sx={{
                   mt: 'auto',
                   flexShrink: 0,
@@ -305,6 +359,37 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, variant =
           );
         })}
       </Box>
+      <Dialog
+        open={pendingDismiss !== null}
+        onClose={() => setPendingDismiss(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Hide suggestion?</DialogTitle>
+        <DialogContent>
+          <Typography>
+            We won&apos;t suggest {pendingDismiss?.name || 'this person'} again
+            in this session.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: '24px' }}>
+          <Button
+            onClick={() => setPendingDismiss(null)}
+            sx={(theme) => ({ ...(theme.palette.mode === 'dark' && { color: '#fff' }) })}
+          >
+            Cancel
+          </Button>
+          <Button
+            color="error"
+            onClick={() => {
+              if (pendingDismiss) handleDismiss(pendingDismiss.userId);
+              setPendingDismiss(null);
+            }}
+          >
+            Hide
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

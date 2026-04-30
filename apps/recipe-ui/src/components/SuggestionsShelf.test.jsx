@@ -91,19 +91,30 @@ describe('SuggestionsShelf', () => {
     });
   });
 
-  it('dismiss button removes the card from view', () => {
+  it('dismiss button shows confirm dialog, Hide removes the card', () => {
     render(<SuggestionsShelf accessToken="t" suggestions={SUGGESTIONS} />);
     expect(screen.getByText('Maya R.')).toBeInTheDocument();
     const dismissButtons = screen.getAllByRole('button', { name: /dismiss/i });
     fireEvent.click(dismissButtons[0]);
+    // Card still visible while the confirm dialog is open
+    expect(screen.getByText('Maya R.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^hide$/i }));
     expect(screen.queryByText('Maya R.')).not.toBeInTheDocument();
     // Other cards still there
     expect(screen.getByText('James T.')).toBeInTheDocument();
   });
 
-  it('unmounts entirely after dismissing all cards', () => {
+  it('Cancel in confirm dialog keeps the card visible', () => {
+    render(<SuggestionsShelf accessToken="t" suggestions={SUGGESTIONS} />);
+    fireEvent.click(screen.getAllByRole('button', { name: /dismiss/i })[0]);
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    expect(screen.getByText('Maya R.')).toBeInTheDocument();
+  });
+
+  it('unmounts entirely after confirming dismiss on all cards', () => {
     const { container } = render(<SuggestionsShelf accessToken="t" suggestions={[SUGGESTIONS[0]]} />);
     fireEvent.click(screen.getByRole('button', { name: /dismiss/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^hide$/i }));
     expect(container.firstChild).toBeNull();
   });
 
