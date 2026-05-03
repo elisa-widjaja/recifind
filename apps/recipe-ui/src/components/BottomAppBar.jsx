@@ -5,6 +5,7 @@ const TABS = [
   { id: 'recipes', label: 'Recipes' },
   { id: 'friends', label: 'Friends' },
   { id: 'discover', label: 'Discover' },
+  { id: 'profile', label: 'Profile' },
 ];
 
 const NAV_HEIGHT = 64;
@@ -49,9 +50,29 @@ function DiscoverIcon({ active }) {
     </svg>
   );
 }
-const ICONS = { home: HomeIcon, recipes: RecipesIcon, friends: FriendsIcon, discover: DiscoverIcon };
+// Profile: filled circle with the user's initial. Larger than the other
+// tab icons since this tab has no text label below it (the avatar fills
+// the icon-plus-label vertical slot).
+function ProfileIcon({ active, initial }) {
+  return (
+    <Box
+      sx={{
+        width: 30, height: 30, borderRadius: '50%',
+        bgcolor: 'primary.main',
+        color: '#fff',
+        fontSize: 13, fontWeight: 700,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        opacity: active ? 1 : 0.55,
+        lineHeight: 1,
+      }}
+    >
+      {(initial || 'U').charAt(0).toUpperCase()}
+    </Box>
+  );
+}
+const ICONS = { home: HomeIcon, recipes: RecipesIcon, friends: FriendsIcon, discover: DiscoverIcon, profile: ProfileIcon };
 
-export default function BottomAppBar({ activeTab, onTabChange, pendingFriendCount = 0 }) {
+export default function BottomAppBar({ activeTab, onTabChange, pendingFriendCount = 0, profileInitial }) {
   return (
     <Box
       role="navigation"
@@ -75,6 +96,7 @@ export default function BottomAppBar({ activeTab, onTabChange, pendingFriendCoun
         const Icon = ICONS[tab.id];
         const active = activeTab === tab.id;
         const showBadge = tab.id === 'friends' && pendingFriendCount > 0;
+        const isProfile = tab.id === 'profile';
         return (
           <Box
             key={tab.id}
@@ -85,27 +107,47 @@ export default function BottomAppBar({ activeTab, onTabChange, pendingFriendCoun
             onClick={() => onTabChange(tab.id)}
             sx={{
               flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
+              justifyContent: 'center',
               gap: '3px', pt: '4px', position: 'relative',
               border: 'none', bgcolor: 'transparent', cursor: 'pointer',
               fontFamily: 'inherit',
               color: active ? 'primary.main' : 'text.primary',
+              // No tap-highlight background in any theme; the icon-only scale
+              // below provides all the press feedback.
+              WebkitTapHighlightColor: 'transparent',
+              '&:focus': { outline: 'none' },
+              '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: '-4px', borderRadius: '6px' },
+              // Scale only the icon wrap (not the label) when the tab is
+              // pressed. Smooth ease-out on the way back.
+              '&:active .bn-icon': { transform: 'scale(0.88)' },
             }}
           >
-            {showBadge ? (
-              <Badge
-                badgeContent={pendingFriendCount}
-                color="error"
-                aria-label={`${pendingFriendCount} pending friend requests`}
-                sx={{ '& .MuiBadge-badge': { fontSize: 9, height: 14, minWidth: 14, padding: '0 4px' } }}
-              >
-                <Icon active={active} />
-              </Badge>
-            ) : (
-              <Icon active={active} />
+            <Box
+              className="bn-icon"
+              sx={{
+                display: 'inline-flex',
+                transition: 'transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+                willChange: 'transform',
+              }}
+            >
+              {showBadge ? (
+                <Badge
+                  badgeContent={pendingFriendCount}
+                  color="error"
+                  aria-label={`${pendingFriendCount} pending friend requests`}
+                  sx={{ '& .MuiBadge-badge': { fontSize: 9, height: 14, minWidth: 14, padding: '0 4px' } }}
+                >
+                  <Icon active={active} initial={profileInitial} />
+                </Badge>
+              ) : (
+                <Icon active={active} initial={profileInitial} />
+              )}
+            </Box>
+            {!isProfile && (
+              <Typography sx={{ fontSize: 9, fontWeight: 600, color: active ? 'primary.main' : 'text.disabled' }}>
+                {tab.label}
+              </Typography>
             )}
-            <Typography sx={{ fontSize: 9, fontWeight: 600, color: active ? 'primary.main' : 'text.disabled' }}>
-              {tab.label}
-            </Typography>
           </Box>
         );
       })}

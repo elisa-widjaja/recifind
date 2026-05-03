@@ -84,22 +84,30 @@ export default function DiscoverPage({
 
   return (
     <Box sx={{ pb: '90px' }}>
-      <Typography sx={{ fontFamily: "'Fraunces', Georgia, serif", fontWeight: 600, fontSize: 22, mb: 2 }}>
+      <Typography sx={{
+        fontFamily: "'Fraunces', Georgia, serif",
+        fontWeight: 600,
+        fontSize: '26px',
+        lineHeight: 1.2,
+        letterSpacing: '-0.01em',
+        color: 'text.primary',
+        mb: 2,
+      }}>
         Discover
       </Typography>
 
       <Stack sx={{ gap: '32px' }}>
-        {trending.length > 0 && (
-          <Box>
-            <SectionLabel>Trending Now</SectionLabel>
-            <RecipeShelf recipes={trending.slice(0, 5)} onSave={onSaveRecipe} onShare={onShareRecipe} onOpen={onOpenRecipe} cardWidth={180} cardHeight={120} gap="8px" />
-          </Box>
-        )}
-
         {videoRecipes.length > 0 && (
           <Box>
             <SectionLabel>Watch & Cook</SectionLabel>
             <DiscoverRecipes recipes={videoRecipes} onOpen={onOpenRecipe} />
+          </Box>
+        )}
+
+        {trending.length > 0 && (
+          <Box>
+            <SectionLabel>Trending Now</SectionLabel>
+            <RecipeShelf recipes={trending.slice(0, 5)} onSave={onSaveRecipe} onShare={onShareRecipe} onOpen={onOpenRecipe} cardWidth={180} cardHeight={120} gap="8px" />
           </Box>
         )}
 

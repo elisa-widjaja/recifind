@@ -4,8 +4,6 @@ import {
 } from '@mui/material';
 import RecipeShelf from './RecipeShelf';
 import DiscoverRecipes from './DiscoverRecipes';
-import RecipeListCard from './RecipeListCard';
-import TrendingHealthCarousel from './TrendingHealthCarouselB';
 
 const API_BASE_URL = import.meta.env.VITE_RECIPES_API_BASE_URL || '';
 
@@ -406,9 +404,6 @@ function WhyJoinCarousel({ onJoin, darkMode }) {
 export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare }) {
   const [trending, setTrending] = useState([]);
   const [discover, setDiscover] = useState([]);
-  const [editorsPick, setEditorsPick] = useState([]);
-  const [aiPicks, setAiPicks] = useState([]);
-  const [editorsExpanded, setEditorsExpanded] = useState(false);
   const [fabVisible, setFabVisible] = useState(false);
   const whyJoinRef = useRef(null);
 
@@ -426,11 +421,7 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare 
   useEffect(() => {
     fetchJson('/public/trending-recipes').then(d => setTrending(d?.recipes || []));
     fetchJson('/public/discover').then(d => setDiscover(d?.recipes || []));
-    fetchJson('/public/editors-pick').then(d => setEditorsPick(d?.recipes || []));
-    fetchJson('/public/ai-picks').then(d => setAiPicks(d?.picks || []));
   }, []);
-
-  const visibleEditors = editorsExpanded ? editorsPick : editorsPick.slice(0, 3);
 
   // YouTube Shorts dropped — the embed hits Error 153 in WKWebView and the
   // nocookie/UA workarounds didn't fix it. Instagram + TikTok reels are the
@@ -461,7 +452,7 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare 
     <Container maxWidth="sm" disableGutters>
       <Box sx={{ px: { xs: 2, sm: 3 }, pb: 6 }}>
 
-        <Stack sx={{ gap: '32px', pt: '20px' }}>
+        <Stack sx={{ gap: '32px', pt: 'calc(20px + env(safe-area-inset-top))' }}>
 
           {/* ── Why Join Recifind ── */}
           <Box ref={whyJoinRef}>
@@ -489,32 +480,6 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare 
             <Box>
               <SectionLabel label="Discover New Recipes" />
               <DiscoverRecipes recipes={videoRecipes} onOpen={onOpenRecipe} />
-            </Box>
-          )}
-
-          {/* ── Section 2: Editor's Pick ── */}
-          {editorsPick.length > 0 && (
-            <Box>
-              <SectionLabel label="Editor's Picks" />
-              <Stack spacing={1}>
-                {visibleEditors.map(recipe => (
-                  <RecipeListCard key={recipe.id} recipe={recipe} onSave={onJoin} onShare={onShare} onOpen={onOpenRecipe} />
-                ))}
-              </Stack>
-              {editorsPick.length > 3 && (
-                <Button size="small" onClick={() => setEditorsExpanded(e => !e)}
-                  sx={{ mt: 0.5, fontSize: 11, textTransform: 'none', color: 'text.secondary' }}>
-                  {editorsExpanded ? 'Show less' : `+ ${editorsPick.length - 3} more picks`}
-                </Button>
-              )}
-            </Box>
-          )}
-
-          {/* ── Section 3: AI Picks ── */}
-          {aiPicks.length > 0 && (
-            <Box>
-              <SectionLabel label="Trending in Health & Nutrition" />
-              <TrendingHealthCarousel picks={aiPicks} onOpen={onOpenRecipe} onSave={onJoin} onShare={onShare} />
             </Box>
           )}
 

@@ -99,7 +99,7 @@ export default function StatsTiles({ recipeCount, friendCount, onAddRecipe, onVi
   });
 
   return (
-    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', mb: { xs: '52px', md: '40px' } }}>
+    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
 
       {/* Tile 1 — Recipes */}
       <Box sx={{ ...tileBase, background: t1.bg, border: `1px solid ${t1.border}` }}>

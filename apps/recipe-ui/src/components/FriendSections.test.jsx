@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { ActivityItem } from './FriendSections';
+import { describe, expect, it, vi, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import FriendSections, { ActivityItem } from './FriendSections';
 
 const FRIEND_REQUEST_ITEM = {
   id: 101,
@@ -82,5 +82,57 @@ describe('ActivityItem — friend_request', () => {
     // Clicking the row (if user tries to) must NOT fire onOpenFriendRequest
     fireEvent.click(screen.getByText('Jules sent you a friend request'));
     expect(onOpen).not.toHaveBeenCalled();
+  });
+});
+
+describe('FriendSections — unified feed (Phase 5)', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  function mockFetch(handlers) {
+    global.fetch = vi.fn((url) => {
+      for (const [pattern, response] of handlers) {
+        if (url.includes(pattern)) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(response) });
+        }
+      }
+      return Promise.resolve({ ok: false });
+    });
+  }
+
+  const noop = () => {};
+
+  it('renders a single "From your friends" section when there is friend activity', async () => {
+    mockFetch([
+      ['/friends/activity', { activity: [{ id: 1, type: 'friend_saved_recipe', friendName: 'Henny', recipe: { id: 'r1', title: 'Beef Stew' }, createdAt: new Date().toISOString() }] }],
+      ['/friends/recently-saved', { items: [] }],
+      ['/friends/recently-shared', { items: [] }],
+    ]);
+    render(<FriendSections accessToken="t" onOpenRecipe={noop} onSaveRecipe={noop} />);
+    await waitFor(() => expect(screen.getByText(/^Friend Activity$/i)).toBeInTheDocument());
+    expect(screen.queryByText(/recently saved by friends/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/recently shared by friends/i)).not.toBeInTheDocument();
+  });
+
+  it("does NOT render Editor's Picks or Trending in Health & Nutrition (those moved to Discover)", async () => {
+    mockFetch([
+      ['/friends/activity', { activity: [{ id: 1, type: 'friend_saved_recipe', friendName: 'Henny', recipe: { id: 'r1', title: 'Beef Stew' }, createdAt: new Date().toISOString() }] }],
+      ['/friends/recently-saved', { items: [] }],
+      ['/friends/recently-shared', { items: [] }],
+    ]);
+    render(<FriendSections accessToken="t" onOpenRecipe={noop} onSaveRecipe={noop} />);
+    await waitFor(() => expect(screen.getByText(/^Friend Activity$/i)).toBeInTheDocument());
+    expect(screen.queryByText(/editor's picks/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/trending in health & nutrition/i)).not.toBeInTheDocument();
+  });
+
+  it('hides "From your friends" entirely when there is no activity', async () => {
+    mockFetch([
+      ['/friends/activity', { activity: [] }],
+      ['/friends/recently-saved', { items: [] }],
+      ['/friends/recently-shared', { items: [] }],
+    ]);
+    render(<FriendSections accessToken="t" onOpenRecipe={noop} onSaveRecipe={noop} />);
+    // Wait a frame for the loaded state to settle, then assert absence
+    await waitFor(() => expect(screen.queryByText(/^Friend Activity$/i)).not.toBeInTheDocument());
   });
 });

@@ -1,9 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Box, Typography, Stack, Button, Dialog, DialogContent } from '@mui/material';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
-import RecipeShelf from './RecipeShelf';
-import RecipeListCard from './RecipeListCard';
-import TrendingHealthCarousel from './TrendingHealthCarouselB';
 import SuggestionsShelf from './SuggestionsShelf';
 
 const API_BASE_URL = import.meta.env.VITE_RECIPES_API_BASE_URL || '';
@@ -36,17 +33,20 @@ function timeAgo(iso) {
  *   onAcceptFriendRequest?: (fromUserId) => Promise<void> — called when user taps Accept on a friend_request activity item
  *   onDeclineFriendRequest?: (fromUserId) => Promise<void> — called when user taps Decline on a friend_request activity item
  */
-export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, dietaryPrefs, onOpenRecipe, onSaveRecipe, onShareRecipe, onInviteFriend, onOpenFriends, onSuggestionTap, onAcceptFriendRequest, onDeclineFriendRequest, darkMode, onCookWithFriendsVisible }) {
-  const [activity, setActivity] = useState([]);
-  const [recentlySaved, setRecentlySaved] = useState([]);
-  const [recentlyShared, setRecentlyShared] = useState([]);
+export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe, onShareRecipe, onInviteFriend, onOpenFriends, onSuggestionTap, onAcceptFriendRequest, onDeclineFriendRequest, darkMode, onCookWithFriendsVisible }) {
+  const [unifiedFeed, setUnifiedFeed] = useState([]);
   const [loaded, setLoaded] = useState(false);
-  const [activityExpanded, setActivityExpanded] = useState(false);
-  const [editorsPick, setEditorsPick] = useState([]);
-  const [editorsExpanded, setEditorsExpanded] = useState(false);
-  const [aiPicks, setAiPicks] = useState([]);
   const [requestDialogItem, setRequestDialogItem] = useState(null);
   const [requestDialogBusy, setRequestDialogBusy] = useState(false);
+
+  // Local helper: replace one item in the unified feed (used by accept/decline
+  // flow which previously mutated `activity` directly).
+  const updateFeedItem = (id, updater) => {
+    setUnifiedFeed((prev) => prev.map((a) => (a.id === id ? updater(a) : a)));
+  };
+  const removeFeedItem = (id) => {
+    setUnifiedFeed((prev) => prev.filter((a) => a.id !== id));
+  };
 
   async function handleRequestAccept() {
     if (!requestDialogItem || requestDialogBusy) return;
@@ -55,9 +55,7 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
       await onAcceptFriendRequest?.(requestDialogItem.fromUserId);
       // Accepted — keep the row visible but flag it resolved so it renders
       // with a checkmark and can't be tapped again.
-      setActivity((prev) => prev.map((a) =>
-        a.id === requestDialogItem.id ? { ...a, resolved: true } : a
-      ));
+      updateFeedItem(requestDialogItem.id, (a) => ({ ...a, resolved: true }));
       setRequestDialogItem(null);
     } finally {
       setRequestDialogBusy(false);
@@ -70,7 +68,7 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
     try {
       await onDeclineFriendRequest?.(requestDialogItem.fromUserId);
       // Declined — remove the row entirely.
-      setActivity((prev) => prev.filter((a) => a.id !== requestDialogItem.id));
+      removeFeedItem(requestDialogItem.id);
       setRequestDialogItem(null);
     } finally {
       setRequestDialogBusy(false);
@@ -84,29 +82,39 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
       fetchJson('/friends/recently-saved', accessToken),
       fetchJson('/friends/recently-shared', accessToken),
     ]).then(([act, saved, shared]) => {
-      setActivity(act?.activity || []);
-      setRecentlySaved((saved?.items || []).map(i => ({ ...i.recipe, _friendName: i.friendName })));
-      setRecentlyShared((shared?.items || []).map(i => ({ ...i.recipe, _friendName: i.friendName })));
+      const merged = [
+        ...(act?.activity || []).map((a) => ({ ...a, _kind: 'activity' })),
+        ...(saved?.items || []).map((i) => ({
+          id: `saved-${i.recipe.id}`,
+          type: 'friend_saved_recipe',
+          friendName: i.friendName,
+          recipe: i.recipe,
+          createdAt: i.createdAt || new Date().toISOString(),
+          _kind: 'saved',
+        })),
+        ...(shared?.items || []).map((i) => ({
+          id: `shared-${i.recipe.id}`,
+          type: 'friend_shared_recipe',
+          friendName: i.friendName,
+          recipe: i.recipe,
+          createdAt: i.createdAt || new Date().toISOString(),
+          _kind: 'shared',
+        })),
+      ];
+      merged.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      // Dedup by friendName + type + recipeId so the same save doesn't appear
+      // twice when both /activity and /recently-saved return it.
+      const seen = new Set();
+      const dedup = merged.filter((item) => {
+        const key = `${item.friendName}|${item.type}|${item.recipe?.id || item.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      setUnifiedFeed(dedup);
       setLoaded(true);
     });
   }, [accessToken]);
-
-  useEffect(() => {
-    fetchJson('/public/editors-pick').then(d => setEditorsPick(d?.recipes || []));
-  }, []);
-
-  useEffect(() => {
-    const params = new URLSearchParams();
-    if (cuisinePrefs?.length && !cuisinePrefs.includes('All of the above')) {
-      params.set('cuisine', cuisinePrefs.join(','));
-    }
-    if (cookingFor) params.set('cooking_for', cookingFor);
-    if (dietaryPrefs?.length) params.set('diet', dietaryPrefs.join(', '));
-    const query = params.toString() ? `?${params.toString()}` : '';
-    fetchJson(`/public/ai-picks${query}`).then(d => setAiPicks(d?.picks || []));
-  }, [cookingFor, cuisinePrefs, dietaryPrefs]);
-  // Note: cuisinePrefs is null (not []) when profile hasn't loaded yet.
-  // This prevents the effect re-firing on every render before userProfile is available.
 
   const cookWithFriendsRef = useRef(null);
 
@@ -123,129 +131,20 @@ export default function FriendSections({ accessToken, cookingFor, cuisinePrefs, 
 
   if (!loaded) return null;
 
-  const hasActivity = activity.length > 0;
-  const hasSaved = recentlySaved.length > 0;
-  const hasShared = recentlyShared.length > 0;
-  const hasEditorsPick = editorsPick.length > 0;
-
-  const visibleEditors = editorsExpanded ? editorsPick : editorsPick.slice(0, 3);
-
   return (
     <Stack sx={{ gap: '32px' }}>
-      {hasActivity && (
-        <Box sx={{ pt: '20px' }}>
+      {unifiedFeed.length > 0 && (
+        <Box>
           <SectionLabel>Friend Activity</SectionLabel>
-          <Box sx={{
-            bgcolor: 'background.paper',
-            borderRadius: '12px',
-            boxShadow: theme => theme.palette.mode === 'dark'
-              ? '0 0 0 1px rgba(255,255,255,0.10)'
-              : '0 1px 4px rgba(0,0,0,.08)',
-            overflow: 'hidden',
-          }}>
-            {activity.slice(0, activityExpanded ? 5 : 2).map((item, index, arr) => (
-              <Box key={item.id}>
-                <ActivityItem
-                  item={item}
-                  onOpenRecipe={onOpenRecipe}
-                  onOpenFriendRequest={(it) => setRequestDialogItem(it)}
-                />
-                {index < arr.length - 1 && (
-                  <Box sx={{ height: '1px', bgcolor: 'divider', mx: 1.5 }} />
-                )}
-              </Box>
-            ))}
-          </Box>
-          {activity.length > 2 && (
-            <Typography
-              component="button"
-              onClick={() => setActivityExpanded((prev) => !prev)}
-              sx={{
-                background: 'none',
-                border: 'none',
-                p: 0,
-                mt: 0.75,
-                cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: 500,
-                color: theme => theme.palette.mode === 'dark' ? 'primary.light' : 'primary.main',
-                fontFamily: 'inherit',
-              }}
-            >
-              {activityExpanded ? 'Show less' : `+ ${activity.length - 2} more`}
-            </Typography>
-          )}
-        </Box>
-      )}
-
-      {hasSaved && (
-        <Box>
-          <SectionLabel>Recently Saved by Friends</SectionLabel>
-          <RecipeShelf
-            recipes={recentlySaved}
-            onSave={onSaveRecipe}
-            onShare={(recipe, e) => onShareRecipe?.(recipe, e)}
-            onOpen={onOpenRecipe}
-            cardWidth={180}
-            cardHeight={120}
-            gap="8px"
-          />
-        </Box>
-      )}
-
-      {hasShared && (
-        <Box>
-          <SectionLabel>Recently Shared by Friends</SectionLabel>
-          <RecipeShelf
-            recipes={recentlyShared}
-            onSave={onSaveRecipe}
-            onShare={(recipe, e) => onShareRecipe?.(recipe, e)}
-            onOpen={onOpenRecipe}
-            cardWidth={180}
-            cardHeight={120}
-            gap="8px"
+          <FriendActivityTicker
+            items={unifiedFeed}
+            onOpenRecipe={onOpenRecipe}
+            onOpenFriendRequest={(it) => setRequestDialogItem(it)}
           />
         </Box>
       )}
 
       <SuggestionsShelf accessToken={accessToken} onTapCard={onSuggestionTap} />
-
-      {hasEditorsPick && (
-        <Box>
-          <SectionLabel>Editor's Picks</SectionLabel>
-          <Stack spacing={1}>
-            {visibleEditors.map(recipe => (
-              <RecipeListCard key={recipe.id} recipe={recipe} onSave={onSaveRecipe} onShare={onShareRecipe} onOpen={onOpenRecipe} />
-            ))}
-          </Stack>
-          {editorsPick.length > 3 && (
-            <Typography
-              component="button"
-              onClick={() => setEditorsExpanded(e => !e)}
-              sx={{
-                background: 'none',
-                border: 'none',
-                p: 0,
-                mt: 0.75,
-                cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: 500,
-                color: theme => theme.palette.mode === 'dark' ? 'primary.light' : 'primary.main',
-                fontFamily: 'inherit',
-              }}
-            >
-              {editorsExpanded ? 'Show less' : `+ ${editorsPick.length - 3} more picks`}
-            </Typography>
-          )}
-        </Box>
-      )}
-
-      {aiPicks.length > 0 && (
-        <Box>
-          <SectionLabel>Trending in Health & Nutrition</SectionLabel>
-          <TrendingHealthCarousel picks={aiPicks} onOpen={onOpenRecipe} onSave={onSaveRecipe} onShare={onShareRecipe} />
-        </Box>
-      )}
 
       <Box ref={cookWithFriendsRef}>
         <CookWithFriends onInvite={onInviteFriend} darkMode={darkMode} />
@@ -336,6 +235,153 @@ function FriendRequestDialog({ item, busy, onAccept, onDecline, onClose }) {
 
 function SectionLabel({ children }) {
   return <Typography fontWeight={700} fontSize={13} sx={{ color: 'text.primary', mb: '10px' }}>{children}</Typography>;
+}
+
+// ── Friend Activity ticker ─────────────────────────────────────────────────
+// Vertical scroll ticker. Window of 3 rows visible. Every FA_HOLD_MS, the top
+// row rolls up out of view, rows 2 & 3 roll up to take its place, and the
+// next item reveals at the bottom. When the user taps "show N more", the
+// animation pauses and the full list renders statically.
+const FA_VISIBLE = 3;
+const FA_MAX_ITEMS = 10;           // cap on total items the ticker will show
+const FA_ROW_HEIGHT = 64;          // px; matches the strip card's min-height
+const FA_GAP = 14;                 // px between rows
+const FA_STEP = FA_ROW_HEIGHT + FA_GAP;
+const FA_HOLD_MS = 4000;           // delay between scroll steps
+const FA_SLIDE_MS = 600;           // duration of each scroll step
+const FA_SLIDE_EASE = 'cubic-bezier(0.4, 0, 0.2, 1)';
+// Horizontal padding inside the overflow:hidden container so the strip card
+// shadows aren't clipped at the sides. Negative outer margin pulls the
+// container back outward so cards stay visually flush with parent content.
+const FA_SIDE_PAD = 8;
+
+function FriendActivityTicker({ items, onOpenRecipe, onOpenFriendRequest }) {
+  // Cap the pool the ticker will ever surface. Excess items are dropped.
+  const cappedItems = items.slice(0, FA_MAX_ITEMS);
+  const [idx, setIdx] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const innerRef = useRef(null);
+
+  // Tick once per FA_HOLD_MS until the bottom-most frame is reached, then
+  // stop. We use a self-scheduling timeout (re-armed on each idx change)
+  // instead of setInterval so the cycle ends naturally when idx hits the
+  // last useful frame.
+  useEffect(() => {
+    if (paused) return;
+    if (cappedItems.length <= FA_VISIBLE) return;
+    const maxIdx = cappedItems.length - FA_VISIBLE;
+    if (idx >= maxIdx) return;
+    const t = setTimeout(() => {
+      setIdx((i) => Math.min(i + 1, maxIdx));
+    }, FA_HOLD_MS);
+    return () => clearTimeout(t);
+  }, [paused, cappedItems.length, idx]);
+
+  // When paused (expanded) — render the (capped) full list as a static stack
+  // with a "Show less" link to return to the animated ticker.
+  if (paused) {
+    return (
+      <>
+        <Stack spacing={`${FA_GAP}px`}>
+          {cappedItems.map((item) => (
+            <ActivityStrip key={item.id} item={item} onOpenRecipe={onOpenRecipe} onOpenFriendRequest={onOpenFriendRequest} />
+          ))}
+        </Stack>
+        <Typography
+          component="button"
+          onClick={() => { setPaused(false); setIdx(0); }}
+          sx={{
+            background: 'none', border: 'none', p: 0,
+            mt: 2.5, cursor: 'pointer',
+            fontSize: 12, fontWeight: 500,
+            color: (theme) => theme.palette.mode === 'dark' ? 'primary.light' : 'primary.main',
+            fontFamily: 'inherit',
+          }}
+        >
+          Show less
+        </Typography>
+      </>
+    );
+  }
+
+  // No looping: just render the capped items in order. The ticker stops
+  // scrolling once the bottom-most frame is reached.
+  const renderList = cappedItems;
+  const moreCount = Math.max(0, cappedItems.length - FA_VISIBLE);
+
+  return (
+    <>
+      <Box
+        sx={{
+          height: FA_ROW_HEIGHT * FA_VISIBLE + (FA_VISIBLE - 1) * FA_GAP,
+          overflow: 'hidden',
+          position: 'relative',
+          // Breathing room so strip-card shadows aren't clipped at the
+          // sides; outer mx pulls the container back so cards stay flush
+          // with the rest of the page content.
+          px: `${FA_SIDE_PAD}px`,
+          mx: `-${FA_SIDE_PAD}px`,
+          // Vertical fade on top + bottom: visually softens the roll-out of
+          // the top card and the roll-in of the new bottom card. As a side
+          // effect, hides the bottom shadow's clip line at the container
+          // edges (the shadow fades through the mask).
+          maskImage: 'linear-gradient(to bottom, transparent 0, black 24px, black calc(100% - 24px), transparent 100%)',
+          WebkitMaskImage: 'linear-gradient(to bottom, transparent 0, black 24px, black calc(100% - 24px), transparent 100%)',
+        }}
+      >
+        <Box
+          ref={innerRef}
+          sx={{
+            display: 'flex', flexDirection: 'column', gap: `${FA_GAP}px`,
+            transform: `translateY(${-idx * FA_STEP}px)`,
+            transition: `transform ${FA_SLIDE_MS}ms ${FA_SLIDE_EASE}`,
+            willChange: 'transform',
+          }}
+        >
+          {renderList.map((item, i) => (
+            <ActivityStrip
+              key={`${item.id}-${i}`}
+              item={item}
+              onOpenRecipe={onOpenRecipe}
+              onOpenFriendRequest={onOpenFriendRequest}
+            />
+          ))}
+        </Box>
+      </Box>
+      {moreCount > 0 && (
+        <Typography
+          component="button"
+          onClick={() => setPaused(true)}
+          sx={{
+            background: 'none', border: 'none', p: 0,
+            mt: 2.5, cursor: 'pointer',
+            fontSize: 12, fontWeight: 500,
+            color: (theme) => theme.palette.mode === 'dark' ? 'primary.light' : 'primary.main',
+            fontFamily: 'inherit',
+          }}
+        >
+          + show {moreCount} more
+        </Typography>
+      )}
+    </>
+  );
+}
+
+// Single activity row rendered as a pill-card strip with its own shadow.
+function ActivityStrip({ item, onOpenRecipe, onOpenFriendRequest }) {
+  return (
+    <Box sx={{
+      bgcolor: 'background.paper',
+      borderRadius: '12px',
+      boxShadow: (theme) => theme.palette.mode === 'dark'
+        ? '0 0 0 1px rgba(255,255,255,0.10)'
+        : '0 1px 4px rgba(0,0,0,.08)',
+      minHeight: FA_ROW_HEIGHT,
+      display: 'flex', alignItems: 'center',
+    }}>
+      <ActivityItem item={item} onOpenRecipe={onOpenRecipe} onOpenFriendRequest={onOpenFriendRequest} />
+    </Box>
+  );
 }
 
 // ── Cook with Friends ──
@@ -437,7 +483,16 @@ const RECIPE_TYPES = new Set(['friend_cooked_recipe', 'friend_saved_recipe', 'fr
 
 export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest }) {
   const friendName = item.friendName ?? '?';
-  const color = AVATAR_COLORS[Math.abs(item.id) % AVATAR_COLORS.length];
+  // Hash friendName (string-safe; same friend gets the same color across
+  // multiple activities). The previous version hashed item.id which broke
+  // for the merged feed's synthetic string ids ("saved-..." / "shared-...")
+  // because Math.abs(string) is NaN — leaving the avatar with no bg color.
+  const color = (() => {
+    const seed = String(friendName);
+    let h = 0;
+    for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+    return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+  })();
   const initial = friendName.charAt(0).toUpperCase();
   const isRecipeNotif = RECIPE_TYPES.has(item.type) && item.recipe;
   // friend_request items are "resolved" once the pending row is gone on the

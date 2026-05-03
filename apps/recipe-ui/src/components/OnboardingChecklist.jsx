@@ -1,64 +1,117 @@
-import { Box, Typography } from '@mui/material';
+import { useState } from 'react';
+import { Box, Typography, Collapse } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 const STEPS = [
   { key: 'recipe', label: 'Add your first recipe' },
   { key: 'invite', label: 'Invite a friend' },
-  { key: 'save',   label: "Save a friend's recipe" },
+  { key: 'share',  label: 'Share a recipe with a friend' },
 ];
 
-export default function OnboardingChecklist({ hasRecipe, hasInvitedFriend, hasSavedFriendRecipe }) {
-  const status = { recipe: !!hasRecipe, invite: !!hasInvitedFriend, save: !!hasSavedFriendRecipe };
+export default function OnboardingChecklist({ hasRecipe, hasInvitedFriend, hasSharedRecipe, onDismiss }) {
+  const status = { recipe: !!hasRecipe, invite: !!hasInvitedFriend, share: !!hasSharedRecipe };
   const done = STEPS.filter((s) => status[s.key]).length;
+  const [expanded, setExpanded] = useState(true);
 
   if (done === STEPS.length) return null;
-
-  const pct = Math.round((done / STEPS.length) * 100);
 
   return (
     <Box sx={{
       bgcolor: 'background.paper',
-      borderRadius: 2,
-      p: 1.5,
+      borderRadius: '12px',
+      px: 2.5,
+      // pt stays constant so the header doesn't shift when toggling.
+      // Set to match the collapsed pb (1.5) so the collapsed pill is
+      // symmetric. Expanded pb stays larger to give the steps room below.
+      pt: 1.5,
+      pb: expanded ? 2.5 : 1.5,
       border: '2px solid',
       borderColor: 'rgba(124,58,237,0.10)',
       boxShadow: '0 1px 2px rgba(0,0,0,.06)',
-      mb: 2,
+      mb: '100px',
+      transition: 'padding 200ms ease',
     }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-        <Typography sx={{ fontWeight: 700, fontSize: 12 }}>Get started</Typography>
-        <Typography sx={{ fontWeight: 700, fontSize: 12, color: 'primary.main' }}>{done} of {STEPS.length}</Typography>
+      {/* Header row: title + count + collapse toggle */}
+      <Box
+        component="button"
+        aria-label={expanded ? 'Collapse checklist' : 'Expand checklist'}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+        sx={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 1.25,
+          border: 'none', bgcolor: 'transparent', cursor: 'pointer',
+          fontFamily: 'inherit', textAlign: 'left', p: 0,
+        }}
+      >
+        <Typography sx={(theme) => ({
+          fontWeight: 700, fontSize: 16, flex: 1,
+          color: theme.palette.mode === 'dark' ? '#fff' : 'text.primary',
+        })}>
+          Get started
+        </Typography>
+        <Typography sx={{ fontWeight: 700, fontSize: 14, color: 'primary.main' }}>
+          {done} of {STEPS.length}
+        </Typography>
+        <ExpandMoreIcon
+          sx={{
+            fontSize: 22,
+            color: 'text.secondary',
+            transition: 'transform 200ms ease',
+            transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+          }}
+        />
       </Box>
 
-      {STEPS.map((step) => {
-        const isDone = status[step.key];
-        return (
-          <Box key={step.key} data-step={step.key} data-done={isDone ? 'true' : 'false'}
-            sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5, fontSize: 11 }}>
-            <Box sx={{
-              width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
-              border: '1.5px solid',
-              borderColor: isDone ? 'success.main' : 'divider',
-              bgcolor: isDone ? 'success.main' : 'transparent',
-              color: '#fff',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              {isDone && <CheckIcon sx={{ fontSize: 11 }} />}
+      <Collapse in={expanded} timeout={220} unmountOnExit={false}>
+        <Box sx={{ mt: 1.5 }}>
+          {STEPS.map((step) => {
+            const isDone = status[step.key];
+            return (
+              <Box key={step.key} data-step={step.key} data-done={isDone ? 'true' : 'false'}
+                sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 0.75 }}>
+                <Box sx={{
+                  width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                  border: '1.5px solid',
+                  borderColor: isDone ? 'primary.main' : 'divider',
+                  bgcolor: isDone ? 'primary.main' : 'transparent',
+                  color: '#fff',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {isDone && <CheckIcon sx={{ fontSize: 14 }} />}
+                </Box>
+                <Typography sx={{
+                  fontSize: 14,
+                  color: isDone ? 'text.disabled' : 'text.primary',
+                  textDecoration: isDone ? 'line-through' : 'none',
+                }}>
+                  {step.label}
+                </Typography>
+              </Box>
+            );
+          })}
+          {onDismiss && (
+            <Box
+              component="button"
+              aria-label="Dismiss checklist"
+              onClick={onDismiss}
+              sx={{
+                mt: 1, p: 0,
+                border: 'none', bgcolor: 'transparent', cursor: 'pointer',
+                fontFamily: 'inherit', textAlign: 'left',
+                fontSize: 13, fontWeight: 500,
+                color: 'text.secondary',
+                textDecoration: 'underline',
+                textUnderlineOffset: '3px',
+                alignSelf: 'flex-start',
+                '&:hover': { color: 'text.primary' },
+              }}
+            >
+              Dismiss
             </Box>
-            <Typography sx={{
-              fontSize: 11,
-              color: isDone ? 'text.disabled' : 'text.primary',
-              textDecoration: isDone ? 'line-through' : 'none',
-            }}>
-              {step.label}
-            </Typography>
-          </Box>
-        );
-      })}
-
-      <Box sx={{ bgcolor: 'rgba(124,58,237,0.10)', height: 4, borderRadius: 2, mt: 1, overflow: 'hidden' }}>
-        <Box sx={{ bgcolor: 'primary.main', height: '100%', width: `${pct}%`, transition: 'width 250ms ease' }} />
-      </Box>
+          )}
+        </Box>
+      </Collapse>
     </Box>
   );
 }

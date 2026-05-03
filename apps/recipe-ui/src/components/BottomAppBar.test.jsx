@@ -9,13 +9,20 @@ describe('BottomAppBar', () => {
     pendingFriendCount: 0,
   };
 
-  it('renders all four tab labels', () => {
+  it('renders all five tab labels', () => {
     render(<BottomAppBar {...defaultProps} />);
     expect(screen.getByRole('button', { name: /home/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /recipes/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /friends/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /discover/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /profile/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /add recipe/i })).not.toBeInTheDocument();
+  });
+
+  it('renders the user initial in the Profile tab when profileInitial is provided', () => {
+    render(<BottomAppBar {...defaultProps} profileInitial="elisa@example.com" />);
+    const profile = screen.getByRole('button', { name: /profile/i });
+    expect(profile.textContent).toContain('E');
   });
 
   it('marks the active tab as aria-selected', () => {
