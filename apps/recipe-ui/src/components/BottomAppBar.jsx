@@ -53,7 +53,25 @@ function DiscoverIcon({ active }) {
 // Profile: filled circle with the user's initial. Larger than the other
 // tab icons since this tab has no text label below it (the avatar fills
 // the icon-plus-label vertical slot).
-function ProfileIcon({ active, initial }) {
+function ProfileIcon({ initial, avatarUrl }) {
+  // Always full opacity / primary color so the avatar reads as
+  // "you" (not as a disabled tab icon) regardless of active state.
+  // Render the user's uploaded image when present; fall back to a
+  // primary-colored circle with their first-letter initial.
+  if (avatarUrl) {
+    return (
+      <Box
+        component="img"
+        src={avatarUrl}
+        alt=""
+        sx={{
+          width: 30, height: 30, borderRadius: '50%',
+          objectFit: 'cover',
+          display: 'block',
+        }}
+      />
+    );
+  }
   return (
     <Box
       sx={{
@@ -62,7 +80,6 @@ function ProfileIcon({ active, initial }) {
         color: '#fff',
         fontSize: 13, fontWeight: 700,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        opacity: active ? 1 : 0.55,
         lineHeight: 1,
       }}
     >
@@ -72,7 +89,7 @@ function ProfileIcon({ active, initial }) {
 }
 const ICONS = { home: HomeIcon, recipes: RecipesIcon, friends: FriendsIcon, discover: DiscoverIcon, profile: ProfileIcon };
 
-export default function BottomAppBar({ activeTab, onTabChange, pendingFriendCount = 0, profileInitial }) {
+export default function BottomAppBar({ activeTab, onTabChange, pendingFriendCount = 0, profileInitial, profileAvatarUrl }) {
   return (
     <Box
       role="navigation"
@@ -137,10 +154,10 @@ export default function BottomAppBar({ activeTab, onTabChange, pendingFriendCoun
                   aria-label={`${pendingFriendCount} pending friend requests`}
                   sx={{ '& .MuiBadge-badge': { fontSize: 9, height: 14, minWidth: 14, padding: '0 4px' } }}
                 >
-                  <Icon active={active} initial={profileInitial} />
+                  <Icon active={active} initial={profileInitial} avatarUrl={profileAvatarUrl} />
                 </Badge>
               ) : (
-                <Icon active={active} initial={profileInitial} />
+                <Icon active={active} initial={profileInitial} avatarUrl={profileAvatarUrl} />
               )}
             </Box>
             {!isProfile && (

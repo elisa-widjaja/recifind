@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>About — ReciFriend</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 680px;
+      margin: 0 auto;
+      /* Safe-area-aware top padding so the back button clears the dynamic
+         island / notch on iOS WKWebView (requires viewport-fit=cover above). */
+      padding: calc(env(safe-area-inset-top) + 28px) 24px 80px;
+      color: #1a1a1a;
+      line-height: 1.6;
+    }
+    h1 { font-size: 28px; font-weight: 800; margin: 0 0 4px; }
+    .tagline { font-size: 14px; color: #888; margin: 0 0 32px; font-style: italic; }
+    h2 { font-size: 18px; font-weight: 700; margin: 32px 0 8px; }
+    p { font-size: 15px; color: #333; margin: 0 0 12px; }
+    a { color: #6200EA; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .meta { font-size: 13px; color: #888; margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; }
+    .meta p { font-size: 13px; color: #888; margin: 0 0 6px; }
+    /* iOS-style circular back button — same look as privacy.html. */
+    .back {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.06);
+      color: #8a8a8a;
+      margin-bottom: 32px;
+      text-decoration: none;
+      transition: background-color 150ms ease, transform 150ms ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .back:hover { background: rgba(0, 0, 0, 0.1); text-decoration: none; }
+    .back:active { transform: scale(0.92); }
+    .back svg { display: block; width: 18px; height: 18px; }
+  </style>
+</head>
+<body>
+  <a href="/" class="back" aria-label="Back"
+     onclick="try { sessionStorage.setItem('skip_splash', '1'); } catch (e) {} if (window.history.length > 1) { event.preventDefault(); window.history.back(); }">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <line x1="19" y1="12" x2="5" y2="12"/>
+      <polyline points="12 19 5 12 12 5"/>
+    </svg>
+  </a>
+
+  <h1>ReciFriend</h1>
+  <p class="tagline">A group chat for cooking.</p>
+
+  <h2>What it is</h2>
+  <p>ReciFriend is a recipe-saving and sharing app for home cooks. Save the recipes you love, share them with friends, and see what the people you cook with are making.</p>
+
+  <h2>Who it's for</h2>
+  <p>Made for home cooks sharing with family and friends — not influencers, not audiences. If you've ever sent a recipe link in a group chat and wished it lived somewhere better, ReciFriend is for you.</p>
+
+  <h2>How it works</h2>
+  <p>Paste a recipe URL from anywhere — TikTok, Instagram, food blogs, YouTube — and we'll extract the ingredients and steps so you can cook from the recipe directly. Add friends, share what you're cooking, and let your people inspire your next meal.</p>
+
+  <h2>Get in touch</h2>
+  <p>Questions, feedback, feature ideas, bugs — anything: <a href="mailto:hello@recifriend.com">hello@recifriend.com</a>.</p>
+  <p>Read our <a href="/privacy.html">Privacy Policy</a>.</p>
+
+  <div class="meta">
+    <p>recifriend.com</p>
+    <p>Made with care.</p>
+  </div>
+</body>
+</html>

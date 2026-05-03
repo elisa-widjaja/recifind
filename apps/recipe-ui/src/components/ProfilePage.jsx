@@ -1,12 +1,13 @@
-import { Box, Typography, Avatar, ToggleButton, ToggleButtonGroup } from '@mui/material';
+import { useRef, useState } from 'react';
+import { Box, Typography, Avatar, ToggleButton, ToggleButtonGroup, Menu, MenuItem } from '@mui/material';
 import SettingsBrightnessOutlinedIcon from '@mui/icons-material/SettingsBrightnessOutlined';
 import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined';
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
 
-function LineIcon({ d, size = 22 }) {
+function LineIcon({ d, size = 22, strokeWidth = 2 }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth}
       strokeLinecap="round" strokeLinejoin="round" width={size} height={size}>
       {d}
     </svg>
@@ -41,8 +42,9 @@ const InfoD = (
 );
 const ShieldD = <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>;
 const ChevronRightD = <path d="M9 18l6-6-6-6"/>;
+const PlusD = <path d="M12 5v14M5 12h14"/>;
 
-function Row({ icon, label, value, onClick, danger }) {
+function Row({ icon, label, value, onClick, danger, noChevron }) {
   return (
     <Box
       component="button"
@@ -54,6 +56,11 @@ function Row({ icon, label, value, onClick, danger }) {
         fontFamily: 'inherit',
         textAlign: 'left',
         color: danger ? 'error.main' : 'text.primary',
+        // Kill the iOS / mobile-browser tap highlight that briefly flashes
+        // a dark overlay on tap (was reading as "drawer flash" because the
+        // overlay paints just before the drawer slide begins).
+        WebkitTapHighlightColor: 'transparent',
+        '&:focus': { outline: 'none' },
       }}
     >
       <Box sx={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', color: danger ? 'error.main' : 'text.secondary' }}>
@@ -63,9 +70,9 @@ function Row({ icon, label, value, onClick, danger }) {
       {value && (
         <Typography sx={{ fontSize: 13, color: 'primary.main', fontWeight: 600 }}>{value}</Typography>
       )}
-      {!value && !danger && (
+      {!value && !danger && !noChevron && (
         <Box sx={{ color: 'action.disabled' }}>
-          <LineIcon d={ChevronRightD} size={14} />
+          <LineIcon d={ChevronRightD} size={18} />
         </Box>
       )}
     </Box>
@@ -77,54 +84,133 @@ export default function ProfilePage({
   themePref,
   onThemeChange,
   onEditName,
-  onEditAvatar,
+  onPickAvatar,
+  onRemoveAvatar,
   onEditCookingPrefs,
   onSendFeedback,
   onOpenAbout,
+  onOpenNotifications,
   onPrivacy,
   onSignOut,
   notificationsEnabled,
+  avatarUploading,
 }) {
   const displayName = user?.displayName || user?.email?.split('@')[0] || 'You';
   const initial = (displayName || 'U').charAt(0).toUpperCase();
+  const hasAvatar = Boolean(user?.avatarUrl);
+  const fileInputRef = useRef(null);
+  const avatarBoxRef = useRef(null);
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
+
+  const openFilePicker = () => fileInputRef.current?.click();
+  const handleEditAvatarClick = () => {
+    if (avatarUploading) return;
+    // No avatar yet → straight to file picker. Avatar exists → menu so the
+    // user can replace or remove.
+    if (hasAvatar) setAvatarMenuOpen(true);
+    else openFilePicker();
+  };
+  const handleFileChange = (event) => {
+    const file = event.target.files?.[0];
+    // Reset so picking the same filename twice still fires onChange.
+    event.target.value = '';
+    if (!file || !onPickAvatar) return;
+    onPickAvatar(file);
+  };
+  const closeAvatarMenu = () => setAvatarMenuOpen(false);
 
   return (
     <Box sx={{ pb: '90px' }}>
       {/* Hero */}
       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pt: 1, pb: 2.5 }}>
-        <Box sx={{ position: 'relative', mb: 1 }}>
-          <Avatar sx={{ width: 72, height: 72, bgcolor: 'primary.main', fontSize: 28, fontWeight: 700 }}>
+        <Box ref={avatarBoxRef} sx={{ position: 'relative', mb: '20px' }}>
+          <Avatar
+            src={user?.avatarUrl || undefined}
+            sx={{ width: 80, height: 80, bgcolor: 'primary.main', fontSize: 30, fontWeight: 700 }}
+          >
             {initial}
           </Avatar>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={handleFileChange}
+          />
           <Box
             component="button"
-            aria-label="Edit avatar"
-            onClick={onEditAvatar}
-            sx={{
-              position: 'absolute', bottom: 0, right: 0,
-              width: 24, height: 24, borderRadius: '50%',
-              bgcolor: 'background.paper',
+            aria-label="Change avatar"
+            onClick={handleEditAvatarClick}
+            disabled={avatarUploading}
+            sx={(theme) => ({
+              position: 'absolute', top: 0, right: 0,
+              width: 28, height: 28, borderRadius: '50%',
+              // Light: solid background.paper (white). Dark: translucent
+              // white so the badge still reads as light against the dark
+              // surface and the purple plus stays high-contrast.
+              bgcolor: theme.palette.mode === 'dark'
+                ? 'rgba(255,255,255,0.75)'
+                : 'background.paper',
               boxShadow: '0 1px 3px rgba(0,0,0,.15)',
               border: 'none', cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               color: 'primary.main',
+            })}
+          >
+            <LineIcon d={PlusD} size={14} strokeWidth={4} />
+          </Box>
+          <Menu
+            anchorEl={avatarBoxRef.current}
+            open={avatarMenuOpen}
+            onClose={closeAvatarMenu}
+            // Centered horizontally on the avatar (which itself is page-
+            // centered), with a 20px vertical gap from the badge so the
+            // popup doesn't crowd the + icon.
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'center' }}
+            slotProps={{
+              paper: {
+                sx: {
+                  mt: '20px',
+                  borderRadius: '14px',
+                  minWidth: 200,
+                  boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
+                },
+              },
             }}
           >
-            <LineIcon d={PencilD} size={13} />
-          </Box>
+            <MenuItem onClick={() => { closeAvatarMenu(); openFilePicker(); }}>
+              Replace photo
+            </MenuItem>
+            <MenuItem
+              onClick={() => { closeAvatarMenu(); onRemoveAvatar?.(); }}
+              sx={{ color: 'error.main' }}
+            >
+              Remove photo
+            </MenuItem>
+          </Menu>
         </Box>
         <Box
           component="button"
           onClick={onEditName}
           aria-label="Edit display name"
-          sx={{ display: 'flex', alignItems: 'center', gap: 0.5, border: 'none', bgcolor: 'transparent', cursor: 'pointer', fontFamily: 'inherit' }}
+          sx={{
+            display: 'flex', alignItems: 'center', gap: 0.5,
+            border: 'none', bgcolor: 'transparent', cursor: 'pointer', fontFamily: 'inherit',
+            mb: '12px',
+          }}
         >
-          <Typography sx={{ fontWeight: 700, fontSize: 14 }}>{displayName}</Typography>
+          <Typography sx={(theme) => ({
+            fontWeight: 700, fontSize: 16,
+            color: theme.palette.mode === 'dark' ? '#fff' : 'text.primary',
+          })}>
+            {displayName}
+          </Typography>
           <Box sx={{ color: 'action.disabled' }}>
             <LineIcon d={PencilD} size={13} />
           </Box>
         </Box>
-        <Typography sx={{ fontSize: 11, color: 'text.secondary' }}>{user?.email || ''}</Typography>
+        <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{user?.email || ''}</Typography>
       </Box>
 
       {/* Settings */}
@@ -167,14 +253,11 @@ export default function ProfilePage({
       </Box>
 
       <Row icon={<LineIcon d={CogD} size={20} />} label="Cooking preferences" onClick={onEditCookingPrefs} />
-      <Row icon={<LineIcon d={BellD} size={20} />} label="Notifications" value={notificationsEnabled ? 'On' : 'Off'} onClick={() => {}} />
+      <Row icon={<LineIcon d={BellD} size={20} />} label="Notifications" value={notificationsEnabled ? 'On' : 'Off'} onClick={onOpenNotifications} />
       <Row icon={<LineIcon d={ChatD} size={20} />} label="Send feedback" onClick={onSendFeedback} />
       <Row icon={<LineIcon d={InfoD} size={20} />} label="About" onClick={onOpenAbout} />
       <Row icon={<LineIcon d={ShieldD} size={20} />} label="Privacy" onClick={onPrivacy} />
-
-      <Box sx={{ mt: 2 }}>
-        <Row icon={<LogoutIcon sx={{ fontSize: 20 }} />} label="Sign out" onClick={onSignOut} danger />
-      </Box>
+      <Row icon={<LogoutIcon sx={{ fontSize: 20 }} />} label="Sign out" onClick={onSignOut} noChevron />
     </Box>
   );
 }

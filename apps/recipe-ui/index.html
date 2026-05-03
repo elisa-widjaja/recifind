@@ -85,7 +85,20 @@
         } catch (e) {}
         try {
           if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
-            document.documentElement.classList.add('capacitor-platform');
+            // Skip showing the WebView splash when the user navigates back
+            // from a static page that set the `skip_splash` flag (e.g.,
+            // /privacy.html). WKWebView doesn't reliably populate
+            // document.referrer on history.back(), so the static page sets a
+            // sessionStorage flag right before navigating back and we
+            // consume it here.
+            var skip = false;
+            try {
+              skip = sessionStorage.getItem('skip_splash') === '1';
+              if (skip) sessionStorage.removeItem('skip_splash');
+            } catch (e2) {}
+            if (!skip) {
+              document.documentElement.classList.add('capacitor-platform');
+            }
           }
         } catch (e) {}
       })();

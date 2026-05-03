@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Notifications — ReciFriend</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 680px;
+      margin: 0 auto;
+      padding: calc(env(safe-area-inset-top) + 28px) 24px 80px;
+      color: #1a1a1a;
+      line-height: 1.6;
+    }
+    h1 { font-size: 28px; font-weight: 800; margin: 0 0 4px; }
+    .tagline { font-size: 14px; color: #888; margin: 0 0 32px; font-style: italic; }
+    h2 { font-size: 18px; font-weight: 700; margin: 32px 0 8px; }
+    p, li { font-size: 15px; color: #333; margin: 0 0 12px; }
+    ul { padding-left: 20px; margin: 0 0 16px; }
+    a { color: #6200EA; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .back {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.06);
+      color: #8a8a8a;
+      margin-bottom: 32px;
+      text-decoration: none;
+      transition: background-color 150ms ease, transform 150ms ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .back:hover { background: rgba(0, 0, 0, 0.1); text-decoration: none; }
+    .back:active { transform: scale(0.92); }
+    .back svg { display: block; width: 18px; height: 18px; }
+    .cta {
+      display: inline-block;
+      background: #6200EA;
+      color: #fff;
+      padding: 12px 22px;
+      border-radius: 999px;
+      font-size: 15px;
+      font-weight: 600;
+      margin-top: 16px;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform 150ms ease, background-color 150ms ease;
+    }
+    .cta:hover { background: #5300CC; text-decoration: none; }
+    .cta:active { transform: scale(0.97); }
+    .meta { font-size: 13px; color: #888; margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; }
+    .meta p { font-size: 13px; color: #888; margin: 0 0 6px; }
+  </style>
+</head>
+<body>
+  <a href="/" class="back" aria-label="Back"
+     onclick="try { sessionStorage.setItem('skip_splash', '1'); } catch (e) {} if (window.history.length > 1) { event.preventDefault(); window.history.back(); }">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <line x1="19" y1="12" x2="5" y2="12"/>
+      <polyline points="12 19 5 12 12 5"/>
+    </svg>
+  </a>
+
+  <h1>Notifications</h1>
+  <p class="tagline">Stay in the loop with your cooking circle.</p>
+
+  <h2>Why turn them on</h2>
+  <p>Notifications are how ReciFriend keeps you connected to what your friends are cooking. We only send a handful — never spam.</p>
+  <ul>
+    <li><strong>Friend requests</strong> — know the moment someone wants to connect.</li>
+    <li><strong>Recipes shared with you</strong> — when a friend sends a recipe your way, see it right away.</li>
+    <li><strong>Saves on your recipes</strong> — find out when a friend bookmarks something you posted.</li>
+    <li><strong>Friend activity highlights</strong> — occasional nudges about what your circle is cooking this week.</li>
+  </ul>
+
+  <h2>How to manage</h2>
+  <p>Notification permissions are managed by your device's system settings. To turn them on or off:</p>
+  <p><strong>iOS:</strong> Settings → ReciFriend → Notifications.<br>
+  <strong>Android / web:</strong> use your browser or system settings.</p>
+
+  <button type="button" class="cta" onclick="openSettings()">Open Settings</button>
+
+  <div class="meta">
+    <p>You can revoke permissions any time. We'll never send marketing emails or push notifications.</p>
+  </div>
+
+  <script>
+    function openSettings() {
+      // iOS Capacitor: open the app's native Settings page so the user can
+      // toggle notification permission. Fall back to no-op outside Capacitor.
+      try {
+        var App = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
+        if (App && App.openUrl) {
+          App.openUrl({ url: 'app-settings:' });
+          return;
+        }
+      } catch (e) {}
+      // Web fallback: ask the browser for permission if not yet decided.
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    }
+  </script>
+</body>
+</html>

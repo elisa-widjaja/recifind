@@ -7,7 +7,7 @@ const baseProps = {
   themePref: 'system',
   onThemeChange: vi.fn(),
   onEditName: vi.fn(),
-  onEditAvatar: vi.fn(),
+  onPickAvatar: vi.fn(),
   onEditCookingPrefs: vi.fn(),
   onSendFeedback: vi.fn(),
   onOpenAbout: vi.fn(),

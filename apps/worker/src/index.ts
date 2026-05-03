@@ -62,6 +62,7 @@ interface UserProfile {
   cookingFor: string | null;
   cuisinePrefs: string[];
   dietaryPrefs: string[];
+  avatarUrl: string | null;
 }
 
 
@@ -576,6 +577,14 @@ export default {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
         return await handleUpdateProfile(request, env, user);
       }
+      if (url.pathname === '/profile/avatar' && request.method === 'POST') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return await handleUploadAvatar(request, env, user);
+      }
+      if (url.pathname === '/profile/avatar' && request.method === 'DELETE') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return await handleDeleteAvatar(env, user);
+      }
 
       // ── Friends routes ─────────────────────────────────────────────
       if (url.pathname === '/friends' && request.method === 'GET') {
@@ -1081,12 +1090,13 @@ async function handleGetProfile(env: Env, user: AuthenticatedUser) {
     cookingFor: profile.cookingFor,
     cuisinePrefs: profile.cuisinePrefs,
     dietaryPrefs: profile.dietaryPrefs,
+    avatarUrl: profile.avatarUrl,
     onboardingSeen: Boolean(onboardingRow?.onboarding_seen),
   });
 }
 
 async function handleUpdateProfile(request: Request, env: Env, user: AuthenticatedUser) {
-  const body = await request.json() as { displayName?: string; mealTypePrefs?: string[]; dietaryPrefs?: string[]; skillLevel?: string; cookingFor?: string; cuisinePrefs?: string[]; onboardingSeen?: boolean };
+  const body = await request.json() as { displayName?: string; mealTypePrefs?: string[]; dietaryPrefs?: string[]; skillLevel?: string; cookingFor?: string; cuisinePrefs?: string[]; onboardingSeen?: boolean; avatarUrl?: string | null };
 
   // Prepare optional fields
   const mealTypePrefs = typeof body.mealTypePrefs !== 'undefined' ? JSON.stringify(body.mealTypePrefs) : undefined;
@@ -1140,6 +1150,11 @@ async function handleUpdateProfile(request: Request, env: Env, user: Authenticat
     fields.push('onboarding_seen = ?');
     values.push(body.onboardingSeen ? 1 : 0);
   }
+  if (body.avatarUrl !== undefined) {
+    // Accept string (new URL) or null (clear).
+    fields.push('avatar_url = ?');
+    values.push(body.avatarUrl === null ? null : String(body.avatarUrl));
+  }
 
   if (fields.length === 0) {
     throw new HttpError(400, 'At least one field must be provided for update');
@@ -1157,8 +1172,89 @@ async function handleUpdateProfile(request: Request, env: Env, user: Authenticat
   if (body.cookingFor !== undefined) response.cookingFor = body.cookingFor;
   if (body.cuisinePrefs !== undefined) response.cuisinePrefs = body.cuisinePrefs;
   if (body.onboardingSeen !== undefined) response.onboardingSeen = Boolean(body.onboardingSeen);
+  if (body.avatarUrl !== undefined) response.avatarUrl = body.avatarUrl === null ? null : String(body.avatarUrl);
 
   return json(response);
+}
+
+async function handleUploadAvatar(request: Request, env: Env, user: AuthenticatedUser) {
+  const body = await request.json() as { dataUrl?: string; contentType?: string };
+  if (!body.dataUrl) {
+    throw new HttpError(400, 'dataUrl is required');
+  }
+  // Reuse the same data-URL parser used by recipe-preview uploads.
+  const { mime, buffer } = parseDataUrl(body.dataUrl);
+  const contentType = body.contentType?.trim() || mime || 'image/jpeg';
+
+  if (buffer.byteLength > MAX_IMAGE_BYTES) {
+    throw new HttpError(413, 'Avatar image is larger than 5MB limit');
+  }
+
+  // Object key uses a timestamp so updates bust browser/CDN cache without
+  // needing a query-string cache-buster. Old objects are deleted below so
+  // we don't accumulate stale uploads in the bucket.
+  const ext = mime === 'image/png' ? 'png'
+    : mime === 'image/webp' ? 'webp'
+    : mime === 'image/gif' ? 'gif'
+    : 'jpg';
+  const objectKey = `avatars/${user.userId}-${Date.now()}.${ext}`;
+  const publicUrl = await uploadToSupabaseStorage(env, objectKey, buffer, contentType);
+
+  // Read the prior URL so we can clean up the old object after we've safely
+  // committed the new one.
+  const priorRow = await env.DB.prepare(
+    'SELECT avatar_url FROM profiles WHERE user_id = ?'
+  ).bind(user.userId).first<{ avatar_url: string | null }>();
+
+  await env.DB.prepare(
+    'UPDATE profiles SET avatar_url = ? WHERE user_id = ?'
+  ).bind(publicUrl, user.userId).run();
+
+  // Best-effort cleanup of the previous avatar object. Errors are swallowed
+  // — a leaked object isn't a correctness problem.
+  if (priorRow?.avatar_url) {
+    const priorKey = extractAvatarObjectKey(priorRow.avatar_url, env);
+    if (priorKey && priorKey !== objectKey) {
+      try { await deleteSupabaseObject(env, priorKey); } catch (_) { /* swallow */ }
+    }
+  }
+
+  return json({ avatarUrl: publicUrl });
+}
+
+async function handleDeleteAvatar(env: Env, user: AuthenticatedUser) {
+  const row = await env.DB.prepare(
+    'SELECT avatar_url FROM profiles WHERE user_id = ?'
+  ).bind(user.userId).first<{ avatar_url: string | null }>();
+
+  await env.DB.prepare(
+    'UPDATE profiles SET avatar_url = NULL WHERE user_id = ?'
+  ).bind(user.userId).run();
+
+  if (row?.avatar_url) {
+    const key = extractAvatarObjectKey(row.avatar_url, env);
+    if (key) {
+      try { await deleteSupabaseObject(env, key); } catch (_) { /* swallow */ }
+    }
+  }
+
+  return json({ avatarUrl: null });
+}
+
+// Pull the storage object key out of a public URL we previously generated via
+// buildSupabasePublicUrl. Used for cleanup of replaced/cleared avatars.
+function extractAvatarObjectKey(publicUrl: string, env: Env): string | null {
+  if (!env.SUPABASE_URL || !env.SUPABASE_STORAGE_BUCKET) return null;
+  const base = env.SUPABASE_URL.replace(/\/$/, '');
+  const bucket = encodeURIComponent(env.SUPABASE_STORAGE_BUCKET);
+  const prefix = `${base}/storage/v1/object/public/${bucket}/`;
+  if (!publicUrl.startsWith(prefix)) return null;
+  const remaining = publicUrl.slice(prefix.length);
+  try {
+    return remaining.split('/').map((seg) => decodeURIComponent(seg)).join('/');
+  } catch {
+    return null;
+  }
 }
 
 async function handleGetRecipe(request: Request, env: Env, user: AuthenticatedUser, recipeId: string) {
@@ -3287,6 +3383,7 @@ async function getOrCreateProfile(env: Env, userId: string, email?: string): Pro
       cookingFor: (row.cooking_for as string | null | undefined) ?? null,
       cuisinePrefs: (() => { try { return row.cuisine_prefs ? JSON.parse(row.cuisine_prefs as string) : []; } catch { return []; } })(),
       dietaryPrefs: (() => { try { return row.dietary_prefs ? JSON.parse(row.dietary_prefs as string) : []; } catch { return []; } })(),
+      avatarUrl: (row.avatar_url as string | null | undefined) ?? null,
     };
   }
 
@@ -3298,6 +3395,7 @@ async function getOrCreateProfile(env: Env, userId: string, email?: string): Pro
     cookingFor: null,
     cuisinePrefs: [],
     dietaryPrefs: [],
+    avatarUrl: null,
   };
   await env.DB.prepare(
     'INSERT INTO profiles (user_id, email, display_name, created_at) VALUES (?, ?, ?, ?)'

@@ -108,6 +108,7 @@ import BottomAppBar from './components/BottomAppBar';
 import DiscoverPage from './components/DiscoverPage';
 import ProfilePage from './components/ProfilePage';
 import OnboardingChecklist from './components/OnboardingChecklist';
+import SettingsDrawer from './components/SettingsDrawer';
 // === [S04] Friend picker wiring ===
 import { FriendPicker } from './components/FriendPicker';
 import { ShareSheet } from './components/ShareSheet';
@@ -1076,6 +1077,7 @@ function App() {
   // Bumped by OnboardingChecklist's onDismiss; forces the home-render IIFE to
   // re-evaluate localStorage and hide the checklist after a permanent dismiss.
   const [onboardingTick, setOnboardingTick] = useState(0);
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [currentView, setCurrentView] = useState(() => {
     const saved = sessionStorage.getItem('currentView');
     const VALID_VIEWS = ['home', 'recipes', 'friend-requests', 'discover', 'profile'];
@@ -1197,7 +1199,9 @@ function App() {
     }
   }, []);
   const wakeLockRef = useRef(null);
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  // Settings drawer (right-slide). null when closed; one of:
+  //   'about' | 'privacy' | 'notifications' | 'feedback'
+  const [settingsDrawer, setSettingsDrawer] = useState(null);
   const [feedbackRating, setFeedbackRating] = useState(null);
   const [feedbackFrequency, setFeedbackFrequency] = useState('');
   const [feedbackMessage, setFeedbackMessage] = useState('');
@@ -4907,6 +4911,7 @@ function App() {
                 user={{
                   displayName: userProfile?.displayName,
                   email: session.user?.email,
+                  avatarUrl: userProfile?.avatarUrl ?? null,
                 }}
                 themePref={themePref}
                 onThemeChange={updateThemePref}
@@ -4914,11 +4919,55 @@ function App() {
                   setEditNameValue(userProfile?.displayName || '');
                   setIsDrawerEditingName(true);
                 }}
-                onEditAvatar={() => { /* TODO: avatar upload — separate brainstorm */ }}
-                onEditCookingPrefs={() => setOnboardingOpen(true)}
-                onSendFeedback={() => setFeedbackOpen(true)}
-                onOpenAbout={() => { /* TODO: about page — out of scope */ }}
-                onPrivacy={() => { window.location.href = '/privacy.html'; }}
+                onPickAvatar={async (file) => {
+                  if (!accessToken || !file) return;
+                  // 8MB pre-base64 cap (worker enforces 5MB on the decoded
+                  // payload; data-URL encoding adds ~33% overhead).
+                  if (file.size > 8 * 1024 * 1024) {
+                    setSnackbarState({ open: true, message: 'Image is too large. Pick something under 5MB.', severity: 'error' });
+                    return;
+                  }
+                  setAvatarUploading(true);
+                  try {
+                    const dataUrl = await new Promise((resolve, reject) => {
+                      const reader = new FileReader();
+                      reader.onload = () => resolve(reader.result);
+                      reader.onerror = () => reject(reader.error || new Error('read failed'));
+                      reader.readAsDataURL(file);
+                    });
+                    const res = await callRecipesApi('/profile/avatar', {
+                      method: 'POST',
+                      body: JSON.stringify({ dataUrl, contentType: file.type || 'image/jpeg' }),
+                    }, accessToken);
+                    if (res?.avatarUrl) {
+                      setUserProfile((prev) => prev ? { ...prev, avatarUrl: res.avatarUrl } : prev);
+                    }
+                  } catch (err) {
+                    console.error('avatar upload failed:', err);
+                    setSnackbarState({ open: true, message: 'Could not upload avatar. Try again.', severity: 'error' });
+                  } finally {
+                    setAvatarUploading(false);
+                  }
+                }}
+                avatarUploading={avatarUploading}
+                onRemoveAvatar={async () => {
+                  if (!accessToken) return;
+                  setAvatarUploading(true);
+                  try {
+                    const res = await callRecipesApi('/profile/avatar', { method: 'DELETE' }, accessToken);
+                    setUserProfile((prev) => prev ? { ...prev, avatarUrl: res?.avatarUrl ?? null } : prev);
+                  } catch (err) {
+                    console.error('avatar remove failed:', err);
+                    setSnackbarState({ open: true, message: 'Could not remove avatar. Try again.', severity: 'error' });
+                  } finally {
+                    setAvatarUploading(false);
+                  }
+                }}
+                onEditCookingPrefs={() => setSettingsDrawer('preferences')}
+                onSendFeedback={() => setSettingsDrawer('feedback')}
+                onOpenAbout={() => setSettingsDrawer('about')}
+                onOpenNotifications={() => setSettingsDrawer('notifications')}
+                onPrivacy={() => setSettingsDrawer('privacy')}
                 onSignOut={handleLogout}
                 notificationsEnabled={true}
               />
@@ -4948,6 +4997,7 @@ function App() {
           }}
           pendingFriendCount={friendRequests?.length ?? 0}
           profileInitial={userProfile?.displayName || session.user?.email || 'U'}
+          profileAvatarUrl={userProfile?.avatarUrl || null}
         />
       )}
 
@@ -6927,159 +6977,41 @@ function App() {
         </Box>
       </Drawer>
 
-      {/* Floating Feedback widget removed — logged-in users access feedback
-          from Profile; logged-out users were never the right audience. The
-          Dialog below is still mounted because Profile launches it. */}
-      <Dialog open={feedbackOpen} onClose={() => setFeedbackOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ pb: 1, p: 0, position: 'relative', minHeight: 40 }}>
-          <Typography variant="subtitle1" fontWeight={600} sx={{ pt: 1.5, pb: 1.5, pl: '20px', pr: 5 }}>
-            {feedbackDone ? 'Feedback sent' : 'Send feedback'}
-          </Typography>
-          <IconButton onClick={() => setFeedbackOpen(false)} size="small" sx={{ position: 'absolute', right: 12, top: 8, color: 'text.secondary' }}>
-            <CloseIcon fontSize="small" />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent sx={{ px: '20px' }}>
-          {feedbackDone ? (
-            <Typography sx={{ py: 1, color: darkMode ? '#fff' : 'success.main' }}>Thanks for your feedback!</Typography>
-          ) : (
-            <Stack spacing={3} sx={{ pt: 0.5 }}>
-              {/* Q1: Rating 1–5 as selectable rows */}
-              <Box>
-                <Typography variant="body2" fontWeight={500} gutterBottom>How useful is this app for you?</Typography>
-                <Stack spacing={0.75}>
-                  {[
-                    [1, "Not useful at all"],
-                    [2, "Somewhat useful"],
-                    [3, "Useful"],
-                    [4, "Very useful"],
-                    [5, "Can't live without"],
-                  ].map(([num, label]) => {
-                    const selected = feedbackRating === num;
-                    return (
-                      <Box
-                        key={num}
-                        onClick={() => setFeedbackRating(num)}
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 1.5,
-                          px: 1.5,
-                          py: 1,
-                          borderRadius: 1,
-                          cursor: 'pointer',
-                          border: '1px solid',
-                          borderColor: selected ? 'primary.main' : (darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'),
-                          bgcolor: selected ? (darkMode ? 'rgba(98,0,234,0.18)' : 'rgba(98,0,234,0.06)') : 'transparent',
-                          '&:hover': { borderColor: 'primary.main', bgcolor: darkMode ? 'rgba(98,0,234,0.12)' : 'rgba(98,0,234,0.04)' },
-                          transition: 'all 0.15s',
-                        }}
-                      >
-                        <Box sx={{
-                          width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          bgcolor: selected ? 'primary.main' : (darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'),
-                          color: selected ? '#fff' : 'text.secondary',
-                          fontSize: '0.8rem', fontWeight: 600,
-                        }}>
-                          {num}
-                        </Box>
-                        <Typography variant="body2" color={selected ? (darkMode ? '#fff' : 'primary.main') : 'text.primary'} fontWeight={selected ? 500 : 400}>
-                          {label}
-                        </Typography>
-                      </Box>
-                    );
-                  })}
-                </Stack>
-              </Box>
-
-              {/* Q2: Frequency as selectable rows */}
-              <Box>
-                <Typography variant="body2" fontWeight={500} gutterBottom>How often will you use it?</Typography>
-                <Stack spacing={0.75}>
-                  {[
-                    ['Daily', 'Every day'],
-                    ['Weekly', 'A few times a week'],
-                    ['Monthly', 'A few times a month'],
-                    ['Rarely', 'Rarely'],
-                  ].map(([val, label]) => {
-                    const selected = feedbackFrequency === val;
-                    return (
-                      <Box
-                        key={val}
-                        onClick={() => setFeedbackFrequency(val)}
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 1.5,
-                          px: 1.5,
-                          py: 1,
-                          borderRadius: 1,
-                          cursor: 'pointer',
-                          border: '1px solid',
-                          borderColor: selected ? 'primary.main' : (darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'),
-                          bgcolor: selected ? (darkMode ? 'rgba(98,0,234,0.18)' : 'rgba(98,0,234,0.06)') : 'transparent',
-                          '&:hover': { borderColor: 'primary.main', bgcolor: darkMode ? 'rgba(98,0,234,0.12)' : 'rgba(98,0,234,0.04)' },
-                          transition: 'all 0.15s',
-                        }}
-                      >
-                        <Box sx={{
-                          width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          bgcolor: selected ? 'primary.main' : (darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'),
-                          color: selected ? '#fff' : 'text.secondary',
-                        }}>
-                          <CheckIcon sx={{ fontSize: '0.9rem' }} />
-                        </Box>
-                        <Typography variant="body2" color={selected ? (darkMode ? '#fff' : 'primary.main') : 'text.primary'} fontWeight={selected ? 500 : 400}>
-                          {label}
-                        </Typography>
-                      </Box>
-                    );
-                  })}
-                </Stack>
-              </Box>
-
-              {/* Q3: Open text */}
-              <Box>
-                <Typography variant="body2" fontWeight={500} gutterBottom>Other comments</Typography>
-                <TextField
-                  multiline
-                  rows={3}
-                  placeholder="Optional comments..."
-                  value={feedbackMessage}
-                  onChange={(e) => setFeedbackMessage(e.target.value)}
-                  fullWidth
-                  size="small"
-                />
-              </Box>
-
-              <TextField
-                placeholder="Your email (optional)"
-                value={feedbackEmail}
-                onChange={(e) => setFeedbackEmail(e.target.value)}
-                fullWidth
-                size="small"
-                type="email"
-              />
-            </Stack>
-          )}
-        </DialogContent>
-        {!feedbackDone && (
-          <DialogActions sx={{ justifyContent: 'space-between', px: '20px', pb: 3 }}>
-            <Button onClick={() => setFeedbackOpen(false)} sx={{ color: 'text.primary' }}>
-              Cancel
-            </Button>
-            <Button
-              variant="contained"
-              onClick={handleSubmitFeedback}
-              disabled={feedbackSubmitting || !feedbackFrequency || !feedbackRating}
-            >
-              {feedbackSubmitting ? <CircularProgress size={18} /> : 'Send'}
-            </Button>
-          </DialogActions>
-        )}
-      </Dialog>
+      <SettingsDrawer
+        kind={settingsDrawer}
+        onClose={() => setSettingsDrawer(null)}
+        feedbackRating={feedbackRating}
+        setFeedbackRating={setFeedbackRating}
+        feedbackFrequency={feedbackFrequency}
+        setFeedbackFrequency={setFeedbackFrequency}
+        feedbackMessage={feedbackMessage}
+        setFeedbackMessage={setFeedbackMessage}
+        feedbackEmail={feedbackEmail}
+        setFeedbackEmail={setFeedbackEmail}
+        feedbackSubmitting={feedbackSubmitting}
+        feedbackDone={feedbackDone}
+        onSubmitFeedback={handleSubmitFeedback}
+        onResetFeedback={() => setFeedbackDone(false)}
+        preferences={{
+          dietaryPrefs: userProfile?.dietaryPrefs ?? [],
+          cookingFor: userProfile?.cookingFor ?? '',
+          cuisinePrefs: userProfile?.cuisinePrefs ?? [],
+        }}
+        onSavePreferences={async (prefs) => {
+          if (!accessToken) return;
+          await callRecipesApi('/profile', {
+            method: 'PATCH',
+            body: JSON.stringify({
+              dietaryPrefs: prefs.dietaryPrefs,
+              cookingFor: prefs.cookingFor,
+              cuisinePrefs: prefs.cuisinePrefs,
+            }),
+          }, accessToken);
+          // Refresh local profile so other surfaces (FriendSections, Discover)
+          // pick up the new prefs without a reload.
+          fetchProfile();
+        }}
+      />
 
       {/* Floating FAB — mobile only, slides up when user scrolls down.
           Logged-in: Add Recipe pill (sits above the BottomAppBar).
