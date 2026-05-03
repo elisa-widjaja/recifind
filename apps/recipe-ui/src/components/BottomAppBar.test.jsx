@@ -6,17 +6,16 @@ describe('BottomAppBar', () => {
   const defaultProps = {
     activeTab: 'home',
     onTabChange: vi.fn(),
-    onAddClick: vi.fn(),
     pendingFriendCount: 0,
   };
 
-  it('renders all five tab labels', () => {
+  it('renders all four tab labels', () => {
     render(<BottomAppBar {...defaultProps} />);
     expect(screen.getByRole('button', { name: /home/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /recipes/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /friends/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /discover/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /add recipe/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /add recipe/i })).not.toBeInTheDocument();
   });
 
   it('marks the active tab as aria-selected', () => {
@@ -30,13 +29,6 @@ describe('BottomAppBar', () => {
     render(<BottomAppBar {...defaultProps} onTabChange={onTabChange} />);
     fireEvent.click(screen.getByRole('button', { name: /discover/i }));
     expect(onTabChange).toHaveBeenCalledWith('discover');
-  });
-
-  it('calls onAddClick when the FAB is tapped', () => {
-    const onAddClick = vi.fn();
-    render(<BottomAppBar {...defaultProps} onAddClick={onAddClick} />);
-    fireEvent.click(screen.getByRole('button', { name: /add recipe/i }));
-    expect(onAddClick).toHaveBeenCalled();
   });
 
   it('shows a pending-request badge on the Friends tab when pendingFriendCount > 0', () => {

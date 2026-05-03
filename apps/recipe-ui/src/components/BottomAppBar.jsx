@@ -8,8 +8,6 @@ const TABS = [
 ];
 
 const NAV_HEIGHT = 64;
-const FAB_SIZE = 56;
-const FAB_PROTRUSION = 28;
 
 function HomeIcon({ active }) {
   return (
@@ -53,7 +51,7 @@ function DiscoverIcon({ active }) {
 }
 const ICONS = { home: HomeIcon, recipes: RecipesIcon, friends: FriendsIcon, discover: DiscoverIcon };
 
-export default function BottomAppBar({ activeTab, onTabChange, onAddClick, pendingFriendCount = 0 }) {
+export default function BottomAppBar({ activeTab, onTabChange, pendingFriendCount = 0 }) {
   return (
     <Box
       role="navigation"
@@ -73,39 +71,7 @@ export default function BottomAppBar({ activeTab, onTabChange, onAddClick, pendi
         py: 1,
       }}
     >
-      {/* Left half: Home, Recipes */}
-      {TABS.slice(0, 2).map((tab) => {
-        const Icon = ICONS[tab.id];
-        const active = activeTab === tab.id;
-        return (
-          <Box
-            key={tab.id}
-            component="button"
-            role="button"
-            aria-selected={active}
-            aria-label={tab.label}
-            onClick={() => onTabChange(tab.id)}
-            sx={{
-              flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-              gap: '3px', pt: '4px',
-              border: 'none', bgcolor: 'transparent', cursor: 'pointer',
-              fontFamily: 'inherit',
-              color: active ? 'primary.main' : 'text.primary',
-            }}
-          >
-            <Icon active={active} />
-            <Typography sx={{ fontSize: 9, fontWeight: 600, color: active ? 'primary.main' : 'text.disabled' }}>
-              {tab.label}
-            </Typography>
-          </Box>
-        );
-      })}
-
-      {/* Center spacer (the floating FAB sits here) */}
-      <Box sx={{ flex: 1 }} aria-hidden />
-
-      {/* Right half: Friends, Discover */}
-      {TABS.slice(2).map((tab) => {
+      {TABS.map((tab) => {
         const Icon = ICONS[tab.id];
         const active = activeTab === tab.id;
         const showBadge = tab.id === 'friends' && pendingFriendCount > 0;
@@ -143,34 +109,6 @@ export default function BottomAppBar({ activeTab, onTabChange, onAddClick, pendi
           </Box>
         );
       })}
-
-      {/* The center FAB — absolutely positioned on the parent; bar provides the slot */}
-      <Box
-        component="button"
-        role="button"
-        aria-label="Add recipe"
-        onClick={onAddClick}
-        sx={{
-          position: 'absolute',
-          bottom: `calc(${NAV_HEIGHT - FAB_PROTRUSION}px + env(safe-area-inset-bottom))`,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          width: FAB_SIZE, height: FAB_SIZE,
-          borderRadius: '50%',
-          background: 'linear-gradient(180deg, #8b5cf6, #7c3aed)',
-          color: '#fff',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          border: '4px solid',
-          borderColor: 'background.paper',
-          boxShadow: '0 8px 18px rgba(124,58,237,.45), 0 2px 6px rgba(0,0,0,.12)',
-          fontSize: 30, fontWeight: 300, lineHeight: 1,
-          cursor: 'pointer',
-          zIndex: 1101,
-          fontFamily: 'inherit',
-        }}
-      >
-        +
-      </Box>
     </Box>
   );
 }

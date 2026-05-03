@@ -545,6 +545,24 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare 
       >
         Join Free
       </Fab>
+      {/* Visible privacy link so OAuth consent-screen verifiers (Google etc.)
+          can confirm the public homepage links to the privacy policy. */}
+      <Box
+        component="a"
+        href="/privacy.html"
+        sx={{
+          position: 'fixed',
+          bottom: 4,
+          right: 8,
+          fontSize: 10,
+          color: '#999',
+          textDecoration: 'none',
+          zIndex: 9999,
+          opacity: 0.6,
+        }}
+      >
+        Privacy
+      </Box>
     </Container>
   );
 }

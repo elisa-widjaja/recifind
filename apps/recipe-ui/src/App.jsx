@@ -106,6 +106,9 @@ import PullToRefresh from './components/PullToRefresh';
 import RecipeListCard from './components/RecipeListCard';
 import RecipesPage from './RecipesPage';
 import SuggestionsShelf from './components/SuggestionsShelf';
+import BottomAppBar from './components/BottomAppBar';
+import DiscoverPage from './components/DiscoverPage';
+import ProfilePage from './components/ProfilePage';
 // === [S04] Friend picker wiring ===
 import { FriendPicker } from './components/FriendPicker';
 import { ShareSheet } from './components/ShareSheet';
@@ -1050,8 +1053,9 @@ function App() {
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [currentView, setCurrentView] = useState(() => {
     const saved = sessionStorage.getItem('currentView');
-    return saved === 'recipes' ? 'recipes' : 'home';
-  }); // 'home' | 'recipes'
+    const VALID_VIEWS = ['home', 'recipes', 'friend-requests', 'discover', 'profile'];
+    return VALID_VIEWS.includes(saved) ? saved : 'home';
+  }); // 'home' | 'recipes' | 'friend-requests' | 'discover' | 'profile'
 
   useEffect(() => {
     sessionStorage.setItem('currentView', currentView);
@@ -4640,41 +4644,24 @@ function App() {
             ReciFriend
           </Typography>
           <Stack direction="row" spacing="6px" alignItems="center">
-            <Button
-              onClick={openAddDialog}
-              sx={{
-                display: { xs: 'none', sm: 'inline-flex' },
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.125rem',
-                height: '2.5rem',
-                px: '14px',
-                fontSize: '0.875rem',
-                fontWeight: 500,
-                lineHeight: 1.5,
-                whiteSpace: 'nowrap',
-                backgroundColor: 'primary.main',
-                color: '#ffffff',
-                borderRadius: '999px',
-                border: 'none',
-                transition: 'all 150ms ease',
-                flexShrink: 0,
-                textTransform: 'none',
-                '&:hover': {
-                  backgroundColor: 'primary.dark'
-                },
-                '&:focus-visible': {
-                  boxShadow: '0 0 0 3px rgba(181, 181, 181, 0.5)'
-                },
-                '&:disabled': {
-                  pointerEvents: 'none',
-                  opacity: 0.5
-                }
-              }}
-              startIcon={<AddIcon />}
-            >
-              Add Recipe
-            </Button>
+            {session && (
+              <Box
+                component="button"
+                onClick={() => setCurrentView('profile')}
+                aria-label="Open profile"
+                sx={{
+                  width: 32, height: 32, borderRadius: '50%',
+                  bgcolor: 'primary.main',
+                  color: '#fff',
+                  fontSize: 13, fontWeight: 700,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  border: 'none', cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                {(userProfile?.displayName || session.user?.email || 'U').charAt(0).toUpperCase()}
+              </Box>
+            )}
             {supabase && (
               session ? (
                 <Box sx={{ display: { xs: 'none', sm: 'flex' }, alignItems: 'center', gap: '6px' }}>
@@ -5203,7 +5190,10 @@ function App() {
         <Box
           sx={{
             px: { xs: 2, sm: 3, md: 4 },
-            pt: { xs: 2, md: 'calc(32px - 10px)' }, pb: { xs: 3, md: 4 }
+            pt: { xs: 2, md: 'calc(32px - 10px)' },
+            // Bottom space for the BottomAppBar (64) + safe-area + room for the
+            // floating Add Recipe pill FAB above it.
+            pb: { xs: 'calc(64px + env(safe-area-inset-bottom) + 80px)', md: 4 },
           }}
         >
           <Stack spacing={1.5}>
@@ -5322,9 +5312,63 @@ function App() {
                 sentinelRef={sentinelRef}
               />
             )}
+            {currentView === 'discover' && session && (
+              <DiscoverPage
+                accessToken={accessToken}
+                cookingFor={userProfile?.cookingFor ?? null}
+                cuisinePrefs={userProfile?.cuisinePrefs ?? null}
+                dietaryPrefs={userProfile?.dietaryPrefs ?? null}
+                onOpenRecipe={handleOpenEditorPickRecipe}
+                onSaveRecipe={handleSavePublicRecipe}
+                onShareRecipe={(recipe, event) => openShareSheet(recipe, event)}
+              />
+            )}
+            {currentView === 'profile' && session && (
+              <ProfilePage
+                user={{
+                  displayName: userProfile?.displayName,
+                  email: session.user?.email,
+                }}
+                themePref={themePref}
+                onThemeChange={updateThemePref}
+                onEditName={() => {
+                  setEditNameValue(userProfile?.displayName || '');
+                  setIsDrawerEditingName(true);
+                }}
+                onEditAvatar={() => { /* TODO: avatar upload — separate brainstorm */ }}
+                onEditCookingPrefs={() => setOnboardingOpen(true)}
+                onSendFeedback={() => setFeedbackOpen(true)}
+                onOpenAbout={() => { /* TODO: about page — out of scope */ }}
+                onPrivacy={() => { window.location.href = '/privacy.html'; }}
+                onSignOut={handleLogout}
+                notificationsEnabled={true}
+              />
+            )}
           </Stack>
         </Box>
       </Container>)}
+
+      {session && (
+        <BottomAppBar
+          activeTab={
+            currentView === 'home' ? 'home' :
+            currentView === 'recipes' ? 'recipes' :
+            currentView === 'discover' ? 'discover' :
+            null
+          }
+          onTabChange={(tab) => {
+            if (tab === 'friends') {
+              setIsFriendsDialogOpen(true);
+              setIsAddFriendOpen(false);
+              fetchFriends();
+              fetchFriendRequests();
+            } else {
+              setCurrentView(tab);
+            }
+          }}
+          pendingFriendCount={friendRequests?.length ?? 0}
+        />
+      )}
 
       <Menu
         anchorReference="anchorPosition"
@@ -7302,8 +7346,8 @@ function App() {
         </Box>
       </Drawer>
 
-      {/* Feedback widget */}
-      {showFeedbackWidget && !mobileFilterDrawerOpen && !isAddDialogOpen && !isFriendsDialogOpen && !pickerOpen && !shareSheetState && <Box sx={{ position: 'fixed', bottom: 'calc(20px + env(safe-area-inset-bottom))', right: 20, zIndex: 1300 }}>
+      {/* Feedback widget — hidden for logged-in users (Profile has Send feedback) */}
+      {!session && showFeedbackWidget && !mobileFilterDrawerOpen && !isAddDialogOpen && !isFriendsDialogOpen && !pickerOpen && !shareSheetState && <Box sx={{ position: 'fixed', bottom: 'calc(20px + env(safe-area-inset-bottom))', right: 20, zIndex: 1300 }}>
         <Tooltip title="Send feedback" placement="left">
           <IconButton
             onClick={() => { setFeedbackOpen(true); setFeedbackDone(false); }}
@@ -7470,12 +7514,19 @@ function App() {
         )}
       </Dialog>
 
-      {/* Floating FAB — mobile only, slides up when user scrolls down */}
+      {/* Floating FAB — mobile only, slides up when user scrolls down.
+          Logged-in: Add Recipe pill (sits above the BottomAppBar).
+          Logged-out: Join Free CTA (no bottom bar, sits at the page bottom). */}
       {isMobile && (
         <Box
           sx={{
             position: 'fixed',
-            bottom: 24,
+            // Logged-in users have the BottomAppBar (64px + safe-area) below;
+            // float the FAB 16px above its top edge. Logged-out users get the
+            // original 24px page-bottom anchor.
+            bottom: session
+              ? 'calc(64px + env(safe-area-inset-bottom) + 16px)'
+              : 24,
             left: '50%',
             transform: (() => {
               const visible = session

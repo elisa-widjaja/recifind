@@ -39,6 +39,7 @@ const InfoD = (
     <line x1="12" y1="8" x2="12.01" y2="8"/>
   </>
 );
+const ShieldD = <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>;
 const ChevronRightD = <path d="M9 18l6-6-6-6"/>;
 
 function Row({ icon, label, value, onClick, danger }) {
@@ -48,20 +49,19 @@ function Row({ icon, label, value, onClick, danger }) {
       onClick={onClick}
       sx={{
         display: 'flex', alignItems: 'center', gap: 1.5, width: '100%',
-        py: '11px', px: '4px',
+        py: '16px', px: '4px',
         border: 'none', bgcolor: 'transparent', cursor: 'pointer',
         fontFamily: 'inherit',
         textAlign: 'left',
         color: danger ? 'error.main' : 'text.primary',
-        borderBottom: 1, borderColor: 'divider',
       }}
     >
       <Box sx={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', color: danger ? 'error.main' : 'text.secondary' }}>
         {icon}
       </Box>
-      <Typography sx={{ flex: 1, fontSize: 12, fontWeight: 500 }}>{label}</Typography>
+      <Typography sx={{ flex: 1, fontSize: 14, fontWeight: 500 }}>{label}</Typography>
       {value && (
-        <Typography sx={{ fontSize: 10, color: 'primary.main', fontWeight: 600 }}>{value}</Typography>
+        <Typography sx={{ fontSize: 13, color: 'primary.main', fontWeight: 600 }}>{value}</Typography>
       )}
       {!value && !danger && (
         <Box sx={{ color: 'action.disabled' }}>
@@ -81,6 +81,7 @@ export default function ProfilePage({
   onEditCookingPrefs,
   onSendFeedback,
   onOpenAbout,
+  onPrivacy,
   onSignOut,
   notificationsEnabled,
 }) {
@@ -127,13 +128,12 @@ export default function ProfilePage({
       </Box>
 
       {/* Settings */}
-      <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', mb: 1, px: '4px' }}>
+      <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', mt: '10px', mb: 0, px: '4px' }}>
         Settings
       </Typography>
 
       {/* Theme — iOS pill control matching existing drawer */}
-      <Box sx={{ py: '11px', px: '4px', borderBottom: 1, borderColor: 'divider' }}>
-        <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 0.75 }}>Theme</Typography>
+      <Box sx={{ py: '14px', px: '4px' }}>
         <ToggleButtonGroup
           value={themePref}
           exclusive
@@ -168,13 +168,9 @@ export default function ProfilePage({
 
       <Row icon={<LineIcon d={CogD} size={20} />} label="Cooking preferences" onClick={onEditCookingPrefs} />
       <Row icon={<LineIcon d={BellD} size={20} />} label="Notifications" value={notificationsEnabled ? 'On' : 'Off'} onClick={() => {}} />
-
-      <Typography sx={{ fontSize: 10, color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', mt: 2, mb: 1, px: '4px' }}>
-        More
-      </Typography>
-
       <Row icon={<LineIcon d={ChatD} size={20} />} label="Send feedback" onClick={onSendFeedback} />
       <Row icon={<LineIcon d={InfoD} size={20} />} label="About" onClick={onOpenAbout} />
+      <Row icon={<LineIcon d={ShieldD} size={20} />} label="Privacy" onClick={onPrivacy} />
 
       <Box sx={{ mt: 2 }}>
         <Row icon={<LogoutIcon sx={{ fontSize: 20 }} />} label="Sign out" onClick={onSignOut} danger />

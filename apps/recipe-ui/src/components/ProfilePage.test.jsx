@@ -11,6 +11,7 @@ const baseProps = {
   onEditCookingPrefs: vi.fn(),
   onSendFeedback: vi.fn(),
   onOpenAbout: vi.fn(),
+  onPrivacy: vi.fn(),
   onSignOut: vi.fn(),
   notificationsEnabled: true,
 };
@@ -27,13 +28,21 @@ describe('ProfilePage', () => {
     expect(screen.getByText('foo')).toBeInTheDocument();
   });
 
-  it('renders all six setting/more rows', () => {
+  it('renders all setting/more rows including Privacy', () => {
     render(<ProfilePage {...baseProps} />);
     expect(screen.getByText(/cooking preferences/i)).toBeInTheDocument();
     expect(screen.getByText(/notifications/i)).toBeInTheDocument();
     expect(screen.getByText(/send feedback/i)).toBeInTheDocument();
     expect(screen.getByText(/about/i)).toBeInTheDocument();
+    expect(screen.getByText(/privacy/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /sign out/i })).toBeInTheDocument();
+  });
+
+  it('calls onPrivacy when Privacy row is clicked', () => {
+    const onPrivacy = vi.fn();
+    render(<ProfilePage {...baseProps} onPrivacy={onPrivacy} />);
+    fireEvent.click(screen.getByText(/privacy/i));
+    expect(onPrivacy).toHaveBeenCalled();
   });
 
   it('shows the active theme as selected in the segmented control', () => {
