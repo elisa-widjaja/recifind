@@ -67,8 +67,6 @@ import SendIcon from '@mui/icons-material/Send';
 import IosShareOutlinedIcon from '@mui/icons-material/IosShareOutlined';
 import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
 import AddIcon from '@mui/icons-material/Add';
-import FilterListIcon from '@mui/icons-material/FilterList';
-import MenuIcon from '@mui/icons-material/Menu';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import SearchIcon from '@mui/icons-material/Search';
@@ -109,6 +107,7 @@ import SuggestionsShelf from './components/SuggestionsShelf';
 import BottomAppBar from './components/BottomAppBar';
 import DiscoverPage from './components/DiscoverPage';
 import ProfilePage from './components/ProfilePage';
+import OnboardingChecklist from './components/OnboardingChecklist';
 // === [S04] Friend picker wiring ===
 import { FriendPicker } from './components/FriendPicker';
 import { ShareSheet } from './components/ShareSheet';
@@ -966,6 +965,22 @@ function loadInitialCache() {
 
 const trackEvent = (name, params = {}) => {
   if (window.gtag) window.gtag('event', name, params);
+  // Side-effect: mark onboarding steps done as their corresponding events fire.
+  // userId is read from supabase's session in localStorage so this works
+  // without React state (trackEvent is module-scope).
+  const flagFor = name === 'invite_friend' ? 'invited'
+    : name === 'share_recipe' ? 'shared'
+    : null;
+  if (flagFor) {
+    try {
+      const raw = Object.keys(localStorage)
+        .find((k) => k.startsWith('sb-') && k.endsWith('-auth-token'));
+      if (raw) {
+        const userId = JSON.parse(localStorage.getItem(raw))?.user?.id;
+        if (userId) localStorage.setItem(`onboarding_${flagFor}_${userId}`, '1');
+      }
+    } catch { /* swallow — never block tracking on a parse error */ }
+  }
 };
 
 let searchDebounceTimer = null;
@@ -1035,14 +1050,21 @@ function App() {
     }
     if (!node) { setShowHomeFab(false); return; }
     const observer = new IntersectionObserver(
-      ([entry]) => setShowHomeFab(!entry.isIntersecting),
+      ([entry]) => {
+        // Only show the FAB once the user has scrolled PAST the marker
+        // (i.e., it's above the viewport). Without this, a tall first-load
+        // page where the marker starts below the viewport would treat
+        // "not intersecting" as "scrolled past" and pop the FAB up
+        // immediately.
+        const scrolledPast = !entry.isIntersecting && entry.boundingClientRect.top < 0;
+        setShowHomeFab(scrolledPast);
+      },
       { threshold: 0 }
     );
     observer.observe(node);
     statsTilesObserverRef.current = observer;
   }, []);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
-  const [mobileFilterDrawerOpen, setMobileFilterDrawerOpen] = useState(false);
   const mobileFilterChipsRef = useRef(null);
   const [favorites, setFavorites] = useState(() => {
     try {
@@ -1051,6 +1073,9 @@ function App() {
     } catch { return new Set(); }
   });
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  // Bumped by OnboardingChecklist's onDismiss; forces the home-render IIFE to
+  // re-evaluate localStorage and hide the checklist after a permanent dismiss.
+  const [onboardingTick, setOnboardingTick] = useState(0);
   const [currentView, setCurrentView] = useState(() => {
     const saved = sessionStorage.getItem('currentView');
     const VALID_VIEWS = ['home', 'recipes', 'friend-requests', 'discover', 'profile'];
@@ -1061,19 +1086,43 @@ function App() {
     sessionStorage.setItem('currentView', currentView);
   }, [currentView]);
 
+  // Reset window scroll when switching views via the bottom nav. Without this,
+  // jumping from a deeply-scrolled Home to Recipes would leave Recipes scrolled
+  // past its search bar.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [currentView]);
+
   useEffect(() => {
     if (currentView !== 'recipes') {
       setShowFloatingFab(false);
       return;
     }
-    const el = addRecipeBtnRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => setShowFloatingFab(!entry.isIntersecting),
-      { threshold: 0 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
+    // Always start hidden when entering Recipes — the IO callback will flip
+    // it true only once the in-page Add Recipe button has scrolled out of
+    // view. Without this, a stale ref or a hidden ref-Box (sm+ has the
+    // in-page button display:none) could leave showFloatingFab at its prior
+    // value and pop the FAB up immediately.
+    setShowFloatingFab(false);
+    let observer = null;
+    let raf = null;
+    const attach = () => {
+      const el = addRecipeBtnRef.current;
+      if (!el) return false;
+      observer = new IntersectionObserver(
+        ([entry]) => setShowFloatingFab(!entry.isIntersecting),
+        { threshold: 0 }
+      );
+      observer.observe(el);
+      return true;
+    };
+    // The child's ref may not be set on the first commit tick — defer to the
+    // next paint and try again if needed.
+    if (!attach()) raf = requestAnimationFrame(attach);
+    return () => {
+      if (observer) observer.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, [currentView]);
 
   const toggleFavorite = useCallback((recipeId) => {
@@ -2714,22 +2763,6 @@ function App() {
     setVisibleCount(RESULTS_PAGE_SIZE);
   }, [selectedMealType, normalizedIngredientsKey, recipes]);
 
-  useEffect(() => {
-    if (!mobileFilterDrawerOpen || !selectedMealType) return;
-    const timer = setTimeout(() => {
-      const container = mobileFilterChipsRef.current;
-      if (!container) return;
-      const selected = container.querySelector('[aria-pressed="true"]');
-      if (!selected) return;
-      const containerLeft = container.scrollLeft;
-      const containerWidth = container.offsetWidth;
-      const chipLeft = selected.offsetLeft;
-      const chipWidth = selected.offsetWidth;
-      container.scrollTo({ left: chipLeft - containerWidth / 2 + chipWidth / 2, behavior: 'smooth' });
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [mobileFilterDrawerOpen, selectedMealType]);
-
   // Capture Chrome/Android install prompt
   useEffect(() => {
     if (isStandalone) return;
@@ -2745,7 +2778,7 @@ function App() {
         if (!sessionStorage.getItem('invite_entry')) {
           setShowInstallBanner(true);
         }
-      }, 30000);
+      }, 90000);
     };
     window.addEventListener('beforeinstallprompt', handler);
     return () => {
@@ -2765,7 +2798,7 @@ function App() {
     if (sessionStorage.getItem('pending_invite_token')) return;
     if (sessionStorage.getItem('invite_entry')) return;
     if (onboardingOpen) return;
-    const timer = setTimeout(() => setShowInstallBanner(true), 30000);
+    const timer = setTimeout(() => setShowInstallBanner(true), 90000);
     return () => clearTimeout(timer);
   }, [isAuthChecked, session, onboardingOpen]);
 
@@ -3151,7 +3184,7 @@ function App() {
           }, 400);
           fetchFriends();
           if (!isStandalone && !isPwaInstalled() && !localStorage.getItem('recifriend-install-banner-dismissed')) {
-            setTimeout(() => setShowInstallBanner(true), 30000);
+            setTimeout(() => setShowInstallBanner(true), 90000);
           }
         })
         .catch((err) => {
@@ -3296,7 +3329,7 @@ function App() {
           }, 400);
           fetchFriends();
           if (!isStandalone && !isPwaInstalled() && !localStorage.getItem('recifriend-install-banner-dismissed')) {
-            setTimeout(() => setShowInstallBanner(true), 30000);
+            setTimeout(() => setShowInstallBanner(true), 90000);
           }
         }
       })
@@ -4624,511 +4657,7 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <AppBar position="static" color="inherit" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider', paddingTop: 'env(safe-area-inset-top)' }}>
-        <Toolbar sx={{ display: 'flex', alignItems: 'center', gap: 2, minHeight: { xs: '50px', sm: 'calc(64px - 16px)' } }}>
-          <IconButton
-            onClick={() => setMobileFilterDrawerOpen(true)}
-            sx={{ display: { xs: 'flex', sm: 'none' }, mr: -1 }}
-            aria-label="Open menu"
-          >
-            <Badge badgeContent={0} color="error" overlap="circular">
-              <MenuIcon />
-            </Badge>
-          </IconButton>
-          <Typography
-            variant="h6"
-            component="div"
-            onClick={() => setCurrentView('home')}
-            sx={{ flexGrow: 1, fontWeight: 600, fontSize: '14px', cursor: 'pointer', userSelect: 'none' }}
-          >
-            ReciFriend
-          </Typography>
-          <Stack direction="row" spacing="6px" alignItems="center">
-            {session && (
-              <Box
-                component="button"
-                onClick={() => setCurrentView('profile')}
-                aria-label="Open profile"
-                sx={{
-                  width: 32, height: 32, borderRadius: '50%',
-                  bgcolor: 'primary.main',
-                  color: '#fff',
-                  fontSize: 13, fontWeight: 700,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  border: 'none', cursor: 'pointer',
-                  fontFamily: 'inherit',
-                }}
-              >
-                {(userProfile?.displayName || session.user?.email || 'U').charAt(0).toUpperCase()}
-              </Box>
-            )}
-            {supabase && (
-              session ? (
-                <Box sx={{ display: { xs: 'none', sm: 'flex' }, alignItems: 'center', gap: '6px' }}>
-                  <Tooltip title="Friends">
-                    <IconButton
-                      onClick={() => {
-                        setIsFriendsDialogOpen(true);
-                        fetchFriends();
-                        fetchFriendRequests();
-                      }}
-                      color="inherit"
-                    >
-                      <Badge badgeContent={0} color="error" overlap="circular">
-                        <PeopleIcon />
-                      </Badge>
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="Account">
-                    <IconButton onClick={handleAccountMenuOpen} color="inherit">
-                      <AccountCircleIcon />
-                    </IconButton>
-                  </Tooltip>
-                  <Menu
-                    anchorEl={accountMenuAnchor}
-                    open={Boolean(accountMenuAnchor)}
-                    onClose={handleAccountMenuClose}
-                    anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-                    transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-                  >
-                    <Box sx={{ px: 2, pt: 2, pb: 1.5, minWidth: 240 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                        <Avatar sx={{ bgcolor: 'primary.main', width: 40, height: 40 }}>
-                          {(userProfile?.displayName || session.user?.email || 'U').charAt(0).toUpperCase()}
-                        </Avatar>
-                        <IconButton size="small" onClick={() => { setAccountMenuAnchor(null); setEditNameValue(userProfile?.displayName || ''); setIsEditNameOpen(true); }}>
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Box>
-                      <Typography variant="subtitle1" fontWeight="bold" noWrap>
-                        {userProfile?.displayName || session.user?.email?.split('@')[0] || 'User'}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary" noWrap>
-                        {session.user?.email || 'Unknown'}
-                      </Typography>
-                    </Box>
-                    <Divider />
-                    <MenuItem disabled sx={{ opacity: '1 !important', pt: 1, pb: 0.25 }}>
-                      {recipes.length} recipes
-                    </MenuItem>
-                    <Divider />
-                    <MenuItem onClick={handleCopyUserId}>
-                      <ListItemIcon>
-                        <ContentCopyIcon fontSize="small" />
-                      </ListItemIcon>
-                      Copy user ID
-                    </MenuItem>
-                    <ListSubheader sx={{ bgcolor: 'transparent', lineHeight: '32px', fontSize: 12 }}>Theme</ListSubheader>
-                    {[
-                      { key: 'system', label: 'System', Icon: SettingsBrightnessOutlinedIcon },
-                      { key: 'light',  label: 'Light',  Icon: LightModeOutlinedIcon },
-                      { key: 'dark',   label: 'Dark',   Icon: DarkModeOutlinedIcon },
-                    ].map(({ key, label, Icon }) => (
-                      <MenuItem key={key} onClick={() => updateThemePref(key)} selected={themePref === key}>
-                        <ListItemIcon>
-                          <Icon fontSize="small" />
-                        </ListItemIcon>
-                        {label}
-                        {themePref === key && <CheckIcon fontSize="small" sx={{ ml: 'auto' }} />}
-                      </MenuItem>
-                    ))}
-                    <Divider />
-                    <MenuItem onClick={handleLogout}>
-                      <ListItemIcon>
-                        <LogoutIcon fontSize="small" />
-                      </ListItemIcon>
-                      Logout
-                    </MenuItem>
-                  </Menu>
-                </Box>
-              ) : (
-                <Button color={darkMode ? 'inherit' : 'primary'} variant="text" onClick={openAuthDialog}>
-                  Login
-                </Button>
-              )
-            )}
-          </Stack>
-        </Toolbar>
-      </AppBar>
 
-      {/* Mobile nav drawer — replaces account menu on xs */}
-      <Drawer
-        anchor="left"
-        open={mobileFilterDrawerOpen}
-        onClose={() => setMobileFilterDrawerOpen(false)}
-        transitionDuration={{ enter: 300, exit: 350 }}
-        PaperProps={{
-          sx: {
-            width: 270,
-            display: 'flex',
-            flexDirection: 'column',
-            paddingTop: 'env(safe-area-inset-top)',
-            paddingBottom: 'env(safe-area-inset-bottom)',
-            ...(darkMode ? { backgroundColor: '#212328', backgroundImage: 'none' } : {})
-          }
-        }}
-      >
-        {/* Profile header — logged in only */}
-        {session && (
-          <>
-            <Box sx={{ px: 2.5, pt: 3, pb: 2 }}>
-              {/* Avatar + name row */}
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
-                <Avatar sx={{ bgcolor: 'primary.main', width: 48, height: 48, fontSize: '1.25rem', flexShrink: 0 }}>
-                  {(userProfile?.displayName || session.user?.email || 'U').charAt(0).toUpperCase()}
-                </Avatar>
-                {isDrawerEditingName ? (
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, minWidth: 0 }}>
-                    <InputBase
-                      autoFocus
-                      value={editNameValue}
-                      onChange={(e) => setEditNameValue(e.target.value)}
-                      inputProps={{ maxLength: 50 }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && editNameValue.trim()) updateDisplayName(editNameValue.trim());
-                        if (e.key === 'Escape') setIsDrawerEditingName(false);
-                      }}
-                      sx={{
-                        flex: 1,
-                        fontWeight: 700,
-                        fontSize: '1rem',
-                        color: 'text.primary',
-                        borderBottom: '2px solid',
-                        borderColor: 'primary.main',
-                        '& input': { p: 0, pb: 0.25 },
-                        minWidth: 0,
-                      }}
-                    />
-                    <IconButton
-                      size="small"
-                      sx={{ p: 0.5, color: 'primary.main' }}
-                      onClick={() => { if (editNameValue.trim()) updateDisplayName(editNameValue.trim()); }}
-                    >
-                      <CheckIcon sx={{ fontSize: 16 }} />
-                    </IconButton>
-                    <IconButton size="small" sx={{ p: 0.5 }} onClick={() => setIsDrawerEditingName(false)}>
-                      <CloseIcon sx={{ fontSize: 16 }} />
-                    </IconButton>
-                  </Box>
-                ) : (
-                  <Box
-                    sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, cursor: 'pointer' }}
-                    onClick={() => { setEditNameValue(userProfile?.displayName || ''); setIsDrawerEditingName(true); }}
-                  >
-                    <Typography variant="subtitle1" fontWeight={700} noWrap>
-                      {userProfile?.displayName || session.user?.email?.split('@')[0] || 'User'}
-                    </Typography>
-                    <EditIcon sx={{ fontSize: 13, color: 'text.disabled', flexShrink: 0 }} />
-                  </Box>
-                )}
-              </Box>
-              {/* Email + recipe count below */}
-              <Typography variant="body2" color="text.secondary" noWrap>
-                {session.user?.email || ''}
-              </Typography>
-              <Box
-                component="button"
-                onClick={() => {
-                  setCurrentView('home');
-                  setMobileFilterDrawerOpen(false);
-                }}
-                sx={(theme) => ({
-                  display: 'flex', alignItems: 'center', width: '100%',
-                  mt: 1, px: 0, py: 1.25, gap: 1.5, border: 'none', bgcolor: 'transparent',
-                  cursor: 'pointer', fontFamily: 'inherit',
-                  color: currentView === 'home' ? 'text.primary' : 'text.secondary',
-                  borderRadius: 1,
-                  '&:hover': { color: 'text.primary' },
-                })}
-              >
-                <Box sx={{ width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:22,height:22}}>
-                    <path d="M3 10.5C3 9.67 3.37 8.88 4.01 8.35L10.01 3.35C11.16 2.39 12.84 2.39 13.99 3.35L19.99 8.35C20.63 8.88 21 9.67 21 10.5V19C21 20.1 20.1 21 19 21H5C3.9 21 3 20.1 3 19V10.5Z"/>
-                    <path d="M9 21V14H15V21"/>
-                  </svg>
-                </Box>
-                <Typography variant="body2" fontWeight={currentView === 'home' ? 600 : 500} sx={{ flex: 1, textAlign: 'left' }}>Home</Typography>
-              </Box>
-              <Box
-                component="button"
-                onClick={() => {
-                  setCurrentView('recipes');
-                  setShowFavoritesOnly(false);
-                  setSelectedMealType('');
-                  setMobileFilterDrawerOpen(false);
-                }}
-                sx={(theme) => ({
-                  display: 'flex', alignItems: 'center', width: '100%',
-                  px: 0, py: 1.25, gap: 1.5, border: 'none', bgcolor: 'transparent',
-                  cursor: 'pointer', fontFamily: 'inherit',
-                  color: currentView === 'recipes' ? 'text.primary' : 'text.secondary',
-                  borderRadius: 1,
-                  '&:hover': { color: 'text.primary' },
-                })}
-              >
-                <Box sx={{ width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 20, lineHeight: 1 }}>
-                  🍳
-                </Box>
-                <Typography variant="body2" fontWeight={currentView === 'recipes' ? 600 : 500} sx={{ flex: 1, textAlign: 'left' }}>Recipes</Typography>
-                <Typography variant="body2">{recipes.length}</Typography>
-              </Box>
-            </Box>
-            <Divider />
-
-          </>
-        )}
-
-        {/* Filter by meal type — recipes view only */}
-        {session && currentView === 'recipes' && <Box sx={{ px: 2.5, pt: 2, pb: 2 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1.5, fontSize: 13, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Filter
-          </Typography>
-          <Box ref={mobileFilterChipsRef} sx={{ display: 'flex', flexWrap: 'nowrap', overflowX: 'auto', gap: 1, '&::-webkit-scrollbar': { display: 'none' }, scrollbarWidth: 'none', mx: -2.5, px: 2.5, maskImage: 'linear-gradient(to right, transparent 0, black 20px, black calc(100% - 20px), transparent 100%)', WebkitMaskImage: 'linear-gradient(to right, transparent 0, black 20px, black calc(100% - 20px), transparent 100%)' }}>
-            {availableMealTypes.map((type) => {
-              const label = MEAL_TYPE_LABELS[type] || type.replace(/^\w/, (c) => c.toUpperCase());
-              const icon = MEAL_TYPE_ICONS[type];
-              const selected = selectedMealType === type;
-              return (
-                <Box
-                  key={type}
-                  component="button"
-                  onClick={() => {
-                    handleMealTypeSelect(type);
-                    setTimeout(() => setMobileFilterDrawerOpen(false), 400);
-                  }}
-                  aria-pressed={selected}
-                  sx={(theme) => ({
-                    display: 'inline-flex', alignItems: 'center', gap: '6px',
-                    height: 36, px: 1.5, border: 'none', borderRadius: '999px',
-                    cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.875rem',
-                    fontWeight: 500, whiteSpace: 'nowrap', transition: 'all 0.15s ease',
-                    ...(selected ? {
-                      bgcolor: 'primary.main', color: '#fff',
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                    } : {
-                      bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)',
-                      color: 'text.primary',
-                      '&:hover': { bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.09)' },
-                    }),
-                  })}
-                >
-                  {icon && (
-                    <Box
-                      component="span"
-                      sx={{
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        width: 22, height: 22, borderRadius: '50%', fontSize: '0.875rem',
-                        bgcolor: selected ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.06)',
-                        flexShrink: 0,
-                      }}
-                    >
-                      {icon}
-                    </Box>
-                  )}
-                  {label}
-                </Box>
-              );
-            })}
-          </Box>
-        </Box>}
-
-        {/* Nav shortcuts */}
-        {session && (
-          <>
-            <Divider />
-            <Box sx={{ py: 1 }}>
-              {/* Favorites */}
-              {favorites.size > 0 && (
-                <Box
-                  component="button"
-                  onClick={() => {
-                    setShowFavoritesOnly((prev) => !prev);
-                    setCurrentView('recipes');
-                    setTimeout(() => setMobileFilterDrawerOpen(false), 300);
-                  }}
-                  sx={(theme) => ({
-                    display: 'flex', alignItems: 'center', width: '100%',
-                    px: 2.5, py: 1.25, gap: 1.5, border: 'none', bgcolor: 'transparent',
-                    cursor: 'pointer', fontFamily: 'inherit', color: 'text.primary',
-                    '&:hover': { bgcolor: theme.palette.action.hover },
-                  })}
-                >
-                  {showFavoritesOnly
-                    ? <FavoriteIcon sx={{ fontSize: 22, color: '#E53935' }} />
-                    : <FavoriteBorderIcon sx={{ fontSize: 22, color: 'text.secondary' }} />}
-                  <Typography variant="body2" fontWeight={500} sx={{ flex: 1, textAlign: 'left' }}>Favorites</Typography>
-                  <Typography variant="body2" color="text.secondary">{favorites.size}</Typography>
-                </Box>
-              )}
-
-              {/* Friends */}
-              <Box
-                component="button"
-                onClick={() => {
-                  setMobileFilterDrawerOpen(false);
-                  setIsFriendsDialogOpen(true);
-                  fetchFriends();
-                  fetchFriendRequests();
-                }}
-                sx={(theme) => ({
-                  display: 'flex', alignItems: 'center', width: '100%',
-                  px: 2.5, py: 1.25, gap: 1.5, border: 'none', bgcolor: 'transparent',
-                  cursor: 'pointer', fontFamily: 'inherit', color: 'text.primary',
-                  '&:hover': { bgcolor: theme.palette.action.hover },
-                })}
-              >
-                <Badge badgeContent={0} color="error" overlap="circular">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{color: darkMode ? 'rgba(255,255,255,0.7)' : '#616161',width:22,height:22,flexShrink:0}}>
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                    <circle cx="9" cy="7" r="4"/>
-                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                  </svg>
-                </Badge>
-                <Typography variant="body2" fontWeight={500} sx={{ flex: 1, textAlign: 'left' }}>Friends</Typography>
-                {friends.length > 0 && (
-                  <Typography variant="body2" color="text.secondary">{friends.length}</Typography>
-                )}
-              </Box>
-
-              {/* Invite a friend */}
-              <Box
-                component="button"
-                onClick={() => {
-                  setMobileFilterDrawerOpen(false);
-                  setIsFriendsDialogOpen(true);
-                  setIsAddFriendOpen(true);
-                  fetchFriends();
-                }}
-                sx={(theme) => ({
-                  display: 'flex', alignItems: 'center', width: '100%',
-                  px: 2.5, py: 1.25, gap: 1.5, border: 'none', bgcolor: 'transparent',
-                  cursor: 'pointer', fontFamily: 'inherit', color: 'text.primary',
-                  '&:hover': { bgcolor: theme.palette.action.hover },
-                })}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{color: darkMode ? 'rgba(255,255,255,0.7)' : '#616161',width:22,height:22,flexShrink:0}}>
-                    <circle cx="9" cy="7" r="4"/>
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                    <line x1="19" y1="7" x2="19" y2="13"/>
-                    <line x1="16" y1="10" x2="22" y2="10"/>
-                  </svg>
-                <Typography variant="body2" fontWeight={500} sx={{ flex: 1, textAlign: 'left' }}>Invite a friend</Typography>
-              </Box>
-            </Box>
-          </>
-        )}
-
-        {/* Settings */}
-        <Box>
-          {session && <Divider />}
-          <Box sx={{ py: 1 }}>
-            {/* Theme — iOS-style pill segmented control */}
-            <Box sx={{ px: 2.5, py: 1.25 }}>
-              <Typography variant="caption" sx={{ display: 'block', mb: 0.75, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Theme
-              </Typography>
-              <ToggleButtonGroup
-                value={themePref}
-                exclusive
-                size="small"
-                fullWidth
-                onChange={(_, next) => { if (next) updateThemePref(next); }}
-                sx={(theme) => ({
-                  // Pill container — iOS UISegmentedControl look.
-                  bgcolor: theme.palette.mode === 'dark'
-                    ? 'rgba(118, 118, 128, 0.24)'
-                    : 'rgba(118, 118, 128, 0.12)',
-                  borderRadius: '999px',
-                  p: '3px',
-                  gap: 0,
-                  '& .MuiToggleButtonGroup-grouped': {
-                    border: 0,
-                    borderRadius: '999px',
-                    mx: 0,
-                    '&:not(:first-of-type)': { borderLeft: 0, borderRadius: '999px' },
-                    '&:first-of-type': { borderRadius: '999px' },
-                  },
-                  '& .MuiToggleButton-root': {
-                    py: 0.75,
-                    gap: 0.5,
-                    fontSize: 12,
-                    fontWeight: 500,
-                    textTransform: 'none',
-                    color: 'text.primary',
-                    transition: 'background-color 150ms, box-shadow 150ms',
-                  },
-                  // Selected segment — white pill with subtle shadow, like iOS.
-                  '& .Mui-selected': {
-                    bgcolor: theme.palette.mode === 'dark'
-                      ? 'rgba(99, 99, 102, 1)'
-                      : '#ffffff !important',
-                    color: 'text.primary',
-                    boxShadow: theme.palette.mode === 'dark'
-                      ? 'none'
-                      : '0 3px 8px rgba(0, 0, 0, 0.12), 0 3px 1px rgba(0, 0, 0, 0.04)',
-                    '&:hover': {
-                      bgcolor: theme.palette.mode === 'dark'
-                        ? 'rgba(99, 99, 102, 1)'
-                        : '#ffffff',
-                    },
-                  },
-                  '& .MuiToggleButton-root:hover': { bgcolor: 'transparent' },
-                })}
-              >
-                <ToggleButton value="system">
-                  <SettingsBrightnessOutlinedIcon sx={{ fontSize: 16 }} />
-                  System
-                </ToggleButton>
-                <ToggleButton value="light">
-                  <LightModeOutlinedIcon sx={{ fontSize: 16 }} />
-                  Light
-                </ToggleButton>
-                <ToggleButton value="dark">
-                  <DarkModeOutlinedIcon sx={{ fontSize: 16 }} />
-                  Dark
-                </ToggleButton>
-              </ToggleButtonGroup>
-            </Box>
-          </Box>
-        </Box>
-
-        {/* Logout / Login — sticky bottom */}
-        <Box sx={{ mt: 'auto' }}>
-          <Divider />
-          {session ? (
-            <Box
-              component="button"
-              onClick={() => { setMobileFilterDrawerOpen(false); handleLogout(); }}
-              sx={(theme) => ({
-                display: 'flex', alignItems: 'center', width: '100%',
-                px: 2.5, py: 1.5, gap: 1.5, border: 'none', bgcolor: 'transparent',
-                cursor: 'pointer', fontFamily: 'inherit', color: 'text.primary',
-                pb: 'max(env(safe-area-inset-bottom), 12px)',
-                '&:hover': { bgcolor: theme.palette.action.hover },
-              })}
-            >
-              <LogoutIcon sx={{ fontSize: 22, color: 'text.secondary' }} />
-              <Typography variant="body2" fontWeight={500}>Logout</Typography>
-            </Box>
-          ) : supabase && (
-            <Box
-              component="button"
-              onClick={() => { setMobileFilterDrawerOpen(false); openAuthDialog(); }}
-              sx={(theme) => ({
-                display: 'flex', alignItems: 'center', width: '100%',
-                px: 2.5, py: 1.5, gap: 1.5, border: 'none', bgcolor: 'transparent',
-                cursor: 'pointer', fontFamily: 'inherit', color: 'primary.main',
-                pb: 'max(env(safe-area-inset-bottom), 12px)',
-                '&:hover': { bgcolor: theme.palette.action.hover },
-              })}
-            >
-              <AccountCircleIcon sx={{ fontSize: 22 }} />
-              <Typography variant="body2" fontWeight={500}>Login</Typography>
-            </Box>
-          )}
-        </Box>
-      </Drawer>
 
       <WelcomeModal
         open={welcomeOpen}
@@ -5190,7 +4719,8 @@ function App() {
         <Box
           sx={{
             px: { xs: 2, sm: 3, md: 4 },
-            pt: { xs: 2, md: 'calc(32px - 10px)' },
+            // Top inset now content-managed since the top AppBar was removed.
+            pt: { xs: 'calc(env(safe-area-inset-top) + 16px)', md: 'calc(env(safe-area-inset-top) + 22px)' },
             // Bottom space for the BottomAppBar (64) + safe-area + room for the
             // floating Add Recipe pill FAB above it.
             pb: { xs: 'calc(64px + env(safe-area-inset-bottom) + 80px)', md: 4 },
@@ -5245,16 +4775,58 @@ function App() {
                   </Typography>
                 </Box>
                 <Box sx={{ height: '8px', flexShrink: 0 }} aria-hidden />
-                <StatsTiles
-                  recipeCount={recipes.length}
-                  friendCount={friendsLoaded ? friends.length : null}
-                  onAddRecipe={openAddDialog}
-                  onViewRecipes={() => setCurrentView('recipes')}
-                  onAddFriends={() => { setIsFriendsDialogOpen(true); setIsAddFriendOpen(true); fetchFriends(); }}
-                  onViewFriends={() => setIsFriendsDialogOpen(true)}
-                />
+                {(() => {
+                  const userId = session?.user?.id;
+                  const hasRecipe = recipes.length > 0;
+                  const hasInvitedFriend =
+                    Boolean(userId && localStorage.getItem(`onboarding_invited_${userId}`)) ||
+                    friends.length > 0;
+                  const hasSharedRecipe = Boolean(
+                    userId && localStorage.getItem(`onboarding_shared_${userId}`)
+                  );
+                  const allDoneFlag = userId ? `onboarding_complete_${userId}` : null;
+                  const dismissedFlag = userId ? `onboarding_dismissed_${userId}` : null;
+                  const allDoneCached = Boolean(allDoneFlag && localStorage.getItem(allDoneFlag));
+                  const dismissedCached = Boolean(dismissedFlag && localStorage.getItem(dismissedFlag));
+                  const allDoneNow = hasRecipe && hasInvitedFriend && hasSharedRecipe;
+                  if (allDoneNow && allDoneFlag && !allDoneCached) {
+                    localStorage.setItem(allDoneFlag, '1');
+                  }
+                  // `onboardingTick` is referenced here so React re-runs the
+                  // IIFE on dismiss (otherwise the localStorage write below
+                  // wouldn't trigger a re-render). The value itself is unused.
+                  void onboardingTick;
+                  if (allDoneCached || allDoneNow || dismissedCached) return null;
+                  return (
+                    <OnboardingChecklist
+                      hasRecipe={hasRecipe}
+                      hasInvitedFriend={hasInvitedFriend}
+                      hasSharedRecipe={hasSharedRecipe}
+                      onDismiss={() => {
+                        if (dismissedFlag) localStorage.setItem(dismissedFlag, '1');
+                        setOnboardingTick((n) => n + 1);
+                      }}
+                    />
+                  );
+                })()}
+                <Box sx={{ mt: '10px' }}>
+                  <StatsTiles
+                    recipeCount={recipes.length}
+                    friendCount={friendsLoaded ? friends.length : null}
+                    onAddRecipe={openAddDialog}
+                    onViewRecipes={() => setCurrentView('recipes')}
+                    onAddFriends={() => { setIsFriendsDialogOpen(true); setIsAddFriendOpen(true); fetchFriends(); }}
+                    onViewFriends={() => setIsFriendsDialogOpen(true)}
+                  />
+                </Box>
+                {/* Use padding-top instead of margin-top: the parent
+                    <Stack spacing={1.5}> applies a 12px margin-top via a
+                    selector with higher specificity than child sx, which
+                    silently overrides any mt set here. Padding sits on the
+                    box itself and isn't contested. Total visible gap above
+                    "Friend Activity" = 12 (Stack mt) + 30 (this pt) = 42px. */}
+                <Box sx={{ pt: '30px' }}>
                 <Box ref={statsTilesRef} sx={{ height: 0 }} />
-                <Box sx={{ mt: '70px' }}>
                 <FriendSections
                   accessToken={accessToken}
                   cookingFor={userProfile?.cookingFor ?? null}
@@ -5310,6 +4882,13 @@ function App() {
                 createImageFallbackHandler={createImageFallbackHandler}
                 RecipeThumbnail={RecipeThumbnail}
                 sentinelRef={sentinelRef}
+                availableMealTypes={availableMealTypes}
+                selectedMealType={selectedMealType}
+                onMealTypeSelect={(type) => handleMealTypeSelect(type)}
+                showFavoritesOnly={showFavoritesOnly}
+                onToggleFavoritesOnly={() => setShowFavoritesOnly((prev) => !prev)}
+                MEAL_TYPE_LABELS={MEAL_TYPE_LABELS}
+                MEAL_TYPE_ICONS={MEAL_TYPE_ICONS}
               />
             )}
             {currentView === 'discover' && session && (
@@ -5354,6 +4933,7 @@ function App() {
             currentView === 'home' ? 'home' :
             currentView === 'recipes' ? 'recipes' :
             currentView === 'discover' ? 'discover' :
+            currentView === 'profile' ? 'profile' :
             null
           }
           onTabChange={(tab) => {
@@ -5367,6 +4947,7 @@ function App() {
             }
           }}
           pendingFriendCount={friendRequests?.length ?? 0}
+          profileInitial={userProfile?.displayName || session.user?.email || 'U'}
         />
       )}
 
@@ -6960,7 +6541,7 @@ function App() {
           && (currentView === 'home' || currentView === 'recipes')
           && !isAddDialogOpen
           && !isFriendsDialogOpen
-          && !mobileFilterDrawerOpen
+         
         }
         onRefresh={handlePullRefresh}
       />
@@ -6978,7 +6559,7 @@ function App() {
 
       <Drawer
         anchor="bottom"
-        open={showInstallBanner && isMobile && !mobileFilterDrawerOpen && !isAddDialogOpen && !isFriendsDialogOpen}
+        open={showInstallBanner && isMobile && !isAddDialogOpen && !isFriendsDialogOpen}
         onClose={() => setShowInstallBanner(false)}
         PaperProps={{
           sx: {
@@ -7346,23 +6927,9 @@ function App() {
         </Box>
       </Drawer>
 
-      {/* Feedback widget — hidden for logged-in users (Profile has Send feedback) */}
-      {!session && showFeedbackWidget && !mobileFilterDrawerOpen && !isAddDialogOpen && !isFriendsDialogOpen && !pickerOpen && !shareSheetState && <Box sx={{ position: 'fixed', bottom: 'calc(20px + env(safe-area-inset-bottom))', right: 20, zIndex: 1300 }}>
-        <Tooltip title="Send feedback" placement="left">
-          <IconButton
-            onClick={() => { setFeedbackOpen(true); setFeedbackDone(false); }}
-            sx={{
-              bgcolor: darkMode ? 'rgba(98,0,234,0.35)' : 'rgba(98,0,234,0.12)',
-              color: darkMode ? '#ce93d8' : '#6200EA',
-              width: 48,
-              height: 48,
-              '&:hover': { bgcolor: darkMode ? 'rgba(98,0,234,0.5)' : 'rgba(98,0,234,0.2)' }
-            }}
-          >
-            <FeedbackOutlinedIcon />
-          </IconButton>
-        </Tooltip>
-      </Box>}
+      {/* Floating Feedback widget removed — logged-in users access feedback
+          from Profile; logged-out users were never the right audience. The
+          Dialog below is still mounted because Profile launches it. */}
       <Dialog open={feedbackOpen} onClose={() => setFeedbackOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ pb: 1, p: 0, position: 'relative', minHeight: 40 }}>
           <Typography variant="subtitle1" fontWeight={600} sx={{ pt: 1.5, pb: 1.5, pl: '20px', pr: 5 }}>
@@ -7530,13 +7097,13 @@ function App() {
             left: '50%',
             transform: (() => {
               const visible = session
-                ? (showFloatingFab && currentView === 'recipes' || showHomeFab && currentView === 'home' && !cookWithFriendsVisible) && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
+                ? (showFloatingFab && currentView === 'recipes' || showHomeFab && currentView === 'home') && !isAddDialogOpen && !isFriendsDialogOpen
                 : showFloatingFab && !cookWithFriendsVisible;
               return visible ? 'translateX(-50%) translateY(0) scale(1)' : 'translateX(-50%) translateY(20px) scale(0.92)';
             })(),
             opacity: (() => {
               const visible = session
-                ? (showFloatingFab && currentView === 'recipes' || showHomeFab && currentView === 'home' && !cookWithFriendsVisible) && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
+                ? (showFloatingFab && currentView === 'recipes' || showHomeFab && currentView === 'home') && !isAddDialogOpen && !isFriendsDialogOpen
                 : showFloatingFab && !cookWithFriendsVisible;
               return visible ? 1 : 0;
             })(),
@@ -7544,7 +7111,7 @@ function App() {
             willChange: 'transform, opacity',
             pointerEvents: (() => {
               const visible = session
-                ? (showFloatingFab && currentView === 'recipes' || showHomeFab && currentView === 'home' && !cookWithFriendsVisible) && !isAddDialogOpen && !isFriendsDialogOpen && !mobileFilterDrawerOpen
+                ? (showFloatingFab && currentView === 'recipes' || showHomeFab && currentView === 'home') && !isAddDialogOpen && !isFriendsDialogOpen
                 : showFloatingFab && !cookWithFriendsVisible;
               return visible ? 'auto' : 'none';
             })(),
