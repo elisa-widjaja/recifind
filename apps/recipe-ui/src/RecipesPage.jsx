@@ -1,12 +1,30 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  Box, Stack, TextField, InputAdornment, IconButton, Paper, List,
+  Box, Stack, TextField, InputAdornment, IconButton, Paper, List, Drawer, Divider,
   ListItemButton, ListItemText, Button, Typography, CircularProgress,
 } from '@mui/material';
 
 const API_BASE_URL = import.meta.env.VITE_RECIPES_API_BASE_URL || '';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
+import CloseIcon from '@mui/icons-material/Close';
+
+// Simplified "Tune" icon: 3 thin horizontal sliders with small handle dots.
+// Lighter visual weight than MUI's TuneIcon, which adds tick marks around
+// each handle.
+function SimpleTuneIcon({ size = 20 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
+      <line x1="4" y1="4"  x2="20" y2="4" />
+      <circle cx="15" cy="4"  r="2" fill="currentColor" stroke="none" />
+      <line x1="4" y1="12" x2="20" y2="12" />
+      <circle cx="9"  cy="12" r="2" fill="currentColor" stroke="none" />
+      <line x1="4" y1="20" x2="20" y2="20" />
+      <circle cx="13" cy="20" r="2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
 import AddIcon from '@mui/icons-material/Add';
 import FavoriteIcon from '@mui/icons-material/Favorite';
 import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
@@ -49,9 +67,59 @@ export default function RecipesPage({
   createImageFallbackHandler,
   RecipeThumbnail,
   sentinelRef,
+  availableMealTypes = [],
+  selectedMealType = '',
+  onMealTypeSelect = () => {},
+  showFavoritesOnly = false,
+  onToggleFavoritesOnly = () => {},
+  MEAL_TYPE_LABELS = {},
+  MEAL_TYPE_ICONS = {},
 }) {
   const [suggestions, setSuggestions] = useState([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
+  const filterChipsRef = useRef(null);
+  // Read the latest selectedMealType inside an effect that only depends on
+  // `filterDrawerOpen`. Without this, changing selection while the drawer is
+  // open would re-trigger the scroll-into-view and visibly nudge the chip.
+  const selectedMealTypeRef = useRef(selectedMealType);
+  selectedMealTypeRef.current = selectedMealType;
+
+  // Center the selected chip into view whenever the drawer transitions open
+  // (matches the old hamburger filter behavior). Custom RAF easing because
+  // browser-native `behavior: 'smooth'` runs ~250ms regardless of distance.
+  useEffect(() => {
+    if (!filterDrawerOpen) return;
+    const sel = selectedMealTypeRef.current;
+    if (!sel) return;
+    let rafId = null;
+    const startDelay = 350;
+    const scrollDuration = 700;
+
+    const timer = setTimeout(() => {
+      const container = filterChipsRef.current;
+      if (!container) return;
+      const selected = container.querySelector('[aria-pressed="true"]');
+      if (!selected) return;
+      const startLeft = container.scrollLeft;
+      const targetLeft = selected.offsetLeft - container.offsetWidth / 2 + selected.offsetWidth / 2;
+      const distance = targetLeft - startLeft;
+      const startTime = performance.now();
+      const step = (now) => {
+        const t = Math.min((now - startTime) / scrollDuration, 1);
+        // ease-in-out cubic
+        const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        container.scrollLeft = startLeft + distance * eased;
+        if (t < 1) rafId = requestAnimationFrame(step);
+      };
+      rafId = requestAnimationFrame(step);
+    }, startDelay);
+
+    return () => {
+      clearTimeout(timer);
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, [filterDrawerOpen]);
 
   useEffect(() => {
     if (totalRecipes !== 0 || !accessToken) return;
@@ -236,9 +304,21 @@ export default function RecipesPage({
             You haven&rsquo;t saved any recipes yet
           </Typography>
         ) : (
-          <Typography variant="caption" color="text.secondary">
-            {filteredRecipes.length === 1 ? '1 result' : `${filteredRecipes.length} results`}
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="caption" color="text.secondary">
+              {filteredRecipes.length === 1 ? '1 result' : `${filteredRecipes.length} results`}
+            </Typography>
+            <IconButton
+              size="small"
+              aria-label="Filters"
+              onClick={() => setFilterDrawerOpen(true)}
+              sx={{
+                color: (selectedMealType || showFavoritesOnly) ? 'primary.main' : 'text.secondary',
+              }}
+            >
+              <SimpleTuneIcon size={20} />
+            </IconButton>
+          </Box>
         )}
 
         {normalizedIngredients.length > 0 && (
@@ -322,6 +402,111 @@ export default function RecipesPage({
         </Box>
       )}
       <Box ref={sentinelRef} sx={{ height: 1 }} />
+
+      {/* Filter drawer (right anchor) — owns meal-type chips + favorites toggle */}
+      <Drawer
+        anchor="right"
+        open={filterDrawerOpen}
+        onClose={() => setFilterDrawerOpen(false)}
+        PaperProps={{ sx: { width: { xs: 280, sm: 320 }, paddingTop: 'env(safe-area-inset-top)' } }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, pt: 2, pb: 1 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Filters</Typography>
+          <IconButton size="small" aria-label="Close filters" onClick={() => setFilterDrawerOpen(false)}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </Box>
+        <Divider />
+
+        <Box sx={{ px: 2, py: 2 }}>
+          <Typography component="div" variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' }}>
+            Meal type
+          </Typography>
+          <Box
+            ref={filterChipsRef}
+            sx={{
+              display: 'flex', flexWrap: 'nowrap', overflowX: 'auto',
+              gap: 1, mt: 1,
+              mx: -2, px: 2,
+              '&::-webkit-scrollbar': { display: 'none' },
+              scrollbarWidth: 'none',
+              maskImage: 'linear-gradient(to right, transparent 0, black 16px, black calc(100% - 16px), transparent 100%)',
+              WebkitMaskImage: 'linear-gradient(to right, transparent 0, black 16px, black calc(100% - 16px), transparent 100%)',
+            }}
+          >
+            {availableMealTypes.map((type) => {
+              const label = MEAL_TYPE_LABELS[type] || type.replace(/^\w/, (c) => c.toUpperCase());
+              const icon = MEAL_TYPE_ICONS[type];
+              const selected = selectedMealType === type;
+              return (
+                <Box
+                  key={type}
+                  component="button"
+                  role="button"
+                  aria-pressed={selected}
+                  onClick={() => {
+                    onMealTypeSelect(type);
+                    // Auto-dismiss the drawer after tap. Held a bit longer so
+                    // the user can see the chip flip to selected state before
+                    // the panel slides away.
+                    setTimeout(() => setFilterDrawerOpen(false), 750);
+                  }}
+                  sx={(theme) => ({
+                    display: 'inline-flex', alignItems: 'center', gap: '6px',
+                    height: 36, px: 1.5, border: 'none', borderRadius: '999px',
+                    cursor: 'pointer', fontFamily: 'inherit', fontSize: 14, fontWeight: 500,
+                    whiteSpace: 'nowrap', flexShrink: 0,
+                    ...(selected
+                      ? { bgcolor: 'primary.main', color: '#fff' }
+                      : {
+                          bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)',
+                          color: 'text.primary',
+                        }),
+                  })}
+                >
+                  {icon && (
+                    <Box component="span" sx={{ width: 22, height: 22, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, bgcolor: selected ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.06)' }}>
+                      {icon}
+                    </Box>
+                  )}
+                  {label}
+                </Box>
+              );
+            })}
+          </Box>
+        </Box>
+
+        <Divider />
+
+        <Box sx={{ px: 2, py: 2 }}>
+          <Typography component="div" variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' }}>
+            Show
+          </Typography>
+          <Box sx={{ mt: 1 }}>
+            <Box
+              component="button"
+              role="button"
+              aria-label="Favorites"
+              aria-pressed={showFavoritesOnly}
+              onClick={onToggleFavoritesOnly}
+              sx={(theme) => ({
+                display: 'inline-flex', alignItems: 'center', gap: '8px',
+                height: 36, px: 1.5, border: 'none', borderRadius: '999px',
+                cursor: 'pointer', fontFamily: 'inherit', fontSize: 14, fontWeight: 500,
+                ...(showFavoritesOnly
+                  ? { bgcolor: 'primary.main', color: '#fff' }
+                  : {
+                      bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)',
+                      color: 'text.primary',
+                    }),
+              })}
+            >
+              {showFavoritesOnly ? <FavoriteIcon sx={{ fontSize: 18 }} /> : <FavoriteBorderIcon sx={{ fontSize: 18 }} />}
+              Favorites
+            </Box>
+          </Box>
+        </Box>
+      </Drawer>
     </Stack>
   );
 }
