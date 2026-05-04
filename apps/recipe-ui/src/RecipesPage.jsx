@@ -403,20 +403,48 @@ export default function RecipesPage({
       )}
       <Box ref={sentinelRef} sx={{ height: 1 }} />
 
-      {/* Filter drawer (right anchor) — owns meal-type chips + favorites toggle */}
+      {/* Filter bottom-sheet — owns meal-type chips + favorites toggle.
+          Matches the AddFriendDrawer / ShareSheet template (16px corners,
+          near-black bg in dark, iOS X-close top-left). */}
       <Drawer
-        anchor="right"
+        anchor="bottom"
         open={filterDrawerOpen}
         onClose={() => setFilterDrawerOpen(false)}
-        PaperProps={{ sx: { width: { xs: 280, sm: 320 }, paddingTop: 'env(safe-area-inset-top)' } }}
+        PaperProps={{
+          sx: (theme) => ({
+            borderRadius: '16px 16px 0 0',
+            paddingBottom: 'env(safe-area-inset-bottom)',
+            bgcolor: theme.palette.mode === 'dark' ? '#212328' : 'background.paper',
+            ...(theme.palette.mode === 'dark' ? { backgroundImage: 'none' } : null),
+          }),
+        }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, pt: 2, pb: 1 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Filters</Typography>
-          <IconButton size="small" aria-label="Close filters" onClick={() => setFilterDrawerOpen(false)}>
-            <CloseIcon fontSize="small" />
-          </IconButton>
+        {/* Header: iOS X-close top-LEFT, "Filters" title centered.
+            X at left:16, top:20 → vertical center y=38; header pt:26 lands
+            the title's center at the same y. */}
+        <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', px: '24px', pt: '26px', pb: '16px', flexShrink: 0 }}>
+          <Box sx={{ position: 'absolute', left: '16px', top: '20px' }}>
+            <Box
+              component="button"
+              aria-label="Close filters"
+              onClick={() => setFilterDrawerOpen(false)}
+              sx={(theme) => ({
+                width: 36, height: 36, borderRadius: '50%',
+                bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)',
+                color: '#8a8a8a',
+                border: 'none', cursor: 'pointer',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                WebkitTapHighlightColor: 'transparent',
+                transition: 'background-color 150ms ease, transform 150ms ease',
+                '&:hover': { bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.1)' },
+                '&:active': { transform: 'scale(0.92)' },
+              })}
+            >
+              <CloseIcon sx={{ fontSize: 18 }} />
+            </Box>
+          </Box>
+          <Typography sx={{ fontWeight: 700, fontSize: 16 }}>Filters</Typography>
         </Box>
-        <Divider />
 
         <Box sx={{ px: 2, py: 2 }}>
           <Typography component="div" variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' }}>
@@ -476,7 +504,7 @@ export default function RecipesPage({
           </Box>
         </Box>
 
-        <Divider />
+        <Divider sx={{ mx: 2 }} />
 
         <Box sx={{ px: 2, py: 2 }}>
           <Typography component="div" variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' }}>

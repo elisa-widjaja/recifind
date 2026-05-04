@@ -1,5 +1,6 @@
 import { Drawer, Box, Typography } from '@mui/material';
 import IosShareOutlinedIcon from '@mui/icons-material/IosShareOutlined';
+import CloseIcon from '@mui/icons-material/Close';
 
 // Matches the "Friends" SVG in the hamburger drawer (inline Feather "users" icon).
 function ConnectionsIcon({ size = 30, style }) {
@@ -40,9 +41,31 @@ export function ShareSheet({ open, onClose, onPickFriends, onPickConnections, da
         },
       }}
     >
-      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pt: 1.5, pb: 1, flexShrink: 0 }}>
-        <Box sx={{ width: 40, height: 4, borderRadius: 2, bgcolor: darkMode ? 'rgba(255,255,255,0.3)' : 'grey.300', mb: 1.5 }} />
-        <Typography variant="h6" sx={{ fontWeight: 600 }}>Share with</Typography>
+      {/* Header: iOS X-close on top-LEFT, "Share with" title centered.
+          Layout matches AddFriendDrawer (X at left:16, top:20 → center y=38;
+          header pt:26 lands the title's vertical center at the same y). */}
+      <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', px: '24px', pt: '26px', pb: '16px', flexShrink: 0 }}>
+        <Box sx={{ position: 'absolute', left: '16px', top: '20px' }}>
+          <Box
+            component="button"
+            aria-label="Close"
+            onClick={onClose}
+            sx={(theme) => ({
+              width: 36, height: 36, borderRadius: '50%',
+              bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)',
+              color: '#8a8a8a',
+              border: 'none', cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              WebkitTapHighlightColor: 'transparent',
+              transition: 'background-color 150ms ease, transform 150ms ease',
+              '&:hover': { bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.1)' },
+              '&:active': { transform: 'scale(0.92)' },
+            })}
+          >
+            <CloseIcon sx={{ fontSize: 18 }} />
+          </Box>
+        </Box>
+        <Typography sx={{ fontWeight: 700, fontSize: 16 }}>Share with</Typography>
       </Box>
       <Box sx={{ width: '100%', maxWidth: 600, mx: 'auto', px: 2, pt: 2, pb: 3 }}>
         <Box sx={{ display: 'flex', gap: '16px', justifyContent: 'center' }}>

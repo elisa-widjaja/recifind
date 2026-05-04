@@ -43,11 +43,21 @@ export default function DiscoverPage({
   const [editorsPick, setEditorsPick] = useState([]);
   const [aiPicks, setAiPicks] = useState([]);
   const [editorsExpanded, setEditorsExpanded] = useState(false);
+  // `ready` gates the body's opacity. Without it, the page mounts with all
+  // section state empty, the conditional renders return null, and then
+  // sections pop in one-by-one as each fetch resolves — perceived as a
+  // jerky flash. Wait for the three primary fetches together (ai-picks runs
+  // in a separate effect with its own deps and will fade in once it lands).
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    fetchJson('/public/trending-recipes').then(d => setTrending(d?.recipes || []));
-    fetchJson('/public/discover').then(d => setDiscover(d?.recipes || []));
-    fetchJson('/public/editors-pick').then(d => setEditorsPick(d?.recipes || []));
+    let cancelled = false;
+    Promise.all([
+      fetchJson('/public/trending-recipes').then(d => !cancelled && setTrending(d?.recipes || [])),
+      fetchJson('/public/discover').then(d => !cancelled && setDiscover(d?.recipes || [])),
+      fetchJson('/public/editors-pick').then(d => !cancelled && setEditorsPick(d?.recipes || [])),
+    ]).finally(() => { if (!cancelled) setReady(true); });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -96,7 +106,7 @@ export default function DiscoverPage({
         Discover
       </Typography>
 
-      <Stack sx={{ gap: '32px' }}>
+      <Stack sx={{ gap: '32px', opacity: ready ? 1 : 0, transition: 'opacity 200ms ease' }}>
         {videoRecipes.length > 0 && (
           <Box>
             <SectionLabel>Watch & Cook</SectionLabel>
