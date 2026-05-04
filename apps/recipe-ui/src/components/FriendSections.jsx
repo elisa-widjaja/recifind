@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Box, Typography, Stack, Button, Dialog, DialogContent } from '@mui/material';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import CloseIcon from '@mui/icons-material/Close';
 import SuggestionsShelf from './SuggestionsShelf';
 
 const API_BASE_URL = import.meta.env.VITE_RECIPES_API_BASE_URL || '';
@@ -169,7 +170,31 @@ function FriendRequestDialog({ item, busy, onAccept, onDecline, onClose }) {
   const color = AVATAR_COLORS[Math.abs(item.id) % AVATAR_COLORS.length];
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="xs">
-      <DialogContent sx={{ textAlign: 'center', py: 4, px: 3 }}>
+      <DialogContent sx={{ position: 'relative', textAlign: 'center', py: 4, px: 3 }}>
+        {/* iOS-style X close on the top-left, matches AddFriendDrawer / friend-recipes drawer */}
+        <Box
+          component="button"
+          aria-label="Close"
+          onClick={onClose}
+          disabled={busy}
+          sx={(theme) => ({
+            position: 'absolute',
+            top: 12, left: 12,
+            width: 36, height: 36, borderRadius: '50%',
+            bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)',
+            color: '#8a8a8a',
+            border: 'none',
+            cursor: busy ? 'default' : 'pointer',
+            opacity: busy ? 0.55 : 1,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            WebkitTapHighlightColor: 'transparent',
+            transition: 'background-color 150ms ease, transform 150ms ease',
+            '&:hover': { bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.1)' },
+            '&:active': { transform: busy ? 'none' : 'scale(0.92)' },
+          })}
+        >
+          <CloseIcon sx={{ fontSize: 18 }} />
+        </Box>
         <Box sx={{
           width: 64, height: 64, borderRadius: '50%', bgcolor: color,
           display: 'flex', alignItems: 'center', justifyContent: 'center',

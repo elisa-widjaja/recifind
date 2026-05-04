@@ -2766,7 +2766,15 @@ async function handleCancelSentFriendRequest(env: Env, user: AuthenticatedUser, 
     ).bind(toUserId, user.userId),
     env.DB.prepare(
       'DELETE FROM friend_requests_sent WHERE from_user_id = ? AND to_user_id = ?'
-    ).bind(user.userId, toUserId)
+    ).bind(user.userId, toUserId),
+    // Also drop the friend_request notification we created for the recipient
+    // when the request was sent — without this, the row would remain in their
+    // notifications table and continue to surface in their activity feed
+    // (rendered with a checkmark via the `resolved` flag computed in
+    // handleListNotifications). User wants the item fully cleared on cancel.
+    env.DB.prepare(
+      "DELETE FROM notifications WHERE user_id = ? AND type = 'friend_request' AND json_extract(data, '$.fromUserId') = ?"
+    ).bind(toUserId, user.userId)
   ]);
   return json({ success: true });
 }

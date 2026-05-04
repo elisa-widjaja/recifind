@@ -108,6 +108,8 @@ import ProfilePage from './components/ProfilePage';
 import OnboardingChecklist from './components/OnboardingChecklist';
 import OnboardingDrawer from './components/OnboardingDrawer';
 import SettingsDrawer from './components/SettingsDrawer';
+import FriendsPage from './components/FriendsPage';
+import AddFriendDrawer from './components/AddFriendDrawer';
 // === [S04] Friend picker wiring ===
 import { FriendPicker } from './components/FriendPicker';
 import { ShareSheet } from './components/ShareSheet';
@@ -1081,15 +1083,23 @@ function App() {
   // + checklist screens). Replaces the legacy OnboardingFlow Dialog and the
   // GetStartedDialog bridge.
   const [onboardingDrawerOpen, setOnboardingDrawerOpen] = useState(false);
+  // FriendsPage initial tab — set when the user navigates to 'friends' so we
+  // can route to the Pending tab when the BottomAppBar badge is shown, and
+  // to Connections otherwise.
+  const [friendsInitialTab, setFriendsInitialTab] = useState('connections');
+  // AddFriendDrawer state — separate from the legacy isAddFriendOpen path
+  // (which was used inside the old friends drawer; that surface is now
+  // page-based and the FAB on FriendsPage opens this drawer instead).
+  const [addFriendDrawerOpen, setAddFriendDrawerOpen] = useState(false);
   // Bumped when the user taps "Get started" so OnboardingChecklist remounts
   // and re-reads the now-set onboarding_checklist_collapsed sessionStorage
   // flag (its useState initial only runs once at mount).
   const [checklistKey, setChecklistKey] = useState(0);
   const [currentView, setCurrentView] = useState(() => {
     const saved = sessionStorage.getItem('currentView');
-    const VALID_VIEWS = ['home', 'recipes', 'friend-requests', 'discover', 'profile'];
+    const VALID_VIEWS = ['home', 'recipes', 'friend-requests', 'friends', 'discover', 'profile'];
     return VALID_VIEWS.includes(saved) ? saved : 'home';
-  }); // 'home' | 'recipes' | 'friend-requests' | 'discover' | 'profile'
+  }); // 'home' | 'recipes' | 'friend-requests' | 'friends' | 'discover' | 'profile'
 
   useEffect(() => {
     sessionStorage.setItem('currentView', currentView);
@@ -1917,6 +1927,17 @@ function App() {
       console.error('Error fetching friend requests:', error);
     }
   }, [accessToken]);
+
+  // Single entry point for "view all friends" actions across the app — keeps
+  // the BottomAppBar tab and the various in-app affordances (StatsTiles,
+  // CookWithFriends, etc.) routing through the same prep work (initial tab
+  // selection + data refresh).
+  const navigateToFriendsTab = useCallback(() => {
+    setFriendsInitialTab((friendRequests?.length ?? 0) > 0 ? 'pending' : 'connections');
+    setCurrentView('friends');
+    fetchFriends();
+    fetchFriendRequests();
+  }, [friendRequests, fetchFriends, fetchFriendRequests]);
 
   const fetchNotifications = useCallback(async () => {
     if (!accessToken) return;
@@ -4702,6 +4723,74 @@ function App() {
         onSkipForever={handleOnboardingSkipForever}
       />
 
+      <AddFriendDrawer
+        open={addFriendDrawerOpen}
+        onClose={() => setAddFriendDrawerOpen(false)}
+        loading={openInviteLinkLoading}
+        inviteToken={openInviteLink}
+        accessToken={accessToken}
+        onTapSuggestion={fetchSuggestionRecipes}
+        onShareEmail={async (existingToken) => {
+          let token = existingToken;
+          if (!token) {
+            setOpenInviteLinkLoading(true);
+            try {
+              const res = await callRecipesApi('/friends/open-invite', { method: 'POST' }, accessToken);
+              token = res?.token || null;
+              if (token) { setOpenInviteLink(token); setOpenInviteLinkLoaded(true); }
+            } finally { setOpenInviteLinkLoading(false); }
+            if (!token) return;
+          }
+          const subject = encodeURIComponent('Join me on ReciFriend!');
+          const body = encodeURIComponent(`Hey! I'd love to share recipes with you on ReciFriend.\n\nJoin me here: ${window.location.origin}?invite=${token}`);
+          window.location.href = `mailto:?subject=${subject}&body=${body}`;
+          trackEvent('invite_friend', { method: 'email' });
+        }}
+        onShareText={async (existingToken) => {
+          let token = existingToken;
+          if (!token) {
+            setOpenInviteLinkLoading(true);
+            try {
+              const res = await callRecipesApi('/friends/open-invite', { method: 'POST' }, accessToken);
+              token = res?.token || null;
+              if (token) { setOpenInviteLink(token); setOpenInviteLinkLoaded(true); }
+            } finally { setOpenInviteLinkLoading(false); }
+            if (!token) return;
+          }
+          const inviteUrl = `${window.location.origin}?invite=${token}`;
+          const text = `Hey! I'd love to share recipes with you on ReciFriend. Join me here: ${inviteUrl}`;
+          if (navigator.share) {
+            try {
+              await navigator.share({ text, url: inviteUrl });
+              trackEvent('invite_friend', { method: 'native_share' });
+              return;
+            } catch (err) {
+              if (err.name === 'AbortError') return;
+            }
+          }
+          window.open(`sms:?body=${encodeURIComponent(text)}`);
+          trackEvent('invite_friend', { method: 'sms' });
+        }}
+        onShareCopyLink={async (existingToken) => {
+          let token = existingToken;
+          if (!token) {
+            setOpenInviteLinkLoading(true);
+            try {
+              const res = await callRecipesApi('/friends/open-invite', { method: 'POST' }, accessToken);
+              token = res?.token || null;
+              if (token) { setOpenInviteLink(token); setOpenInviteLinkLoaded(true); }
+            } catch {
+              setSnackbarState({ open: true, message: 'Could not generate link.', severity: 'error' });
+              return;
+            } finally { setOpenInviteLinkLoading(false); }
+            if (!token) return;
+          }
+          navigator.clipboard.writeText(`${window.location.origin}?invite=${token}`);
+          setSnackbarState({ open: true, message: 'Invite link copied!', severity: 'success' });
+          trackEvent('invite_friend', { method: 'copy_link' });
+        }}
+      />
+
       <ShareSheet
         open={Boolean(shareSheetState)}
         onClose={() => setShareSheetState(null)}
@@ -4750,7 +4839,11 @@ function App() {
           sx={{
             px: { xs: 2, sm: 3, md: 4 },
             // Top inset now content-managed since the top AppBar was removed.
-            pt: { xs: 'calc(env(safe-area-inset-top) + 16px)', md: 'calc(env(safe-area-inset-top) + 22px)' },
+            // Friends view owns its own top padding (so the sticky title+tabs
+            // can pin all the way to viewport top with bg covering the notch).
+            pt: currentView === 'friends'
+              ? 0
+              : { xs: 'calc(env(safe-area-inset-top) + 16px)', md: 'calc(env(safe-area-inset-top) + 22px)' },
             // Bottom space for the BottomAppBar (64) + safe-area + room for the
             // floating Add Recipe pill FAB above it.
             pb: { xs: 'calc(64px + env(safe-area-inset-bottom) + 80px)', md: 4 },
@@ -4856,8 +4949,8 @@ function App() {
                     friendCount={friendsLoaded ? friends.length : null}
                     onAddRecipe={openAddDialog}
                     onViewRecipes={() => setCurrentView('recipes')}
-                    onAddFriends={() => { setIsFriendsDialogOpen(true); setIsAddFriendOpen(true); fetchFriends(); }}
-                    onViewFriends={() => setIsFriendsDialogOpen(true)}
+                    onAddFriends={() => setAddFriendDrawerOpen(true)}
+                    onViewFriends={navigateToFriendsTab}
                   />
                 </Box>
                 {/* Use padding-top instead of margin-top: the parent
@@ -4876,8 +4969,8 @@ function App() {
                   onOpenRecipe={handleOpenEditorPickRecipe}
                   onSaveRecipe={handleSavePublicRecipe}
                   onShareRecipe={(recipe, event) => openShareSheet(recipe, event) /* [S04] */}
-                  onInviteFriend={() => setIsFriendsDialogOpen(true)}
-                  onOpenFriends={() => setIsFriendsDialogOpen(true)}
+                  onInviteFriend={() => setAddFriendDrawerOpen(true)}
+                  onOpenFriends={navigateToFriendsTab}
                   onSuggestionTap={fetchSuggestionRecipes}
                   onAcceptFriendRequest={acceptFriendRequest}
                   onDeclineFriendRequest={declineFriendRequest}
@@ -4930,6 +5023,29 @@ function App() {
                 onToggleFavoritesOnly={() => setShowFavoritesOnly((prev) => !prev)}
                 MEAL_TYPE_LABELS={MEAL_TYPE_LABELS}
                 MEAL_TYPE_ICONS={MEAL_TYPE_ICONS}
+              />
+            )}
+            {currentView === 'friends' && session && (
+              <FriendsPage
+                friends={friends}
+                pendingRequests={friendRequests}
+                sentRequests={sentRequests}
+                sentInvites={sentInvites}
+                initialTab={friendsInitialTab}
+                onTapFriend={(friend) => {
+                  setIsFriendsDialogOpen(true);
+                  fetchFriendRecipes(friend);
+                }}
+                onRemoveFriend={(friend) => setFriendConfirm({
+                  open: true,
+                  title: 'Remove friend',
+                  message: `Remove ${friend.friendName || friend.friendEmail} from your friends?`,
+                  onConfirm: () => removeFriend(friend.friendId),
+                })}
+                onAccept={acceptFriendRequest}
+                onDecline={declineFriendRequest}
+                onCancelSentRequest={cancelSentFriendRequest}
+                onCancelInvite={cancelInvite}
               />
             )}
             {currentView === 'discover' && session && (
@@ -5018,16 +5134,14 @@ function App() {
           activeTab={
             currentView === 'home' ? 'home' :
             currentView === 'recipes' ? 'recipes' :
+            currentView === 'friends' ? 'friends' :
             currentView === 'discover' ? 'discover' :
             currentView === 'profile' ? 'profile' :
             null
           }
           onTabChange={(tab) => {
             if (tab === 'friends') {
-              setIsFriendsDialogOpen(true);
-              setIsAddFriendOpen(false);
-              fetchFriends();
-              fetchFriendRequests();
+              navigateToFriendsTab();
             } else {
               setCurrentView(tab);
             }
@@ -6170,56 +6284,39 @@ function App() {
           }
         }}
       >
-        {/* Drag handle — swipe target */}
-        <Box
-          onTouchStart={(e) => { drawerTouchStartY.current = e.touches[0].clientY; }}
-          onTouchEnd={(e) => {
-            if (drawerTouchStartY.current === null) return;
-            const delta = e.changedTouches[0].clientY - drawerTouchStartY.current;
-            drawerTouchStartY.current = null;
-            if (delta < -40) {
-              setFriendsDrawerExpanded(true);
-            } else if (delta > 40) {
-              if (friendsDrawerExpanded) {
-                setFriendsDrawerExpanded(false);
-              } else {
-                setIsFriendsDialogOpen(false);
-                setSelectedFriend(null); setFriendRecipes([]);
-                setIsAddFriendOpen(false); setAddFriendEmail('');
-                setFriendRecipeSearchOpen(false); setFriendRecipeSearchQuery('');
-              }
-            }
-          }}
-          sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pt: 1.5, pb: 1, flexShrink: 0, cursor: 'grab', touchAction: 'none' }}
-        >
-          <Box sx={{ width: 40, height: 4, borderRadius: 2, bgcolor: darkMode ? 'rgba(255,255,255,0.3)' : 'grey.300', mb: 1.5 }} />
-          {!selectedFriend && (
-            <Typography variant="h6" sx={{ fontWeight: 600 }}>Friends</Typography>
-          )}
-        </Box>
-
-        {/* Header */}
+        {/* Header — iOS-style X close on top LEFT, friend name on its own row below.
+            Drag-grabber removed; the scrollable content area below still has
+            its own swipe-down-to-dismiss handler. */}
         {selectedFriend && (
-          <Box sx={{ display: 'flex', alignItems: 'flex-start', px: 2, pt: 0.5, pb: 1, flexShrink: 0 }}>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, flex: 1 }}>
-              {!selectedFriend.fromHomeFeed && (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <IconButton onClick={() => { setSelectedFriend(null); setFriendRecipes([]); setFriendRecipeSearchOpen(false); setFriendRecipeSearchQuery(''); }} size="small" edge="start">
-                    <ArrowBackIcon fontSize="small" />
-                  </IconButton>
-                  <Typography
-                    variant="body2"
-                    sx={{ cursor: 'pointer', color: 'text.secondary', fontWeight: 'bold', fontSize: '1rem' }}
-                    onClick={() => { setSelectedFriend(null); setFriendRecipes([]); setFriendRecipeSearchOpen(false); setFriendRecipeSearchQuery(''); }}
-                  >
-                    Friends
-                  </Typography>
-                </Box>
-              )}
-              <Typography variant="h6" sx={{ pl: 0.5 }}>
-                {selectedFriend.friendName}
-              </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1, px: 2, pt: 2.5, pb: 1, flexShrink: 0 }}>
+            <Box
+              component="button"
+              aria-label="Close"
+              onClick={() => {
+                setIsFriendsDialogOpen(false);
+                setSelectedFriend(null);
+                setFriendRecipes([]);
+                setFriendRecipeSearchOpen(false);
+                setFriendRecipeSearchQuery('');
+              }}
+              sx={(theme) => ({
+                width: 36, height: 36, borderRadius: '50%',
+                bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)',
+                color: '#8a8a8a',
+                border: 'none', cursor: 'pointer',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+                WebkitTapHighlightColor: 'transparent',
+                transition: 'background-color 150ms ease, transform 150ms ease',
+                '&:hover': { bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.1)' },
+                '&:active': { transform: 'scale(0.92)' },
+              })}
+            >
+              <CloseIcon sx={{ fontSize: 18 }} />
             </Box>
+            <Typography variant="h6" sx={{ width: '100%', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {selectedFriend.friendName}
+            </Typography>
           </Box>
         )}
 
@@ -7049,6 +7146,42 @@ function App() {
           fetchProfile();
         }}
       />
+
+      {/* Floating "+ Add Friend" FAB — only on the Friends page. Always
+          visible there (no scroll-trigger), sits above the BottomAppBar. */}
+      {session && currentView === 'friends' && (
+        <Box
+          component="button"
+          onClick={() => setAddFriendDrawerOpen(true)}
+          aria-label="Add friend"
+          sx={{
+            position: 'fixed',
+            bottom: 'calc(64px + env(safe-area-inset-bottom) + 16px)',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            display: 'inline-flex', alignItems: 'center', gap: 0.5,
+            height: '2.75rem',
+            px: '18px',
+            border: 'none',
+            borderRadius: '999px',
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+            fontSize: '0.875rem',
+            fontWeight: 600,
+            whiteSpace: 'nowrap',
+            backgroundColor: 'primary.main',
+            color: '#ffffff',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+            zIndex: 1200,
+            WebkitTapHighlightColor: 'transparent',
+            '&:hover': { backgroundColor: 'primary.dark' },
+            '&:active': { transform: 'translateX(-50%) scale(0.97)' },
+            transition: 'transform 120ms ease',
+          }}
+        >
+          + Add Friend
+        </Box>
+      )}
 
       {/* Floating FAB — mobile only, slides up when user scrolls down.
           Logged-in: Add Recipe pill (sits above the BottomAppBar).
