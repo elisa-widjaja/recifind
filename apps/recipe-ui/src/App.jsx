@@ -317,6 +317,25 @@ function normalizeRecipeMealTypes(recipe) {
   return { ...recipe, mealTypes: normalized };
 }
 
+// Cuisines arrive from the API in lowercase hyphenated form (e.g.
+// "middle-eastern"). Normalize legacy variants users may have typed manually
+// (e.g. "Italian" → "italian", "japanese cuisine" → "japanese").
+function normalizeCuisineValue(type) {
+  const t = type.trim().toLowerCase().replace(/\s+/g, '-');
+  if (t === 'mideast' || t === 'mid-east' || t === 'middle east') return 'middle-eastern';
+  if (t.endsWith('-cuisine')) return t.slice(0, -8);
+  return t;
+}
+
+function normalizeRecipeCuisines(recipe) {
+  if (!Array.isArray(recipe.cuisines)) {
+    // Backwards-compat: rows from before migration 0014 won't have cuisines.
+    return { ...recipe, cuisines: [] };
+  }
+  const normalized = [...new Set(recipe.cuisines.filter((t) => typeof t === 'string' && t.trim()).map(normalizeCuisineValue))];
+  return { ...recipe, cuisines: normalized };
+}
+
 function normalizeRecipeFromApi(recipe) {
   if (!recipe || typeof recipe !== 'object') {
     return null;
@@ -325,7 +344,9 @@ function normalizeRecipeFromApi(recipe) {
   if (API_BASE_URL && recipe.imagePath && (!recipe.imageUrl || recipe.imageUrl.startsWith('/'))) {
     result = { ...result, imageUrl: `${API_BASE_URL}${recipe.imagePath}` };
   }
-  return normalizeRecipeMealTypes(result);
+  result = normalizeRecipeMealTypes(result);
+  result = normalizeRecipeCuisines(result);
+  return result;
 }
 
 async function createPreviewImagePayloadFromUrl(imageValue) {
@@ -372,6 +393,7 @@ async function buildApiRecipePayload(recipe, { includePreviewImage = false } = {
     return {};
   }
   const mealTypes = Array.isArray(recipe.mealTypes) ? recipe.mealTypes : [];
+  const cuisines = Array.isArray(recipe.cuisines) ? recipe.cuisines : [];
   const ingredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
   const steps = Array.isArray(recipe.steps) ? recipe.steps : [];
   const payload = {
@@ -379,6 +401,7 @@ async function buildApiRecipePayload(recipe, { includePreviewImage = false } = {
     sourceUrl: recipe.sourceUrl || '',
     imageUrl: recipe.imageUrl || '',
     mealTypes,
+    cuisines,
     ingredients,
     steps,
     durationMinutes:
@@ -422,6 +445,43 @@ const MEAL_TYPE_ICONS = {
 };
 
 const MEAL_TYPE_ORDER = ['breakfast', 'lunch', 'dinner', 'dessert', 'appetizer', 'sides', 'snacks'];
+
+// Cuisine taxonomy — kept tight so the filter chips stay scannable. Values
+// match the enum in the worker's Gemini prompt (lowercase, hyphenated).
+const CUISINE_LABELS = {
+  italian: 'Italian',
+  mexican: 'Mexican',
+  chinese: 'Chinese',
+  japanese: 'Japanese',
+  korean: 'Korean',
+  thai: 'Thai',
+  vietnamese: 'Vietnamese',
+  indian: 'Indian',
+  mediterranean: 'Mediterranean',
+  french: 'French',
+  american: 'American',
+  'middle-eastern': 'Middle Eastern',
+};
+
+const CUISINE_ICONS = {
+  italian: '🍝',
+  mexican: '🌮',
+  chinese: '🥡',
+  japanese: '🍣',
+  korean: '🍲',
+  thai: '🌶️',
+  vietnamese: '🍜',
+  indian: '🍛',
+  mediterranean: '🫒',
+  french: '🥖',
+  american: '🍔',
+  'middle-eastern': '🥙',
+};
+
+const CUISINE_ORDER = [
+  'italian', 'mexican', 'chinese', 'japanese', 'korean', 'thai',
+  'vietnamese', 'indian', 'mediterranean', 'french', 'american', 'middle-eastern',
+];
 const NEW_RECIPE_TEMPLATE = {
   title: '',
   sourceUrl: '',
@@ -489,6 +549,16 @@ function getUniqueMealTypes(recipes) {
   });
   const ordered = MEAL_TYPE_ORDER.filter((type) => types.has(type));
   const extras = Array.from(types).filter((type) => !MEAL_TYPE_ORDER.includes(type));
+  return [...ordered, ...extras];
+}
+
+function getUniqueCuisines(recipes) {
+  const types = new Set();
+  recipes.forEach((recipe) => {
+    (recipe.cuisines || []).forEach((c) => types.add(c));
+  });
+  const ordered = CUISINE_ORDER.filter((type) => types.has(type));
+  const extras = Array.from(types).filter((type) => !CUISINE_ORDER.includes(type));
   return [...ordered, ...extras];
 }
 
@@ -1162,6 +1232,7 @@ function App() {
     return []; // Start empty, will load after auth check
   });
   const [selectedMealType, setSelectedMealType] = useState('');
+  const [selectedCuisine, setSelectedCuisine] = useState('');
   const [ingredientInput, setIngredientInput] = useState('');
   const [activeRecipe, setActiveRecipe] = useState(null);
   const [activeRecipeDraft, setActiveRecipeDraft] = useState(null);
@@ -2605,6 +2676,7 @@ function App() {
   }, [ingredientSuggestions, activeIngredientToken]);
 
   const availableMealTypes = useMemo(() => getUniqueMealTypes(recipes), [recipes]);
+  const availableCuisines = useMemo(() => getUniqueCuisines(recipes), [recipes]);
 
   const filteredRecipes = useMemo(() => {
     const scored = recipes
@@ -2620,6 +2692,13 @@ function App() {
           if (!matchesMealType) {
             return null;
           }
+        }
+
+        if (selectedCuisine) {
+          const matchesCuisine = (recipe.cuisines || []).some(
+            (c) => c.toLowerCase() === selectedCuisine.toLowerCase()
+          );
+          if (!matchesCuisine) return null;
         }
 
         let ingredientScore = 0;
@@ -2640,7 +2719,7 @@ function App() {
         }
 
         const createdAt = recipe.createdAt ? new Date(recipe.createdAt).getTime() : 0;
-        const score = ingredientScore + (selectedMealType ? 1 : 0);
+        const score = ingredientScore + (selectedMealType ? 1 : 0) + (selectedCuisine ? 1 : 0);
         return { recipe, score, createdAt };
       })
       .filter(Boolean)
@@ -2653,7 +2732,7 @@ function App() {
       .map((entry) => entry.recipe);
 
     return scored;
-  }, [recipes, selectedMealType, normalizedIngredients, showFavoritesOnly, favorites]);
+  }, [recipes, selectedMealType, selectedCuisine, normalizedIngredients, showFavoritesOnly, favorites]);
 
   const pendingRecipesRef = useRef(null);
 
@@ -3011,7 +3090,8 @@ function App() {
       activeRecipeDraft.durationMinutes !== activeRecipe.durationMinutes ||
       JSON.stringify(activeRecipeDraft.ingredients) !== JSON.stringify(activeRecipe.ingredients) ||
       JSON.stringify(activeRecipeDraft.steps) !== JSON.stringify(activeRecipe.steps) ||
-      JSON.stringify(activeRecipeDraft.mealTypes) !== JSON.stringify(activeRecipe.mealTypes)
+      JSON.stringify(activeRecipeDraft.mealTypes) !== JSON.stringify(activeRecipe.mealTypes) ||
+      JSON.stringify(activeRecipeDraft.cuisines || []) !== JSON.stringify(activeRecipe.cuisines || [])
     );
   }, [activeRecipe, activeRecipeDraft]);
 
@@ -3029,6 +3109,11 @@ function App() {
 
   const handleMealTypeSelect = (value) => {
     setSelectedMealType((prev) => (prev === value ? '' : value));
+    setCurrentView('recipes');
+  };
+
+  const handleCuisineSelect = (value) => {
+    setSelectedCuisine((prev) => (prev === value ? '' : value));
     setCurrentView('recipes');
   };
 
@@ -5019,10 +5104,15 @@ function App() {
                 availableMealTypes={availableMealTypes}
                 selectedMealType={selectedMealType}
                 onMealTypeSelect={(type) => handleMealTypeSelect(type)}
+                availableCuisines={availableCuisines}
+                selectedCuisine={selectedCuisine}
+                onCuisineSelect={(c) => handleCuisineSelect(c)}
                 showFavoritesOnly={showFavoritesOnly}
                 onToggleFavoritesOnly={() => setShowFavoritesOnly((prev) => !prev)}
                 MEAL_TYPE_LABELS={MEAL_TYPE_LABELS}
                 MEAL_TYPE_ICONS={MEAL_TYPE_ICONS}
+                CUISINE_LABELS={CUISINE_LABELS}
+                CUISINE_ICONS={CUISINE_ICONS}
               />
             )}
             {currentView === 'friends' && session && (
@@ -5760,6 +5850,52 @@ function App() {
                           <Chip
                             key={type}
                             label={MEAL_TYPE_LABELS[type] || type}
+                            size="small"
+                            variant="filled"
+                            color="primary"
+                          />
+                        ))
+                      )}
+                    </Box>
+                  </Box>
+                )}
+
+                {(isEditMode || (activeRecipeView.cuisines && activeRecipeView.cuisines.length > 0)) && (
+                  <Box sx={{ pb: isEditMode ? 3 : 0 }}>
+                    <Divider sx={{ borderColor: darkMode ? 'rgba(255, 255, 255, 0.12)' : '#E0E0E0', mb: 3 }} />
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                      Cuisines
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      {isEditMode ? (
+                        CUISINE_ORDER.map((c) => {
+                          const isSelected = (activeRecipeView.cuisines || []).includes(c);
+                          return (
+                            <Chip
+                              key={c}
+                              label={CUISINE_LABELS[c] || c}
+                              size="small"
+                              variant={isSelected ? 'filled' : 'outlined'}
+                              color={isSelected ? 'primary' : 'default'}
+                              onClick={isSharedRecipeView ? undefined : () => {
+                                setActiveRecipeDraft((prev) => {
+                                  if (!prev) return prev;
+                                  const currentCuisines = prev.cuisines || [];
+                                  const newCuisines = isSelected
+                                    ? currentCuisines.filter((t) => t !== c)
+                                    : [...currentCuisines, c];
+                                  return { ...prev, cuisines: newCuisines };
+                                });
+                              }}
+                              sx={{ cursor: isSharedRecipeView ? 'default' : 'pointer' }}
+                            />
+                          );
+                        })
+                      ) : (
+                        (activeRecipeView.cuisines || []).map((c) => (
+                          <Chip
+                            key={c}
+                            label={CUISINE_LABELS[c] || c}
                             size="small"
                             variant="filled"
                             color="primary"

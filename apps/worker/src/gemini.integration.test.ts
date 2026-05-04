@@ -38,6 +38,7 @@ describe('Gemini integration', () => {
         sourceUrl: SOURCE_URL,
         imageUrl: '',
         mealTypes: [],
+        cuisines: [],
         ingredients: [],
         steps: [],
         durationMinutes: null,

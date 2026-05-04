@@ -43,6 +43,7 @@ interface Recipe {
   imageUrl: string;
   imagePath?: string | null;
   mealTypes: string[];
+  cuisines: string[];
   ingredients: string[];
   steps: string[];
   durationMinutes: number | null;
@@ -105,6 +106,7 @@ interface ParsedRecipeDetails {
   ingredients: string[];
   steps: string[];
   mealTypes: string[];
+  cuisines: string[];
   durationMinutes: number | null;
   imageUrl: string;
 }
@@ -1023,6 +1025,7 @@ function rowToRecipe(row: Record<string, unknown>): Recipe {
     imageUrl: (row.image_url as string) || '',
     imagePath: (row.image_path as string) || null,
     mealTypes: JSON.parse((row.meal_types as string) || '[]'),
+    cuisines: JSON.parse((row.cuisines as string) || '[]'),
     ingredients: JSON.parse((row.ingredients as string) || '[]'),
     steps: JSON.parse((row.steps as string) || '[]'),
     durationMinutes: row.duration_minutes as number | null,
@@ -1867,6 +1870,7 @@ async function handleGetSharedRecipe(request: Request, env: Env, token: string) 
     imageUrl: recipe.imageUrl || '',
     imagePath: recipe.imagePath || '',
     mealTypes: recipe.mealTypes || [],
+    cuisines: recipe.cuisines || [],
     ingredients: recipe.ingredients || [],
     steps: recipe.steps || null,
     durationMinutes: recipe.durationMinutes || null,
@@ -1910,11 +1914,13 @@ async function handleCreateRecipe(
   }
 
   await env.DB.prepare(
-    `INSERT INTO recipes (id, user_id, title, source_url, image_url, image_path, meal_types, ingredients, steps, duration_minutes, notes, preview_image, shared_with_friends, provenance, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO recipes (id, user_id, title, source_url, image_url, image_path, meal_types, cuisines, ingredients, steps, duration_minutes, notes, preview_image, shared_with_friends, provenance, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     recipe.id, recipe.userId, recipe.title, recipe.sourceUrl, recipe.imageUrl,
-    recipe.imagePath ?? null, JSON.stringify(recipe.mealTypes), JSON.stringify(recipe.ingredients),
+    recipe.imagePath ?? null, JSON.stringify(recipe.mealTypes),
+    JSON.stringify(recipe.cuisines || []),
+    JSON.stringify(recipe.ingredients),
     JSON.stringify(recipe.steps), recipe.durationMinutes, recipe.notes || '',
     recipe.previewImage ? JSON.stringify(recipe.previewImage) : null,
     recipe.sharedWithFriends ? 1 : 0,
@@ -2035,6 +2041,7 @@ async function handleParseRecipe(request: Request) {
               ingredients: [],
               steps: [],
               mealTypes: inferMealTypesFromTitle(title),
+              cuisines: [],
               durationMinutes: null,
               imageUrl: (payload.thumbnail_url || '').trim() || null
             }
@@ -2101,6 +2108,7 @@ async function handleEnrichRecipe(request: Request, env: Env) {
       sourceUrl, // original input, not resolvedUrl — preserves today's behavior
       imageUrl: ogImage || result.imageUrl || '',
       mealTypes: result.mealTypes,
+      cuisines: result.cuisines || [],
       ingredients: result.ingredients,
       steps: result.steps,
       durationMinutes: result.durationMinutes,
@@ -2141,11 +2149,13 @@ async function handleUpdateRecipe(request: Request, env: Env, user: Authenticate
   const effectiveProvenance = contentEdited ? null : (existing.provenance ?? null);
 
   await env.DB.prepare(
-    `UPDATE recipes SET title = ?, source_url = ?, image_url = ?, image_path = ?, meal_types = ?, ingredients = ?, steps = ?, duration_minutes = ?, notes = ?, preview_image = ?, shared_with_friends = ?, provenance = ?, updated_at = ?
+    `UPDATE recipes SET title = ?, source_url = ?, image_url = ?, image_path = ?, meal_types = ?, cuisines = ?, ingredients = ?, steps = ?, duration_minutes = ?, notes = ?, preview_image = ?, shared_with_friends = ?, provenance = ?, updated_at = ?
      WHERE user_id = ? AND id = ?`
   ).bind(
     recipe.title, recipe.sourceUrl, recipe.imageUrl, recipe.imagePath ?? null,
-    JSON.stringify(recipe.mealTypes), JSON.stringify(recipe.ingredients), JSON.stringify(recipe.steps),
+    JSON.stringify(recipe.mealTypes),
+    JSON.stringify(recipe.cuisines || []),
+    JSON.stringify(recipe.ingredients), JSON.stringify(recipe.steps),
     recipe.durationMinutes, recipe.notes || '',
     recipe.previewImage ? JSON.stringify(recipe.previewImage) : null,
     recipe.sharedWithFriends ? 1 : 0,
@@ -2226,12 +2236,13 @@ export async function handleReEnrichRecipe(
   // image_url is intentionally NOT updated (same policy as enrichAfterSave).
   await env.DB.prepare(
     `UPDATE recipes
-     SET ingredients = ?, steps = ?, meal_types = ?, duration_minutes = ?, notes = ?, provenance = ?, updated_at = ?
+     SET ingredients = ?, steps = ?, meal_types = ?, cuisines = ?, duration_minutes = ?, notes = ?, provenance = ?, updated_at = ?
      WHERE user_id = ? AND id = ?`
   ).bind(
     JSON.stringify(result.ingredients),
     JSON.stringify(result.steps),
     JSON.stringify(result.mealTypes),
+    JSON.stringify(result.cuisines || []),
     result.durationMinutes,
     result.notes || '',
     result.provenance ?? null,
@@ -2245,6 +2256,7 @@ export async function handleReEnrichRecipe(
     ingredients: result.ingredients,
     steps: result.steps,
     mealTypes: result.mealTypes,
+    cuisines: result.cuisines,
     durationMinutes: result.durationMinutes,
     notes: result.notes || '',
     provenance: result.provenance ?? null,
@@ -2958,6 +2970,7 @@ async function handleGetFriendRecipes(request: Request, env: Env, user: Authenti
       imageUrl: r.imageUrl || '',
       imagePath: r.imagePath || null,
       mealTypes: r.mealTypes || [],
+      cuisines: r.cuisines || [],
       ingredients: r.ingredients || [],
       steps: r.steps || [],
       durationMinutes: r.durationMinutes || null,
@@ -2997,6 +3010,7 @@ async function handleGetUserSharedRecipes(request: Request, env: Env, user: Auth
       imageUrl: r.imageUrl || '',
       imagePath: r.imagePath || null,
       mealTypes: r.mealTypes || [],
+      cuisines: r.cuisines || [],
       ingredients: r.ingredients || [],
       steps: r.steps || [],
       durationMinutes: r.durationMinutes || null,
@@ -3082,6 +3096,7 @@ function normalizeRecipePayload(
         imageUrl: '',
         imagePath: null,
         mealTypes: [],
+        cuisines: [],
         ingredients: [],
         steps: [],
         durationMinutes: null,
@@ -3113,6 +3128,10 @@ function normalizeRecipePayload(
 
   if ('mealTypes' in payload || !existing) {
     recipe.mealTypes = sanitizeStringArray(payload.mealTypes);
+  }
+
+  if ('cuisines' in payload || !existing) {
+    recipe.cuisines = sanitizeStringArray(payload.cuisines);
   }
 
   if ('ingredients' in payload || !existing) {
@@ -3965,6 +3984,7 @@ function extractRecipeDetailsFromHtml(html: string, sourceUrl: string): ParsedRe
       ingredients: [],
       steps: [],
       mealTypes: inferMealTypesFromTitle(fallbackTitle || ''),
+      cuisines: [],
       durationMinutes: null,
       imageUrl: fallbackImage
     };
@@ -3988,6 +4008,7 @@ function extractRecipeDetailsFromHtml(html: string, sourceUrl: string): ParsedRe
     ingredients,
     steps,
     mealTypes,
+    cuisines: [],
     durationMinutes,
     imageUrl: resolveExternalUrl(imageCandidate, sourceUrl)
   };
@@ -4427,6 +4448,7 @@ type EnrichmentResult = {
   title: string;
   imageUrl: string;
   mealTypes: string[];
+  cuisines: string[];
   ingredients: string[];
   steps: string[];
   durationMinutes: number | null;
@@ -4438,6 +4460,7 @@ const EMPTY_ENRICHMENT: EnrichmentResult = {
   title: '',
   imageUrl: '',
   mealTypes: [],
+  cuisines: [],
   ingredients: [],
   steps: [],
   durationMinutes: null,
@@ -4457,7 +4480,9 @@ Rules:
 - Short marketing blurbs, hashtag dumps, navigation/chrome text, and error pages (like "HTTP ERROR 429") are NOT recipes — return empty arrays.
 
 Return JSON matching this schema:
-{ "ingredients": [], "steps": [], "mealTypes": [], "durationMinutes": null, "notes": "", "title": "" }
+{ "ingredients": [], "steps": [], "mealTypes": [], "cuisines": [], "durationMinutes": null, "notes": "", "title": "" }
+
+For cuisines, pick at most 2 entries from this enum based ONLY on what's explicit (dish name, hashtags, creator's words): ["italian","mexican","chinese","japanese","korean","thai","vietnamese","indian","mediterranean","french","american","middle-eastern"]. Use the lowercase hyphenated form. If nothing in the text indicates a cuisine, return [].
 
 Text:
 ${captionText}`;
@@ -4468,6 +4493,7 @@ function parsedToEnrichmentResult(parsed: any): EnrichmentResult {
     title: typeof parsed?.title === 'string' ? parsed.title.trim() : '',
     imageUrl: typeof parsed?.imageUrl === 'string' ? parsed.imageUrl.trim() : '',
     mealTypes: Array.isArray(parsed?.mealTypes) ? sanitizeStringArray(parsed.mealTypes) : [],
+    cuisines: Array.isArray(parsed?.cuisines) ? sanitizeStringArray(parsed.cuisines) : [],
     ingredients: Array.isArray(parsed?.ingredients) ? sanitizeStringArray(parsed.ingredients) : [],
     steps: Array.isArray(parsed?.steps) ? sanitizeStringArray(parsed.steps) : [],
     durationMinutes:
@@ -4660,6 +4686,7 @@ async function textInference(
     imageUrl: '',
     imagePath: null,
     mealTypes: [],
+    cuisines: [],
     ingredients: [],
     steps: [],
     durationMinutes: null,
@@ -4767,12 +4794,13 @@ export async function enrichAfterSave(
   // the initial save and Gemini's inferred image is often worse than the og:image.
   await env.DB.prepare(
     `UPDATE recipes
-     SET ingredients = ?, steps = ?, meal_types = ?, duration_minutes = ?, notes = ?, provenance = ?, updated_at = ?
+     SET ingredients = ?, steps = ?, meal_types = ?, cuisines = ?, duration_minutes = ?, notes = ?, provenance = ?, updated_at = ?
      WHERE id = ?`
   ).bind(
     JSON.stringify(result.ingredients),
     JSON.stringify(result.steps),
     JSON.stringify(result.mealTypes),
+    JSON.stringify(result.cuisines || []),
     result.durationMinutes,
     result.notes || '',
     result.provenance ?? null,
@@ -5012,6 +5040,7 @@ function buildGeminiPrompt(recipe: Recipe, rawText: string) {
     recipe.sourceUrl ? `Source URL: ${recipe.sourceUrl}` : '',
     recipe.imageUrl ? `Image URL: ${recipe.imageUrl}` : '',
     recipe.mealTypes.length ? `Meal types: ${recipe.mealTypes.join(', ')}` : '',
+    recipe.cuisines.length ? `Cuisines: ${recipe.cuisines.join(', ')}` : '',
     recipe.ingredients.length ? `Existing ingredients: ${recipe.ingredients.join('; ')}` : '',
     recipe.steps.length ? `Existing steps: ${recipe.steps.join(' | ')}` : '',
     typeof recipe.durationMinutes === 'number' && Number.isFinite(recipe.durationMinutes)
@@ -5027,6 +5056,7 @@ function buildGeminiPrompt(recipe: Recipe, rawText: string) {
   "sourceUrl": "string",
   "imageUrl": "string",
   "mealTypes": ["breakfast","lunch","dinner","dessert","appetizer","snack"],
+  "cuisines": ["italian","mexican","chinese","japanese","korean","thai","vietnamese","indian","mediterranean","french","american","middle-eastern"],
   "ingredients": ["string"],
   "steps": ["string"],
   "durationMinutes": number | null,
@@ -5040,6 +5070,7 @@ Rules:
 - For steps: If explicit instructions exist, use them. Otherwise, provide typical preparation steps for this dish based on your knowledge.
 - steps must be an ordered list of clear instructions. Do NOT include step numbers or prefixes like "1.", "Step 1:", etc. — just the instruction text itself.
 - mealTypes should be appropriate for this type of dish.
+- cuisines: pick 1-2 entries from the enum above that best describe the dish's culinary tradition. Use lowercase, hyphenated form (e.g. "middle-eastern"). If the dish is a fusion (e.g. "Korean tacos"), include both. If genuinely uncertain, return [].
 - durationMinutes should be estimated if not explicitly mentioned.
 - notes should include any tips, serving suggestions, or context from the text.
 - Return ONLY JSON, no explanation.

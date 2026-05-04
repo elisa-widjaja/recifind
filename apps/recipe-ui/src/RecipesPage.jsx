@@ -70,10 +70,15 @@ export default function RecipesPage({
   availableMealTypes = [],
   selectedMealType = '',
   onMealTypeSelect = () => {},
+  availableCuisines = [],
+  selectedCuisine = '',
+  onCuisineSelect = () => {},
   showFavoritesOnly = false,
   onToggleFavoritesOnly = () => {},
   MEAL_TYPE_LABELS = {},
   MEAL_TYPE_ICONS = {},
+  CUISINE_LABELS = {},
+  CUISINE_ICONS = {},
 }) {
   const [suggestions, setSuggestions] = useState([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
@@ -313,7 +318,7 @@ export default function RecipesPage({
               aria-label="Filters"
               onClick={() => setFilterDrawerOpen(true)}
               sx={{
-                color: (selectedMealType || showFavoritesOnly) ? 'primary.main' : 'text.secondary',
+                color: (selectedMealType || selectedCuisine || showFavoritesOnly) ? 'primary.main' : 'text.secondary',
               }}
             >
               <SimpleTuneIcon size={20} />
@@ -503,6 +508,63 @@ export default function RecipesPage({
             })}
           </Box>
         </Box>
+
+        {availableCuisines.length > 0 && (
+          <>
+            <Divider sx={{ mx: 2 }} />
+
+            <Box sx={{ px: 2, py: 2 }}>
+              <Typography component="div" variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' }}>
+                Cuisine
+              </Typography>
+              {/* Same horizontally-scrolling chip group treatment as Meal type;
+                  only renders when at least one of the user's recipes has a
+                  cuisine tag, so the section is hidden for brand-new users. */}
+              <Box
+                sx={{
+                  display: 'flex', flexWrap: 'nowrap', overflowX: 'auto',
+                  gap: 1, mt: 1,
+                  mx: -2, px: 2,
+                  '&::-webkit-scrollbar': { display: 'none' },
+                  scrollbarWidth: 'none',
+                  maskImage: 'linear-gradient(to right, transparent 0, black 16px, black calc(100% - 16px), transparent 100%)',
+                  WebkitMaskImage: 'linear-gradient(to right, transparent 0, black 16px, black calc(100% - 16px), transparent 100%)',
+                }}
+              >
+                {availableCuisines.map((c) => {
+                  const label = CUISINE_LABELS[c] || c.replace(/^\w/, (ch) => ch.toUpperCase());
+                  const selected = selectedCuisine === c;
+                  return (
+                    <Box
+                      key={c}
+                      component="button"
+                      role="button"
+                      aria-pressed={selected}
+                      onClick={() => {
+                        onCuisineSelect(c);
+                        setTimeout(() => setFilterDrawerOpen(false), 750);
+                      }}
+                      sx={(theme) => ({
+                        display: 'inline-flex', alignItems: 'center',
+                        height: 36, px: 1.75, border: 'none', borderRadius: '999px',
+                        cursor: 'pointer', fontFamily: 'inherit', fontSize: 14, fontWeight: 500,
+                        whiteSpace: 'nowrap', flexShrink: 0,
+                        ...(selected
+                          ? { bgcolor: 'primary.main', color: '#fff' }
+                          : {
+                              bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)',
+                              color: 'text.primary',
+                            }),
+                      })}
+                    >
+                      {label}
+                    </Box>
+                  );
+                })}
+              </Box>
+            </Box>
+          </>
+        )}
 
         <Divider sx={{ mx: 2 }} />
 
