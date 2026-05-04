@@ -15,7 +15,10 @@ export default function WelcomeModal({ open, onDismiss, onSkip, inviterName, rec
     <Dialog open={open} fullWidth maxWidth="xs" onClose={onDismiss} PaperProps={{ sx: { borderRadius: 3 } }}>
       <DialogContent sx={{ pt: 3, pb: 3, px: 3, textAlign: 'center' }}>
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
-          <Button size="small" onClick={onSkip} sx={{ color: 'text.disabled', minWidth: 0, p: 0.5, lineHeight: 1, fontSize: 18 }}>✕</Button>
+          {/* X = "close this welcome modal", not "permanently skip onboarding".
+              Falls through to onDismiss so OnboardingFlow still opens.
+              The explicit opt-out is the "Don't show this again" link below. */}
+          <Button size="small" onClick={onDismiss} sx={{ color: 'text.disabled', minWidth: 0, p: 0.5, lineHeight: 1, fontSize: 18 }}>✕</Button>
         </Box>
         <Typography fontSize={40} mb={1}>👋</Typography>
         <Typography variant="h6" fontWeight={800} mb={0.5}>

@@ -96,8 +96,6 @@ import { supabase } from './supabaseClient';
 import { migrateLegacyStorage } from './lib/migrateLegacyStorage';
 // === [/rebrand] ===
 import PublicLanding from './components/PublicLanding';
-import WelcomeModal from './components/WelcomeModal';
-import OnboardingFlow from './components/OnboardingFlow';
 import FriendSections from './components/FriendSections';
 import StatsTiles from './components/StatsTiles';
 import PullToRefresh from './components/PullToRefresh';
@@ -108,6 +106,7 @@ import BottomAppBar from './components/BottomAppBar';
 import DiscoverPage from './components/DiscoverPage';
 import ProfilePage from './components/ProfilePage';
 import OnboardingChecklist from './components/OnboardingChecklist';
+import OnboardingDrawer from './components/OnboardingDrawer';
 import SettingsDrawer from './components/SettingsDrawer';
 // === [S04] Friend picker wiring ===
 import { FriendPicker } from './components/FriendPicker';
@@ -1078,6 +1077,14 @@ function App() {
   // re-evaluate localStorage and hide the checklist after a permanent dismiss.
   const [onboardingTick, setOnboardingTick] = useState(0);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  // First-time onboarding hosted in a single right-slide drawer (preferences
+  // + checklist screens). Replaces the legacy OnboardingFlow Dialog and the
+  // GetStartedDialog bridge.
+  const [onboardingDrawerOpen, setOnboardingDrawerOpen] = useState(false);
+  // Bumped when the user taps "Get started" so OnboardingChecklist remounts
+  // and re-reads the now-set onboarding_checklist_collapsed sessionStorage
+  // flag (its useState initial only runs once at mount).
+  const [checklistKey, setChecklistKey] = useState(0);
   const [currentView, setCurrentView] = useState(() => {
     const saved = sessionStorage.getItem('currentView');
     const VALID_VIEWS = ['home', 'recipes', 'friend-requests', 'discover', 'profile'];
@@ -1208,9 +1215,6 @@ function App() {
   const [feedbackEmail, setFeedbackEmail] = useState('');
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [feedbackDone, setFeedbackDone] = useState(false);
-  const [welcomeOpen, setWelcomeOpen] = useState(false);
-  const [onboardingOpen, setOnboardingOpen] = useState(false);
-  const [welcomeRecipes, setWelcomeRecipes] = useState([]);
   const [inviterName, setInviterName] = useState(null);
 
   // Track visits and decide whether to show the feedback widget.
@@ -1723,6 +1727,24 @@ function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingShare, session, isAuthChecked]);
 
+  // iOS launch with no session → auto-open the login dialog so logged-out
+  // users see the auth surface immediately. They can dismiss to land on the
+  // public homepage and still re-open via the header "Login" link. Only
+  // fires once per session (the local flag prevents the dialog from popping
+  // back up after the user dismisses it).
+  const autoOpenedAuthRef = useRef(false);
+  useEffect(() => {
+    if (autoOpenedAuthRef.current) return;
+    if (!isAuthChecked) return;
+    if (session) return;
+    if (!Capacitor.isNativePlatform()) return;
+    // Defer to the share/invite handlers above — if either of those is
+    // about to open the dialog with a meaningful reason, don't double-fire.
+    if (pendingShare) return;
+    autoOpenedAuthRef.current = true;
+    setIsAuthDialogOpen(true);
+  }, [isAuthChecked, session, pendingShare]);
+
   // Register appUrlOpen listener exactly once. Never re-subscribe — every
   // re-subscription flushes Capacitor's retained `appUrlOpen` event again
   // (see @capacitor/app iOS: notifyListeners(..., retainUntilConsumed: true)).
@@ -1828,13 +1850,9 @@ function App() {
       return;
     }
 
-    // Fetch welcome recipes: editors-pick as fallback
-    fetch(`${API_BASE_URL}/public/editors-pick`)
-      .then(r => r.json())
-      .then(d => setWelcomeRecipes((d?.recipes || []).slice(0, 3)))
-      .catch(() => {});
-
-    setWelcomeOpen(true);
+    // Welcome content lives inside OnboardingDrawer's first screen now —
+    // no separate WelcomeModal Dialog.
+    setOnboardingDrawerOpen(true);
   }, [isAuthChecked, session, userProfile]);
 
   // ── Profile API functions ─────────────────────────────────────────
@@ -2115,43 +2133,50 @@ function App() {
     } catch (_) { /* non-fatal — localStorage still carries us through the session */ }
   };
 
-  const handleWelcomeDismiss = () => {
-    setWelcomeOpen(false);
-    const onboardingSeen = localStorage.getItem('onboarding_seen');
-    if (!onboardingSeen) {
-      setOnboardingOpen(true);
-    }
-  };
-
-  const handleWelcomeSkip = () => {
-    setWelcomeOpen(false);
-    markOnboardingSeen();
-  };
-
-  const handleOnboardingComplete = async (prefs) => {
-    setOnboardingOpen(false);
-    await markOnboardingSeen();
-    setIsFirstRecipe(true);
-    openAddDialog();
-    if (accessToken && (prefs.dietaryPrefs?.length || prefs.cookingFor || prefs.cuisinePrefs?.length)) {
+  // OnboardingDrawer "Next" — save prefs to server then advance internally.
+  const handleOnboardingSavePrefs = async (prefs) => {
+    if (!accessToken) return;
+    if (prefs.dietaryPrefs?.length || prefs.cookingFor || prefs.cuisinePrefs?.length) {
       await callRecipesApi('/profile', {
         method: 'PATCH',
         body: JSON.stringify({ dietaryPrefs: prefs.dietaryPrefs, cookingFor: prefs.cookingFor, cuisinePrefs: prefs.cuisinePrefs })
       }, accessToken);
-      // Re-fetch profile so FriendSections gets the new prefs in the same session
       fetchProfile();
     }
   };
 
-  const handleOnboardingSkip = () => {
-    setOnboardingOpen(false);
-    markOnboardingSeen();
-    setIsFirstRecipe(true);
-    openAddDialog();
+  // OnboardingDrawer "Get started" (or X tapped on the final checklist
+  // screen) — close, mark seen, land on home with the checklist
+  // collapsed by default (user just saw the same content in the drawer).
+  const handleOnboardingComplete = async () => {
+    setOnboardingDrawerOpen(false);
+    setCurrentView('home');
+    setChecklistKey((k) => k + 1);
+    await markOnboardingSeen();
   };
 
-  const handleOnboardingDismiss = () => {
-    setOnboardingOpen(false);
+  // OnboardingDrawer X close BEFORE the checklist screen — early exit. We
+  // still mark onboarding seen (don't keep nagging on every launch), but
+  // ALSO set a one-shot session flag so the OnboardingChecklist on home
+  // renders expanded for this session. Next launch (sessionStorage gone)
+  // it falls back to the default collapsed state.
+  const handleOnboardingClose = async () => {
+    try { sessionStorage.setItem('onboarding_checklist_force_expanded', '1'); } catch { /* swallow */ }
+    setOnboardingDrawerOpen(false);
+    setCurrentView('home');
+    setChecklistKey((k) => k + 1);
+    await markOnboardingSeen();
+  };
+
+  // OnboardingDrawer "Don't show this again" link on the welcome screen —
+  // same handling as an early X dismiss: mark seen, but expand the
+  // checklist on home for this session so the user still sees the steps.
+  const handleOnboardingSkipForever = async () => {
+    try { sessionStorage.setItem('onboarding_checklist_force_expanded', '1'); } catch { /* swallow */ }
+    setOnboardingDrawerOpen(false);
+    setCurrentView('home');
+    setChecklistKey((k) => k + 1);
+    await markOnboardingSeen();
   };
 
   const fetchFriendRecipes = async (friend) => {
@@ -2773,7 +2798,7 @@ function App() {
     if (isPwaInstalled()) return;
     if (localStorage.getItem('recifriend-install-banner-dismissed')) return;
     if (sessionStorage.getItem('pending_invite_token')) return;
-    if (onboardingOpen) return;
+    if (onboardingDrawerOpen) return;
     let timer;
     const handler = (e) => {
       e.preventDefault();
@@ -2789,7 +2814,7 @@ function App() {
       window.removeEventListener('beforeinstallprompt', handler);
       clearTimeout(timer);
     };
-  }, [onboardingOpen]);
+  }, [onboardingDrawerOpen]);
 
 
   // Show install banner on iOS as soon as auth check completes (no login required)
@@ -2801,10 +2826,10 @@ function App() {
     if (localStorage.getItem('recifriend-install-banner-dismissed')) return;
     if (sessionStorage.getItem('pending_invite_token')) return;
     if (sessionStorage.getItem('invite_entry')) return;
-    if (onboardingOpen) return;
+    if (onboardingDrawerOpen) return;
     const timer = setTimeout(() => setShowInstallBanner(true), 90000);
     return () => clearTimeout(timer);
-  }, [isAuthChecked, session, onboardingOpen]);
+  }, [isAuthChecked, session, onboardingDrawerOpen]);
 
   // Handle Web Share Target: open add dialog pre-filled with shared URL
   useEffect(() => {
@@ -4663,18 +4688,18 @@ function App() {
       <CssBaseline />
 
 
-      <WelcomeModal
-        open={welcomeOpen}
-        onDismiss={handleWelcomeDismiss}
-        onSkip={handleWelcomeSkip}
+      <OnboardingDrawer
+        open={onboardingDrawerOpen}
         inviterName={inviterName}
-        recipes={welcomeRecipes}
-      />
-      <OnboardingFlow
-        open={onboardingOpen}
+        initialPrefs={{
+          dietaryPrefs: userProfile?.dietaryPrefs ?? [],
+          cookingFor: userProfile?.cookingFor ?? '',
+          cuisinePrefs: userProfile?.cuisinePrefs ?? [],
+        }}
+        onSavePrefs={handleOnboardingSavePrefs}
         onComplete={handleOnboardingComplete}
-        onSkip={handleOnboardingSkip}
-        onDismiss={handleOnboardingDismiss}
+        onClose={handleOnboardingClose}
+        onSkipForever={handleOnboardingSkipForever}
       />
 
       <ShareSheet
@@ -4712,6 +4737,7 @@ function App() {
       {!session && isAuthChecked && (
         <PublicLanding
           onJoin={openAuthDialog}
+          onLogin={openAuthDialog}
           onOpenRecipe={handleOpenRecipeDetails}
           darkMode={darkMode}
           onCookWithFriendsVisible={setCookWithFriendsVisible}
@@ -4778,7 +4804,6 @@ function App() {
                     {getHomeGreetingMessage()}
                   </Typography>
                 </Box>
-                <Box sx={{ height: '8px', flexShrink: 0 }} aria-hidden />
                 {(() => {
                   const userId = session?.user?.id;
                   const hasRecipe = recipes.length > 0;
@@ -4801,19 +4826,31 @@ function App() {
                   // wouldn't trigger a re-render). The value itself is unused.
                   void onboardingTick;
                   if (allDoneCached || allDoneNow || dismissedCached) return null;
+                  // Wrapper Box adds 10px of padding-top above the checklist.
+                  // Combined with the parent Stack's 12px margin between
+                  // children, the total visible gap from greeting bottom to
+                  // the checklist's border = 12 + 10 = 22px. Padding (not
+                  // margin) — see feedback_mui_stack_spacing memory.
                   return (
-                    <OnboardingChecklist
-                      hasRecipe={hasRecipe}
-                      hasInvitedFriend={hasInvitedFriend}
-                      hasSharedRecipe={hasSharedRecipe}
-                      onDismiss={() => {
-                        if (dismissedFlag) localStorage.setItem(dismissedFlag, '1');
-                        setOnboardingTick((n) => n + 1);
-                      }}
-                    />
+                    <Box sx={{ pt: '10px' }}>
+                      <OnboardingChecklist
+                        key={checklistKey}
+                        hasRecipe={hasRecipe}
+                        hasInvitedFriend={hasInvitedFriend}
+                        hasSharedRecipe={hasSharedRecipe}
+                        onDismiss={() => {
+                          if (dismissedFlag) localStorage.setItem(dismissedFlag, '1');
+                          setOnboardingTick((n) => n + 1);
+                        }}
+                      />
+                    </Box>
                   );
                 })()}
-                <Box sx={{ mt: '10px' }}>
+                {/* Use padding-top, not margin-top — see
+                    feedback_mui_stack_spacing memory note. The parent Stack
+                    adds 12px on top of this child; with pt:20px the total
+                    visible gap above StatsTiles is 32px. */}
+                <Box sx={{ pt: '20px' }}>
                   <StatsTiles
                     recipeCount={recipes.length}
                     friendCount={friendsLoaded ? friends.length : null}

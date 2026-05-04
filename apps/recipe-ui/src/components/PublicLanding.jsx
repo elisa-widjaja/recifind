@@ -401,7 +401,7 @@ function WhyJoinCarousel({ onJoin, darkMode }) {
   );
 }
 
-export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare }) {
+export default function PublicLanding({ onJoin, onLogin, onOpenRecipe, darkMode, onShare }) {
   const [trending, setTrending] = useState([]);
   const [discover, setDiscover] = useState([]);
   const [fabVisible, setFabVisible] = useState(false);
@@ -449,10 +449,61 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare 
   const trendingFiltered = trending.slice(0, 5);
 
   return (
-    <Container maxWidth="sm" disableGutters>
-      <Box sx={{ px: { xs: 2, sm: 3 }, pb: 6 }}>
+    <>
+      {/* ── Header (logged-out): logo on the left, Login on the right ── */}
+      <Box
+        sx={(theme) => ({
+          position: 'fixed',
+          top: 0, left: 0, right: 0,
+          zIndex: 1100,
+          paddingTop: 'env(safe-area-inset-top)',
+          bgcolor: theme.palette.mode === 'dark'
+            ? 'rgba(0,0,0,0.85)'
+            : 'rgba(255,255,255,0.85)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+          borderBottom: 1,
+          borderColor: 'divider',
+        })}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1 }}>
+          <Typography
+            variant="h6"
+            component="div"
+            sx={{ fontWeight: 600, fontSize: '14px', userSelect: 'none' }}
+          >
+            ReciFriend
+          </Typography>
+          <Box
+            component="button"
+            onClick={onLogin || onJoin}
+            sx={(theme) => ({
+              border: 'none',
+              bgcolor: 'transparent',
+              color: 'primary.main',
+              fontFamily: 'inherit',
+              fontSize: 14,
+              fontWeight: 600,
+              px: 1.5,
+              py: 0.75,
+              borderRadius: 999,
+              cursor: 'pointer',
+              WebkitTapHighlightColor: 'transparent',
+              '&:active': { opacity: 0.6 },
+              '&:hover': { bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' },
+            })}
+          >
+            Login
+          </Box>
+        </Box>
+      </Box>
 
-        <Stack sx={{ gap: '32px', pt: 'calc(20px + env(safe-area-inset-top))' }}>
+      <Container maxWidth="sm" disableGutters>
+        <Box sx={{ px: { xs: 2, sm: 3 }, pb: 6 }}>
+
+        {/* Top padding includes the header height (~50) plus the iOS
+            dynamic-island safe-area inset, so first content clears both. */}
+        <Stack sx={{ gap: '32px', pt: 'calc(env(safe-area-inset-top) + 70px)' }}>
 
           {/* ── Why Join Recifind ── */}
           <Box ref={whyJoinRef}>
@@ -528,6 +579,7 @@ export default function PublicLanding({ onJoin, onOpenRecipe, darkMode, onShare 
       >
         Privacy
       </Box>
-    </Container>
+      </Container>
+    </>
   );
 }

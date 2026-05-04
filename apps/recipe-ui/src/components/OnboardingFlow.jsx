@@ -123,7 +123,7 @@ export default function OnboardingFlow({ open, onComplete, onSkip, onDismiss }) 
           )}
           <Button fullWidth variant="contained" disableElevation onClick={handleNext}
             sx={{ borderRadius: 20, textTransform: 'none', fontWeight: 700 }}>
-            {screen < 2 ? 'Next →' : "Let's cook"}
+            {screen < 2 ? 'Next →' : 'Next'}
           </Button>
         </Box>
         <Button fullWidth size="small" onClick={onSkip}

@@ -12,13 +12,21 @@ const STEPS = [
 export default function OnboardingChecklist({ hasRecipe, hasInvitedFriend, hasSharedRecipe, onDismiss }) {
   const status = { recipe: !!hasRecipe, invite: !!hasInvitedFriend, share: !!hasSharedRecipe };
   const done = STEPS.filter((s) => status[s.key]).length;
-  const [expanded, setExpanded] = useState(true);
+  // Default collapsed. Override (expanded for this session) only when the
+  // user dismissed OnboardingDrawer early — we want them to see the steps
+  // they missed. Flag lives in sessionStorage so it self-clears on next
+  // launch.
+  const [expanded, setExpanded] = useState(() => {
+    try { return sessionStorage.getItem('onboarding_checklist_force_expanded') === '1'; }
+    catch { return false; }
+  });
 
   if (done === STEPS.length) return null;
 
   return (
     <Box sx={{
       bgcolor: 'background.paper',
+      // Same 12px radius in both states.
       borderRadius: '12px',
       px: 2.5,
       // pt stays constant so the header doesn't shift when toggling.
@@ -29,7 +37,12 @@ export default function OnboardingChecklist({ hasRecipe, hasInvitedFriend, hasSh
       border: '2px solid',
       borderColor: 'rgba(124,58,237,0.10)',
       boxShadow: '0 1px 2px rgba(0,0,0,.06)',
-      mb: '100px',
+      // Top spacing controlled by a wrapper Box with pt in App.jsx (see
+      // feedback_mui_stack_spacing memory — Stack overrides child mt).
+      // Bottom spacing lives on the StatsTiles wrapper (pt) for the same
+      // reason — child mb on a Stack child composes weirdly with Stack's
+      // own margin selector.
+      mb: 0,
       transition: 'padding 200ms ease',
     }}>
       {/* Header row: title + count + collapse toggle */}
@@ -45,12 +58,12 @@ export default function OnboardingChecklist({ hasRecipe, hasInvitedFriend, hasSh
         }}
       >
         <Typography sx={(theme) => ({
-          fontWeight: 700, fontSize: 16, flex: 1,
+          fontWeight: 700, fontSize: 14, flex: 1,
           color: theme.palette.mode === 'dark' ? '#fff' : 'text.primary',
         })}>
           Get started
         </Typography>
-        <Typography sx={{ fontWeight: 700, fontSize: 14, color: 'primary.main' }}>
+        <Typography sx={{ fontWeight: 700, fontSize: 12, color: 'primary.main' }}>
           {done} of {STEPS.length}
         </Typography>
         <ExpandMoreIcon
