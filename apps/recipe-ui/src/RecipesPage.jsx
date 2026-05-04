@@ -272,7 +272,9 @@ export default function RecipesPage({
           )}
         </Box>
 
-        {/* Mobile Add Recipe button */}
+        {/* Mobile Add Recipe button — visual match to the floating FAB Add
+            Recipe pill (App.jsx) so the inline + scrolled-FAB versions feel
+            like the same button at different anchors. */}
         <Box ref={addRecipeBtnRef} sx={{ display: { xs: 'flex', sm: 'none' }, justifyContent: 'center' }}>
           <Button
             onClick={onAddRecipe}
@@ -280,23 +282,19 @@ export default function RecipesPage({
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '0.125rem',
-              height: '2.5rem',
-              px: '14px',
+              height: '2.75rem',
+              px: '18px',
               fontSize: '0.875rem',
-              fontWeight: 500,
-              lineHeight: 1.5,
+              fontWeight: 600,
               whiteSpace: 'nowrap',
               backgroundColor: 'primary.main',
               color: '#ffffff',
               borderRadius: '999px',
               border: 'none',
-              transition: 'all 150ms ease',
-              flexShrink: 0,
               textTransform: 'none',
-              '&:hover': {
-                backgroundColor: 'primary.dark'
-              }
+              flexShrink: 0,
+              transition: 'all 150ms ease',
+              '&:hover': { backgroundColor: 'primary.dark' },
             }}
             startIcon={<AddIcon />}
           >

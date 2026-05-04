@@ -7283,39 +7283,43 @@ function App() {
         }}
       />
 
-      {/* Floating "+ Add Friend" FAB — only on the Friends page. Always
-          visible there (no scroll-trigger), sits above the BottomAppBar. */}
+      {/* Floating Add Friend FAB — only on the Friends page. Always visible
+          there (no scroll-trigger), sits above the BottomAppBar. Same MUI
+          Button + AddIcon treatment as the Add Recipe FAB so the two pills
+          look like the same control with different labels. */}
       {session && currentView === 'friends' && (
         <Box
-          component="button"
-          onClick={() => setAddFriendDrawerOpen(true)}
-          aria-label="Add friend"
           sx={{
             position: 'fixed',
             bottom: 'calc(64px + env(safe-area-inset-bottom) + 16px)',
             left: '50%',
             transform: 'translateX(-50%)',
-            display: 'inline-flex', alignItems: 'center', gap: 0.5,
-            height: '2.75rem',
-            px: '18px',
-            border: 'none',
-            borderRadius: '999px',
-            cursor: 'pointer',
-            fontFamily: 'inherit',
-            fontSize: '0.875rem',
-            fontWeight: 600,
-            whiteSpace: 'nowrap',
-            backgroundColor: 'primary.main',
-            color: '#ffffff',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
             zIndex: 1200,
-            WebkitTapHighlightColor: 'transparent',
-            '&:hover': { backgroundColor: 'primary.dark' },
-            '&:active': { transform: 'translateX(-50%) scale(0.97)' },
-            transition: 'transform 120ms ease',
           }}
         >
-          + Add Friend
+          <Button
+            onClick={() => setAddFriendDrawerOpen(true)}
+            aria-label="Add friend"
+            startIcon={<AddIcon />}
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              height: '2.75rem',
+              px: '18px',
+              fontSize: '0.875rem',
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+              backgroundColor: 'primary.main',
+              color: '#ffffff',
+              borderRadius: '999px',
+              border: 'none',
+              textTransform: 'none',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+              '&:hover': { backgroundColor: 'primary.dark' },
+            }}
+          >
+            Add Friend
+          </Button>
         </Box>
       )}
 
