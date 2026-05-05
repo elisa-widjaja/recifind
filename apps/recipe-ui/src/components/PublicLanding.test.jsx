@@ -36,6 +36,9 @@ describe('PublicLanding (trimmed)', () => {
   it('still renders the two retained shelves', async () => {
     render(<PublicLanding onJoin={() => {}} onOpenRecipe={() => {}} />);
     await waitFor(() => expect(screen.getByText(/trending now/i)).toBeInTheDocument());
-    expect(screen.getByText(/discover new recipes/i)).toBeInTheDocument();
+    // "Discover New Recipes" is the shelf header; the regex below is anchored
+    // so it doesn't also match the Card 3 carousel subhead text
+    // ("Discover new recipes and health topics ...").
+    expect(screen.getByText(/^Discover New Recipes$/)).toBeInTheDocument();
   });
 });
