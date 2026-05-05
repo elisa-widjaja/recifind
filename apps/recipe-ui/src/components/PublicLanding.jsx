@@ -1286,19 +1286,11 @@ function WhyJoinCarousel({ onJoin, darkMode, discoverRecipes = [] }) {
 export default function PublicLanding({ onJoin, onLogin, onOpenRecipe, darkMode, onShare }) {
   const [trending, setTrending] = useState([]);
   const [discover, setDiscover] = useState([]);
-  const [fabVisible, setFabVisible] = useState(false);
   const whyJoinRef = useRef(null);
-
-  useEffect(() => {
-    const el = whyJoinRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => setFabVisible(!entry.isIntersecting),
-      { threshold: 0.1 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+  // FAB used to lazily appear once the user scrolled past the why-join
+  // carousel; per design the Join Free CTA should be visible on page load,
+  // so the IntersectionObserver was removed and the FAB now renders
+  // unconditionally.
 
   useEffect(() => {
     fetchJson('/public/trending-recipes').then(d => setTrending(d?.recipes || []));
@@ -1339,11 +1331,16 @@ export default function PublicLanding({ onJoin, onLogin, onOpenRecipe, darkMode,
           top: 0, left: 0, right: 0,
           zIndex: 1100,
           paddingTop: 'env(safe-area-inset-top)',
+          // Dark mode uses the same opaque body background so the header
+          // blends seamlessly with the page; light mode keeps the
+          // translucent white + blur for the iOS-style frosted look.
           bgcolor: theme.palette.mode === 'dark'
-            ? 'rgba(0,0,0,0.85)'
+            ? theme.palette.background.default
             : 'rgba(255,255,255,0.85)',
-          backdropFilter: 'blur(10px)',
-          WebkitBackdropFilter: 'blur(10px)',
+          ...(theme.palette.mode === 'dark' ? null : {
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
+          }),
           borderBottom: 1,
           borderColor: 'divider',
         })}
@@ -1381,7 +1378,7 @@ export default function PublicLanding({ onJoin, onLogin, onOpenRecipe, darkMode,
       </Box>
 
       <Container maxWidth="sm" disableGutters>
-        <Box sx={{ px: { xs: 2, sm: 3 }, pb: 6 }}>
+        <Box sx={{ px: { xs: 2, sm: 3 }, pb: 0 }}>
 
         {/* Top padding includes the header height (~50) plus the iOS
             dynamic-island safe-area inset, so first content clears both. */}
@@ -1428,7 +1425,9 @@ export default function PublicLanding({ onJoin, onLogin, onOpenRecipe, darkMode,
         onClick={onJoin}
         sx={{
           position: 'fixed',
-          bottom: 24,
+          // Sits higher so it's visible on first paint above the safe-area
+          // inset on most phones (iPhone home indicator + browser chrome).
+          bottom: 'calc(env(safe-area-inset-bottom) + 56px)',
           left: '50%',
           transform: 'translateX(-50%)',
           zIndex: 1200,
@@ -1439,31 +1438,49 @@ export default function PublicLanding({ onJoin, onLogin, onOpenRecipe, darkMode,
           textTransform: 'none',
           px: 4,
           boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
-          transition: 'opacity 0.25s',
-          opacity: fabVisible ? 1 : 0,
-          pointerEvents: fabVisible ? 'auto' : 'none',
           '&:hover': { bgcolor: 'primary.dark' },
         }}
       >
         Join Free
       </Fab>
-      {/* Visible privacy link so OAuth consent-screen verifiers (Google etc.)
-          can confirm the public homepage links to the privacy policy. */}
+
+      {/* Footer — About + Privacy links sit in normal page flow at the
+          bottom of the public homepage. Visible on every render so OAuth
+          consent-screen verifiers (Google etc.) can confirm the homepage
+          links to the privacy policy. mt is the gap from the bottom of
+          the last content shelf to these links; pb clears the fixed Join
+          Free FAB (FAB sits at safe-area+56 with ~48px height → ~104px;
+          add 16px buffer = 120) so the links don't sit underneath it at
+          the end of scroll. */}
       <Box
-        component="a"
-        href="/privacy.html"
+        component="footer"
         sx={{
-          position: 'fixed',
-          bottom: 4,
-          right: 8,
-          fontSize: 10,
-          color: '#999',
-          textDecoration: 'none',
-          zIndex: 9999,
-          opacity: 0.6,
+          mt: '20px',
+          pb: 'calc(env(safe-area-inset-bottom) + 120px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 2,
         }}
       >
-        Privacy
+        {[
+          { href: '/about.html', label: 'About' },
+          { href: '/privacy.html', label: 'Privacy' },
+        ].map(({ href, label }) => (
+          <Box
+            key={href}
+            component="a"
+            href={href}
+            sx={{
+              fontSize: 12,
+              color: 'text.secondary',
+              textDecoration: 'none',
+              '&:hover': { color: 'text.primary', textDecoration: 'underline' },
+            }}
+          >
+            {label}
+          </Box>
+        ))}
       </Box>
       </Container>
     </>

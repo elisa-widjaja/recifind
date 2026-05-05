@@ -1812,7 +1812,10 @@ function App() {
   // users see the auth surface immediately. They can dismiss to land on the
   // public homepage and still re-open via the header "Login" link. Only
   // fires once per session (the local flag prevents the dialog from popping
-  // back up after the user dismisses it).
+  // back up after the user dismisses it). Persisted via sessionStorage so it
+  // survives in-session navigations away (e.g. tapping the About / Privacy
+  // links → static HTML pages → browser back) — useRef alone would reset on
+  // every React re-mount and re-trigger the dialog on return.
   const autoOpenedAuthRef = useRef(false);
   useEffect(() => {
     if (autoOpenedAuthRef.current) return;
@@ -1822,6 +1825,16 @@ function App() {
     // Defer to the share/invite handlers above — if either of those is
     // about to open the dialog with a meaningful reason, don't double-fire.
     if (pendingShare) return;
+    try {
+      if (sessionStorage.getItem('autoOpenedAuthOnce') === '1') {
+        autoOpenedAuthRef.current = true;
+        return;
+      }
+      sessionStorage.setItem('autoOpenedAuthOnce', '1');
+    } catch {
+      // Storage access can throw in some embedded contexts — fall through
+      // to the original ref-only behavior.
+    }
     autoOpenedAuthRef.current = true;
     setIsAuthDialogOpen(true);
   }, [isAuthChecked, session, pendingShare]);
@@ -2576,7 +2589,9 @@ function App() {
     setSnackbarState({
       open: true,
       message: 'Logged out.',
-      severity: 'info'
+      severity: 'info',
+      // Snappier dismiss — 4s default felt too long for a benign confirmation.
+      duration: 1500,
     });
   };
 
