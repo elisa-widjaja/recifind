@@ -6149,6 +6149,10 @@ function App() {
             sx: {
               borderRadius: '16px 16px 0 0',
               paddingBottom: 'env(safe-area-inset-bottom)',
+              // Cap the drawer's top edge below the notch / Dynamic Island
+              // so the title bar can't slide under it on small devices when
+              // the keyboard is up. Preserves the rounded-top corners.
+              maxHeight: 'calc(100% - env(safe-area-inset-top))',
               ...(darkMode ? { backgroundColor: '#212328', backgroundImage: 'none' } : {}),
             },
           }}
@@ -6356,15 +6360,32 @@ function App() {
               />
             </Box>
           )}
-          {/* Actions */}
+          {/* Actions — Save Recipe button mirrors the Add Recipe FAB pill
+              styling (same height, px, font, radius, shadow, primary bg)
+              minus the + icon, so the two CTAs feel like the same control. */}
           <Box sx={{ px: 3, pb: 2, pt: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <Button
               type="submit"
-              variant="contained"
               disabled={shareLayoutIsLoading}
-              sx={{ px: 4, width: '100%', maxWidth: 280 }}
+              startIcon={<AddIcon />}
+              sx={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                height: '2.75rem',
+                px: '18px',
+                fontSize: '0.875rem',
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                backgroundColor: 'primary.main',
+                color: '#ffffff',
+                borderRadius: '999px',
+                border: 'none',
+                textTransform: 'none',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+                '&:hover': { backgroundColor: 'primary.dark' },
+              }}
             >
-              Save recipe
+              Save Recipe
             </Button>
           </Box>
         </Drawer>
@@ -6444,7 +6465,7 @@ function App() {
                 Cancel
               </Typography>
               <Button type="submit" variant="contained" sx={{ px: 'calc(16px + 2px)' }}>
-                Save recipe
+                Save Recipe
               </Button>
             </Box>
           </DialogActions>
@@ -6471,7 +6492,14 @@ function App() {
         PaperProps={{
           sx: {
             borderRadius: friendsDrawerExpanded ? 0 : '16px 16px 0 0',
-            height: friendsDrawerExpanded ? '100dvh' : 'calc(85dvh + 20px)',
+            // Subtract safe-area-inset-top from the height so the drawer's
+            // top edge stops below the notch / Dynamic Island in both
+            // collapsed and fully-expanded states (and the X-close stays
+            // out of the Island in the expanded state).
+            height: friendsDrawerExpanded
+              ? 'calc(100dvh - env(safe-area-inset-top))'
+              : 'calc(85dvh + 20px)',
+            maxHeight: 'calc(100% - env(safe-area-inset-top))',
             display: 'flex',
             flexDirection: 'column',
             transition: 'height 0.3s ease, border-radius 0.3s ease',

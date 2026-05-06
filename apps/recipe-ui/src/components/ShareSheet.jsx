@@ -37,6 +37,7 @@ export function ShareSheet({ open, onClose, onPickFriends, onPickConnections, da
         sx: {
           borderRadius: '16px 16px 0 0',
           paddingBottom: 'env(safe-area-inset-bottom)',
+          maxHeight: 'calc(100% - env(safe-area-inset-top))',
           ...(darkMode ? { backgroundColor: '#212328', backgroundImage: 'none' } : {}),
         },
       }}

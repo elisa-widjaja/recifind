@@ -44,6 +44,7 @@ export default function AddFriendDrawer({
           // than `height: auto`, which animates the computed content height
           // and feels jerky), 16px corners, and the same near-black bg.
           height: 'calc(85dvh + 20px)',
+          maxHeight: 'calc(100% - env(safe-area-inset-top))',
           borderRadius: '16px 16px 0 0',
           paddingBottom: 'env(safe-area-inset-bottom)',
           bgcolor: theme.palette.mode === 'dark' ? '#212328' : 'background.paper',
