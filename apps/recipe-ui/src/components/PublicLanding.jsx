@@ -75,14 +75,16 @@ const WHY_CARD_SX = {
 
 // ── Shared card gradients ──
 // Default (used by Card 1 + Card 3): white → soft lavender, lavender behind
-// the phone at bottom-right.
+// the phone at bottom-right. Dark mode: two near-page-bg shades (page is
+// #121212) with a faint violet undertone — cards almost dissolve into the
+// page while a subtle 135° wash keeps the surface readable.
 const cardBg = (darkMode) => darkMode
-  ? 'linear-gradient(135deg,#1a0f2e,#0f1a2e)'
+  ? 'linear-gradient(135deg, #2a1d40 31%, rgba(20,19,25,0.8) 64%)'
   : 'linear-gradient(135deg, #ffffff 31%, #f2f0ff 64%)';
 // Card 2 reversed: lavender at top-left → white at bottom-right (inverse of
 // the default so the carousel reads with visual variety).
 const cardBgReversed = (darkMode) => darkMode
-  ? 'linear-gradient(135deg, #2a1a3e 31%, #15151b 64%)'
+  ? 'linear-gradient(135deg, rgba(20,19,25,0.8) 31%, #2a1d40 64%)'
   : 'linear-gradient(135deg, #f2f0ff 31%, #ffffff 64%)';
 
 // ── Phone shell + storyboard primitives ──
@@ -284,25 +286,27 @@ function CyclingSourceLogo() {
 // Workflow row laid out exactly per spec — assets used at native size, no
 // resize. Rendered with no gaps between icons since the asset spacing is
 // designed-in.
-function WorkflowRow() {
+function WorkflowRow({ darkMode = false }) {
+  const arrowSrc = darkMode ? '/landing-arrow-20-dark.svg' : '/landing-arrow-20.svg';
+  const shareSrc = darkMode ? '/landing-share-75-dark.svg' : '/landing-share-75.svg';
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <CyclingSourceLogo />
       <Box
         component="img"
-        src="/landing-arrow-20.svg"
+        src={arrowSrc}
         alt=""
         sx={{ width: ARROW_PX, height: ARROW_PX, display: 'block', flexShrink: 0 }}
       />
       <Box
         component="img"
-        src="/landing-share-75.svg"
+        src={shareSrc}
         alt=""
         sx={{ width: LOGO_PX, height: LOGO_PX, display: 'block', flexShrink: 0 }}
       />
       <Box
         component="img"
-        src="/landing-arrow-20.svg"
+        src={arrowSrc}
         alt=""
         sx={{ width: ARROW_PX, height: ARROW_PX, display: 'block', flexShrink: 0 }}
       />
@@ -371,7 +375,7 @@ function Card1PhoneAnimation({ darkMode = false }) {
           KR1 + KR3 assets (asset crops differ slightly between the three). */}
       <Box
         component="img"
-        src={themedAsset('/landing-card1-kr2.png', darkMode)}
+        src={darkMode ? '/landing-card1-kr2-dark.png' : '/landing-card1-kr2.png'}
         alt=""
         sx={{
           position: 'absolute', top: 0, bottom: 0, left: '-2px', right: '2px',
@@ -389,7 +393,7 @@ function Card1PhoneAnimation({ darkMode = false }) {
       {/* KR3 — recipe list, fades in on phase 2 (over the fading KR1+KR2). */}
       <Box
         component="img"
-        src={themedAsset('/landing-card1-kr3.png', darkMode)}
+        src={darkMode ? '/landing-card1-kr3-dark.png' : '/landing-card1-kr3.png'}
         alt=""
         sx={{
           position: 'absolute', inset: 0,
@@ -533,7 +537,7 @@ function CardSaveFromAnywhere({ onJoin, darkMode }) {
       {/* Top content stacks naturally from the top: workflow row → subhead.
           Subhead has mt:'10px' to push it 10px down from the workflow row. */}
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, alignItems: 'center' }}>
-        <WorkflowRow />
+        <WorkflowRow darkMode={darkMode} />
         <Typography
           sx={{ display: 'block', mt: '10px', fontSize: 13, fontWeight: 500, lineHeight: 1.35, px: 0.5, color: 'text.primary' }}
         >
@@ -729,9 +733,13 @@ function Card2ActivityTicker() {
 //                   the drawer (KR2_drawer) slides up from below.
 //   Loop back to Phase 0 (tint fades out, drawer slides back down).
 // The phone sits flush with the card's bottom edge per direction.
-function Card2PhoneAnimation({ darkMode = false }) {
+function Card2PhoneAnimation({ darkMode = false, isActive = false }) {
   const [phase, setPhase] = useState(0);
   useEffect(() => {
+    if (!isActive) {
+      setPhase(0);
+      return;
+    }
     const holds = [3000, 3500];
     let cancelled = false;
     let timer;
@@ -744,7 +752,7 @@ function Card2PhoneAnimation({ darkMode = false }) {
     };
     timer = setTimeout(tick, holds[0]);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, []);
+  }, [isActive]);
 
   return (
     <Box sx={{
@@ -766,7 +774,7 @@ function Card2PhoneAnimation({ darkMode = false }) {
         {/* KR1 — phone with friends list, fills the container 1:1. */}
         <Box
           component="img"
-          src={themedAsset('/landing-card2-kr1.png', darkMode)}
+          src={darkMode ? '/landing-card2-kr1-dark.png' : '/landing-card2-kr1.png'}
           alt=""
           sx={{
             position: 'absolute', inset: 0,
@@ -795,7 +803,7 @@ function Card2PhoneAnimation({ darkMode = false }) {
             260/358 ≈ 72.63% of the phone's screen (new export). */}
         <Box
           component="img"
-          src={themedAsset('/landing-card2-kr2-drawer.png', darkMode)}
+          src={darkMode ? '/landing-card2-kr2-drawer-dark.png' : '/landing-card2-kr2-drawer.png'}
           alt=""
           sx={{
             position: 'absolute',
@@ -816,7 +824,7 @@ function Card2PhoneAnimation({ darkMode = false }) {
   );
 }
 
-function CardCookWithFriends({ onJoin, darkMode }) {
+function CardCookWithFriends({ onJoin, darkMode, isActive = false }) {
   return (
     <Box sx={{
       ...WHY_CARD_SX,
@@ -844,7 +852,7 @@ function CardCookWithFriends({ onJoin, darkMode }) {
       </Box>
 
       {/* Phone animation — KR1 base + black tint + KR2 drawer slide-up. */}
-      <Card2PhoneAnimation darkMode={darkMode} />
+      <Card2PhoneAnimation darkMode={darkMode} isActive={isActive} />
     </Box>
   );
 }
@@ -991,39 +999,35 @@ function ShelfCard({ recipe }) {
         backgroundColor: 'rgba(0,0,0,0.18)',
       }}>
         <PlayArrowIcon sx={{
-          fontSize: 36,
+          fontSize: 24,
           color: 'white',
           filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.4))',
         }} />
       </Box>
-      {/* Bottom gradient overlay for title legibility (same as in-app WatchCard) */}
-      <Box sx={{
-        position: 'absolute', inset: 0,
-        background: 'linear-gradient(to top, rgba(0,0,0,0.65) 0%, transparent 60%)',
-      }} />
-      {/* Title */}
-      <Typography sx={{
-        position: 'absolute', bottom: 8, left: 8, right: 8,
-        color: '#fff',
-        fontSize: 11,
-        fontWeight: 700,
-        lineHeight: 1.25,
-        display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-      }}>
-        {recipe.title}
-      </Typography>
     </Box>
   );
 }
 
-function Card3RecipeShelf({ recipes = [] }) {
-  // Use up to 6 real recipes; fall back to gradient placeholders while
-  // discover data is still loading (or if it returns empty).
-  const items = recipes.length > 0 ? recipes.slice(0, 6) : SHELF_FALLBACK;
+// Static thumbnails baked into the public landing — intentionally do NOT
+// sync with the live discover feed below the carousel, so this row stays
+// stable across deploys and doesn't double up with what's already on the
+// page. Files live in apps/recipe-ui/public/.
+const CARD3_STATIC_RECIPES = [
+  { id: 'static-card3-1', title: 'Chipotle Chicken Breakfast Smash', imageUrl: '/landing-card3-chipotle.jpg' },
+  { id: 'static-card3-2', title: 'Agedashi Tofu',                    imageUrl: '/landing-card3-agedashi.jpg' },
+  { id: 'static-card3-3', title: 'Ratatouille',                      imageUrl: '/landing-card3-ratatouille.jpg' },
+  { id: 'static-card3-4', title: 'As Pommes Anna',                   imageUrl: '/landing-card3-pommesanna.jpg' },
+  { id: 'static-card3-5', title: 'Mini puff pastry croissant',       imageUrl: '/landing-card3-croissant.jpg' },
+];
+
+function Card3RecipeShelf() {
+  const items = CARD3_STATIC_RECIPES;
   const containerRef = useRef(null);
   const innerRef = useRef(null);
   const [maxScroll, setMaxScroll] = useState(0);
-  const [animated, setAnimated] = useState(false);
+  // 0 = initial (translateX 0), 1 = forward (translateX -maxScroll),
+  // 2 = reversed back to start (translateX 0). After phase 2 the shelf rests.
+  const [phase, setPhase] = useState(0);
   const triggeredRef = useRef(false);
 
   // Compute max scroll explicitly from the known card geometry rather than
@@ -1047,22 +1051,29 @@ function Card3RecipeShelf({ recipes = [] }) {
   }, [items.length]);
 
   // Single-shot trigger: when this shelf scrolls into view (≥ 50% visible)
-  // wait 3 seconds, then start the slide animation. Once started, never
+  // wait 3 seconds, slide forward (5s, the transition duration below), pause
+  // 2s at the end, slide back to start, then rest. Once started, never
   // re-triggers. Feature-detect IntersectionObserver for jsdom.
   useEffect(() => {
     if (triggeredRef.current) return;
     const el = containerRef.current;
     if (!el) return;
     if (typeof IntersectionObserver === 'undefined') return;
+    const timeouts = [];
     const observer = new IntersectionObserver(([entry]) => {
       if (entry.isIntersecting && !triggeredRef.current) {
         triggeredRef.current = true;
         observer.disconnect();
-        setTimeout(() => setAnimated(true), 3000);
+        timeouts.push(setTimeout(() => setPhase(1), 2000));
+        // Reverse fires after the forward transition (4s) plus the 2s end-pause.
+        timeouts.push(setTimeout(() => setPhase(2), 2000 + 4000 + 2000));
       }
     }, { threshold: 0.5 });
     observer.observe(el);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      timeouts.forEach(clearTimeout);
+    };
   }, []);
 
   return (
@@ -1084,8 +1095,8 @@ function Card3RecipeShelf({ recipes = [] }) {
         // pl and pr — at end, the right-padded last card sits flush
         // against clientWidth - rightPad. Cards slide so the row goes
         // flush against the container's left edge mid-animation.
-        transform: animated ? `translateX(-${maxScroll}px)` : 'translateX(0)',
-        transition: 'transform 5s cubic-bezier(.25,.46,.45,.94)',
+        transform: phase === 1 ? `translateX(-${maxScroll}px)` : 'translateX(0)',
+        transition: 'transform 4s cubic-bezier(.25,.46,.45,.94)',
         willChange: 'transform',
       }}>
         {items.map((r, i) => (
@@ -1147,7 +1158,7 @@ function Card3FriendFeedItem() {
   );
 }
 
-function CardDiscoverTrending({ onJoin, darkMode, recipes = [] }) {
+function CardDiscoverTrending({ onJoin, darkMode }) {
   return (
     <Box sx={{
       ...WHY_CARD_SX,
@@ -1208,7 +1219,7 @@ function CardDiscoverTrending({ onJoin, darkMode, recipes = [] }) {
             scaled-down 110-wide cards (h=196): text bottom (~129) + mt(39)
             + card_h(196) = 364, leaving 20px bottom padding. */}
         <Box sx={{ mt: '39px' }}>
-          <Card3RecipeShelf recipes={recipes} />
+          <Card3RecipeShelf />
         </Box>
       </Box>
     </Box>
@@ -1217,7 +1228,7 @@ function CardDiscoverTrending({ onJoin, darkMode, recipes = [] }) {
 
 const NUM_WHY_CARDS = 3;
 
-function WhyJoinCarousel({ onJoin, darkMode, discoverRecipes = [] }) {
+function WhyJoinCarousel({ onJoin, darkMode }) {
   const [active, setActive] = useState(0);
   const scrollRef = useRef(null);
 
@@ -1245,15 +1256,17 @@ function WhyJoinCarousel({ onJoin, darkMode, discoverRecipes = [] }) {
             overflowX: 'auto',
             scrollSnapType: 'x mandatory',
             scrollPaddingLeft: '16px',
+            scrollPaddingRight: '16px',
             pl: 2,
+            pr: 2,
             pb: 0.5,
             '&::-webkit-scrollbar': { display: 'none' },
             scrollbarWidth: 'none',
           }}
         >
           <CardSaveFromAnywhere onJoin={onJoin} darkMode={darkMode} />
-          <CardCookWithFriends onJoin={onJoin} darkMode={darkMode} />
-          <CardDiscoverTrending onJoin={onJoin} darkMode={darkMode} recipes={discoverRecipes} />
+          <CardCookWithFriends onJoin={onJoin} darkMode={darkMode} isActive={active === 1} />
+          <CardDiscoverTrending onJoin={onJoin} darkMode={darkMode} />
         </Box>
       </Box>
 
@@ -1287,14 +1300,29 @@ export default function PublicLanding({ onJoin, onLogin, onOpenRecipe, darkMode,
   const [trending, setTrending] = useState([]);
   const [discover, setDiscover] = useState([]);
   const whyJoinRef = useRef(null);
-  // FAB used to lazily appear once the user scrolled past the why-join
-  // carousel; per design the Join Free CTA should be visible on page load,
-  // so the IntersectionObserver was removed and the FAB now renders
-  // unconditionally.
+  // FAB stays hidden on first paint and fades in once the user begins to
+  // scroll, so the very first impression is the carousel rather than a CTA.
+  // 8px threshold avoids iOS rubber-band jitter at scrollY=0.
+  const [hasScrolled, setHasScrolled] = useState(false);
 
   useEffect(() => {
     fetchJson('/public/trending-recipes').then(d => setTrending(d?.recipes || []));
     fetchJson('/public/discover').then(d => setDiscover(d?.recipes || []));
+  }, []);
+
+  useEffect(() => {
+    if (window.scrollY > 8) {
+      setHasScrolled(true);
+      return;
+    }
+    const onScroll = () => {
+      if (window.scrollY > 8) {
+        setHasScrolled(true);
+        window.removeEventListener('scroll', onScroll);
+      }
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
   // YouTube Shorts dropped — the embed hits Error 153 in WKWebView and the
@@ -1389,7 +1417,6 @@ export default function PublicLanding({ onJoin, onLogin, onOpenRecipe, darkMode,
             <WhyJoinCarousel
               onJoin={onJoin}
               darkMode={darkMode}
-              discoverRecipes={discoverUniq.slice(0, 6)}
             />
           </Box>
 
@@ -1423,11 +1450,10 @@ export default function PublicLanding({ onJoin, onLogin, onOpenRecipe, darkMode,
       <Fab
         variant="extended"
         onClick={onJoin}
+        aria-hidden={!hasScrolled}
         sx={{
           position: 'fixed',
-          // Sits higher so it's visible on first paint above the safe-area
-          // inset on most phones (iPhone home indicator + browser chrome).
-          bottom: 'calc(env(safe-area-inset-bottom) + 56px)',
+          bottom: 'calc(env(safe-area-inset-bottom) + 46px)',
           left: '50%',
           transform: 'translateX(-50%)',
           zIndex: 1200,
@@ -1438,6 +1464,11 @@ export default function PublicLanding({ onJoin, onLogin, onOpenRecipe, darkMode,
           textTransform: 'none',
           px: 4,
           boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+          // Fade in once the user starts scrolling. pointerEvents:none while
+          // hidden so the invisible FAB can't intercept taps over the carousel.
+          opacity: hasScrolled ? 1 : 0,
+          pointerEvents: hasScrolled ? 'auto' : 'none',
+          transition: 'opacity 220ms ease-out',
           '&:hover': { bgcolor: 'primary.dark' },
         }}
       >
@@ -1449,8 +1480,8 @@ export default function PublicLanding({ onJoin, onLogin, onOpenRecipe, darkMode,
           consent-screen verifiers (Google etc.) can confirm the homepage
           links to the privacy policy. mt is the gap from the bottom of
           the last content shelf to these links; pb clears the fixed Join
-          Free FAB (FAB sits at safe-area+56 with ~48px height → ~104px;
-          add 16px buffer = 120) so the links don't sit underneath it at
+          Free FAB (FAB sits at safe-area+46 with ~48px height → ~94px;
+          add ~26px buffer = 120) so the links don't sit underneath it at
           the end of scroll. */}
       <Box
         component="footer"
