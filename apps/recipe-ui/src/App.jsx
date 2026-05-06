@@ -98,6 +98,9 @@ import { migrateLegacyStorage } from './lib/migrateLegacyStorage';
 import PublicLanding from './components/PublicLanding';
 import FriendSections from './components/FriendSections';
 import StatsTiles from './components/StatsTiles';
+import StatsTilesPreview from './components/StatsTilesPreview';
+import StatsTilesDesign1 from './components/StatsTilesDesign1';
+import StatsTilesDesign2 from './components/StatsTilesDesign2';
 import PullToRefresh from './components/PullToRefresh';
 import RecipeListCard from './components/RecipeListCard';
 import RecipesPage from './RecipesPage';
@@ -5043,6 +5046,36 @@ function App() {
                     feedback_mui_stack_spacing memory note. The parent Stack
                     adds 12px on top of this child; with pt:20px the total
                     visible gap above StatsTiles is 32px. */}
+                {/* Design 1 — clickable, animated. Design 2 + original
+                    StatsTiles + StatsTilesPreview kept commented below for
+                    easy revert / comparison. */}
+                <Box sx={{ pt: '20px' }}>
+                  <StatsTilesDesign1
+                    recipeCount={recipes.length}
+                    friendCount={friendsLoaded ? friends.length : null}
+                    onAddRecipe={openAddDialog}
+                    onViewRecipes={() => setCurrentView('recipes')}
+                    onAddFriends={() => setAddFriendDrawerOpen(true)}
+                    onViewFriends={navigateToFriendsTab}
+                  />
+                </Box>
+                {/* --- Design 2 (uncomment to swap back) ---
+                <Box sx={{ pt: '20px' }}>
+                  <StatsTilesDesign2
+                    recipeCount={recipes.length}
+                    friendCount={friendsLoaded ? friends.length : null}
+                    onAddRecipe={openAddDialog}
+                    onViewRecipes={() => setCurrentView('recipes')}
+                    onAddFriends={() => setAddFriendDrawerOpen(true)}
+                    onViewFriends={navigateToFriendsTab}
+                  />
+                </Box>
+                */}
+                {/* --- Original StatsTiles (revert path: uncomment below,
+                    delete the active block above) ---
+                <Box sx={{ pt: '20px' }}>
+                  <StatsTilesPreview />
+                </Box>
                 <Box sx={{ pt: '20px' }}>
                   <StatsTiles
                     recipeCount={recipes.length}
@@ -5053,6 +5086,7 @@ function App() {
                     onViewFriends={navigateToFriendsTab}
                   />
                 </Box>
+                */}
                 {/* Use padding-top instead of margin-top: the parent
                     <Stack spacing={1.5}> applies a 12px margin-top via a
                     selector with higher specificity than child sx, which
