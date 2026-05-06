@@ -5113,6 +5113,7 @@ function App() {
                   onInviteFriend={() => setAddFriendDrawerOpen(true)}
                   onOpenFriends={navigateToFriendsTab}
                   onSuggestionTap={fetchSuggestionRecipes}
+                  onOpenFriendRecipes={(userId, name) => fetchSuggestionRecipes({ userId, name })}
                   onAcceptFriendRequest={acceptFriendRequest}
                   onDeclineFriendRequest={declineFriendRequest}
                   darkMode={darkMode}
@@ -6153,7 +6154,9 @@ function App() {
             },
           }}
         >
-          {/* Drag handle — swipe down to close */}
+          {/* Title bar — centered title with iOS-style close button on the
+              right. Swipe-down on this bar still closes the drawer
+              (preserves the gesture from the removed drag handle). */}
           <Box
             onTouchStart={(e) => { drawerTouchStartY.current = e.touches[0].clientY; }}
             onTouchEnd={(e) => {
@@ -6162,13 +6165,33 @@ function App() {
               drawerTouchStartY.current = null;
               if (delta > 40) closeAddDialog();
             }}
-            sx={{ display: 'flex', justifyContent: 'center', pt: 1.5, pb: 0.5, flexShrink: 0, cursor: 'grab', touchAction: 'none' }}
+            sx={{
+              display: 'flex', alignItems: 'center',
+              px: 1.5, pt: 2, pb: 0.5,
+              touchAction: 'none',
+            }}
           >
-            <Box sx={{ width: 36, height: 4, borderRadius: 2, bgcolor: darkMode ? 'rgba(255,255,255,0.3)' : 'grey.300' }} />
-          </Box>
-          {/* Title */}
-          <Box sx={{ px: 3, pt: 1, pb: 0.5 }}>
-            <Typography variant="h6" sx={{ fontWeight: 600 }}>{isFirstRecipe ? 'Add your first recipe' : 'Add recipe'}</Typography>
+            <IconButton
+              onClick={closeAddDialog}
+              aria-label="Close"
+              sx={(theme) => ({
+                width: 30, height: 30,
+                flexShrink: 0,
+                bgcolor: theme.palette.mode === 'dark' ? 'rgba(118,118,128,0.24)' : 'rgba(120,120,128,0.16)',
+                color: theme.palette.mode === 'dark' ? 'rgba(235,235,245,0.6)' : 'rgba(60,60,67,0.6)',
+                '&:hover': {
+                  bgcolor: theme.palette.mode === 'dark' ? 'rgba(118,118,128,0.36)' : 'rgba(120,120,128,0.28)',
+                },
+              })}
+            >
+              <CloseIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+            <Typography variant="h6" sx={{ flex: 1, textAlign: 'center', fontWeight: 600 }}>
+              {isFirstRecipe ? 'Add your first recipe' : 'Add recipe'}
+            </Typography>
+            {/* Spacer mirroring the close button so the title is geometrically
+                centered between the two sides. */}
+            <Box sx={{ width: 30, height: 30, flexShrink: 0 }} />
           </Box>
           {/* Fields */}
           {useIosShareLayout ? (
@@ -6291,6 +6314,9 @@ function App() {
             </Box>
           ) : (
             <Box sx={{ px: 3, pt: 1, pb: 1, display: 'flex', flexDirection: 'column', gap: 2, position: 'relative' }}>
+              <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.4 }}>
+                Share from Instagram, TikTok, or YouTube or paste a link below.
+              </Typography>
               <TextField
                 label="Source URL"
                 value={newRecipeForm.sourceUrl}
@@ -6299,10 +6325,7 @@ function App() {
                 fullWidth
                 placeholder="https://example.com/recipe"
                 error={Boolean(newRecipeErrors.sourceUrl)}
-                helperText={
-                  newRecipeErrors.sourceUrl ||
-                  (isFirstRecipe ? 'Paste an Instagram, TikTok or YouTube link' : 'Link to the original recipe or video.')
-                }
+                helperText={newRecipeErrors.sourceUrl}
               />
               <TextField
                 label="Title"
@@ -6335,7 +6358,7 @@ function App() {
             </Box>
           )}
           {/* Actions */}
-          <Box sx={{ px: 3, pb: 2, pt: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ px: 3, pb: 2, pt: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <Button
               type="submit"
               variant="contained"
@@ -6344,22 +6367,6 @@ function App() {
             >
               Save recipe
             </Button>
-            <Typography
-              component="button"
-              type="button"
-              onClick={closeAddDialog}
-              sx={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: 'text.secondary',
-                fontSize: '0.8rem',
-                p: 0,
-                '&:hover': { textDecoration: 'underline' },
-              }}
-            >
-              Cancel
-            </Typography>
           </Box>
         </Drawer>
       ) : (
@@ -6375,6 +6382,9 @@ function App() {
         >
           <DialogTitle id="add-recipe-dialog-title">{isFirstRecipe ? 'Add your first recipe' : 'Add recipe'}</DialogTitle>
           <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, position: 'relative' }}>
+            <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.4 }}>
+              Share from Instagram, TikTok, or YouTube or paste a link below.
+            </Typography>
             <TextField
               label="Source URL"
               value={newRecipeForm.sourceUrl}
@@ -6383,10 +6393,7 @@ function App() {
               fullWidth
               placeholder="https://example.com/recipe"
               error={Boolean(newRecipeErrors.sourceUrl)}
-              helperText={
-                newRecipeErrors.sourceUrl ||
-                (isFirstRecipe ? 'Paste an Instagram, TikTok or YouTube link' : 'Link to the original recipe or video.')
-              }
+              helperText={newRecipeErrors.sourceUrl}
             />
             <TextField
               label="Title"

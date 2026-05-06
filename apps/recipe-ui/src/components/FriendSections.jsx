@@ -35,7 +35,7 @@ function timeAgo(iso) {
  *   onAcceptFriendRequest?: (fromUserId) => Promise<void> — called when user taps Accept on a friend_request activity item
  *   onDeclineFriendRequest?: (fromUserId) => Promise<void> — called when user taps Decline on a friend_request activity item
  */
-export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe, onShareRecipe, onInviteFriend, onOpenFriends, onSuggestionTap, onAcceptFriendRequest, onDeclineFriendRequest, darkMode, onCookWithFriendsVisible }) {
+export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe, onShareRecipe, onInviteFriend, onOpenFriends, onSuggestionTap, onOpenFriendRecipes, onAcceptFriendRequest, onDeclineFriendRequest, darkMode, onCookWithFriendsVisible }) {
   const [unifiedFeed, setUnifiedFeed] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [requestDialogItem, setRequestDialogItem] = useState(null);
@@ -90,6 +90,7 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
           id: `saved-${i.recipe.id}`,
           type: 'friend_saved_recipe',
           friendName: i.friendName,
+          friendUserId: i.friendId,
           recipe: i.recipe,
           createdAt: i.createdAt || new Date().toISOString(),
           _kind: 'saved',
@@ -98,6 +99,7 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
           id: `shared-${i.recipe.id}`,
           type: 'friend_shared_recipe',
           friendName: i.friendName,
+          friendUserId: i.friendId,
           recipe: i.recipe,
           createdAt: i.createdAt || new Date().toISOString(),
           _kind: 'shared',
@@ -152,6 +154,7 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
             items={unifiedFeed}
             onOpenRecipe={onOpenRecipe}
             onOpenFriendRequest={(it) => setRequestDialogItem(it)}
+            onOpenFriendRecipes={onOpenFriendRecipes}
           />
         </Box>
       )}
@@ -291,7 +294,7 @@ const FA_SLIDE_EASE = 'cubic-bezier(0.4, 0, 0.2, 1)';
 // container back outward so cards stay visually flush with parent content.
 const FA_SIDE_PAD = 8;
 
-function FriendActivityTicker({ items, onOpenRecipe, onOpenFriendRequest }) {
+function FriendActivityTicker({ items, onOpenRecipe, onOpenFriendRequest, onOpenFriendRecipes }) {
   // Cap the pool the ticker will ever surface. Excess items are dropped.
   const cappedItems = items.slice(0, FA_MAX_ITEMS);
   const [idx, setIdx] = useState(0);
@@ -320,7 +323,7 @@ function FriendActivityTicker({ items, onOpenRecipe, onOpenFriendRequest }) {
       <>
         <Stack spacing={`${FA_GAP}px`}>
           {cappedItems.map((item) => (
-            <ActivityStrip key={item.id} item={item} onOpenRecipe={onOpenRecipe} onOpenFriendRequest={onOpenFriendRequest} />
+            <ActivityStrip key={item.id} item={item} onOpenRecipe={onOpenRecipe} onOpenFriendRequest={onOpenFriendRequest} onOpenFriendRecipes={onOpenFriendRecipes} />
           ))}
         </Stack>
         <Typography
@@ -380,6 +383,7 @@ function FriendActivityTicker({ items, onOpenRecipe, onOpenFriendRequest }) {
               item={item}
               onOpenRecipe={onOpenRecipe}
               onOpenFriendRequest={onOpenFriendRequest}
+              onOpenFriendRecipes={onOpenFriendRecipes}
             />
           ))}
         </Box>
@@ -404,7 +408,7 @@ function FriendActivityTicker({ items, onOpenRecipe, onOpenFriendRequest }) {
 }
 
 // Single activity row rendered as a pill-card strip with its own shadow.
-function ActivityStrip({ item, onOpenRecipe, onOpenFriendRequest }) {
+function ActivityStrip({ item, onOpenRecipe, onOpenFriendRequest, onOpenFriendRecipes }) {
   return (
     <Box sx={{
       bgcolor: 'background.paper',
@@ -415,7 +419,7 @@ function ActivityStrip({ item, onOpenRecipe, onOpenFriendRequest }) {
       minHeight: FA_ROW_HEIGHT,
       display: 'flex', alignItems: 'center',
     }}>
-      <ActivityItem item={item} onOpenRecipe={onOpenRecipe} onOpenFriendRequest={onOpenFriendRequest} />
+      <ActivityItem item={item} onOpenRecipe={onOpenRecipe} onOpenFriendRequest={onOpenFriendRequest} onOpenFriendRecipes={onOpenFriendRecipes} />
     </Box>
   );
 }
@@ -523,7 +527,7 @@ const RECIPE_TYPES = new Set([
   'friend_saved_your_recipe',
 ]);
 
-export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest }) {
+export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest, onOpenFriendRecipes }) {
   const friendName = item.friendName ?? '?';
   // Hash friendName (string-safe; same friend gets the same color across
   // multiple activities). The previous version hashed item.id which broke
@@ -577,13 +581,39 @@ export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest }) {
         '&:focus-visible': isClickable ? { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: '-2px' } : {},
       }}
     >
-      {/* Avatar */}
-      <Box sx={{
-        width: 32, height: 32, borderRadius: '50%', bgcolor: color,
-        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-      }}>
-        <Typography sx={{ color: '#fff', fontSize: 13, fontWeight: 700, lineHeight: 1 }}>{initial}</Typography>
-      </Box>
+      {/* Avatar — clickable when we know which friend this activity is from
+          (friendUserId resolved server-side from data.saverId/sharerId/cookerId
+          or from the recently-saved/shared payload). Tapping opens that
+          friend's recipes drawer. stopPropagation so the avatar tap doesn't
+          also fire the parent row's open-recipe handler. */}
+      {(() => {
+        const avatarTappable = !!(onOpenFriendRecipes && item.friendUserId);
+        return (
+          <Box
+            onClick={avatarTappable ? (e) => { e.stopPropagation(); onOpenFriendRecipes(item.friendUserId, friendName); } : undefined}
+            role={avatarTappable ? 'button' : undefined}
+            tabIndex={avatarTappable ? 0 : undefined}
+            aria-label={avatarTappable ? `View ${friendName}'s recipes` : undefined}
+            onKeyDown={avatarTappable ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                e.stopPropagation();
+                onOpenFriendRecipes(item.friendUserId, friendName);
+              }
+            } : undefined}
+            sx={{
+              width: 32, height: 32, borderRadius: '50%', bgcolor: color,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              cursor: avatarTappable ? 'pointer' : 'inherit',
+              WebkitTapHighlightColor: 'transparent',
+              transition: 'opacity 120ms ease-out',
+              '&:active': avatarTappable ? { opacity: 0.7 } : {},
+            }}
+          >
+            <Typography sx={{ color: '#fff', fontSize: 13, fontWeight: 700, lineHeight: 1 }}>{initial}</Typography>
+          </Box>
+        );
+      })()}
 
       {isRecipeNotif ? (
         /* Recipe notification: "Sarah saved Spicy Thai Noodles".

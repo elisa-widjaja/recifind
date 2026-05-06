@@ -1695,6 +1695,11 @@ export async function getFriendActivity(
   message: string;
   friendName: string | null;
   fromUserId?: string;
+  // Generic id of the friend the activity is "from". Populated for save /
+  // share / cook events from data.saverId / data.sharerId / data.cookerId
+  // and for friend_request from data.fromUserId. Lets the UI link the
+  // avatar to that friend's recipes drawer regardless of activity type.
+  friendUserId?: string;
   resolved?: boolean;
   recipe: { id: string; title: string; imageUrl: string | null; sourceUrl: string; ingredients: string[]; steps: string[] } | null;
   createdAt: string;
@@ -1763,6 +1768,10 @@ export async function getFriendActivity(
       const friendName: string | null =
         (d.friendName as string | undefined) ?? item.message.split(' ')[0] ?? null;
       const fromUserId = typeof d.fromUserId === 'string' ? d.fromUserId : undefined;
+      const saverId = typeof d.saverId === 'string' ? d.saverId : undefined;
+      const sharerId = typeof d.sharerId === 'string' ? d.sharerId : undefined;
+      const cookerId = typeof d.cookerId === 'string' ? d.cookerId : undefined;
+      const friendUserId = fromUserId ?? saverId ?? sharerId ?? cookerId;
       const resolved = item.type === 'friend_request' && fromUserId
         ? !pendingFromUserIds.has(fromUserId)
         : undefined;
@@ -1772,6 +1781,7 @@ export async function getFriendActivity(
         message: item.message,
         friendName,
         ...(fromUserId ? { fromUserId } : {}),
+        ...(friendUserId ? { friendUserId } : {}),
         ...(resolved !== undefined ? { resolved } : {}),
         recipe: recipeId ? (recipeMap.get(recipeId) ?? null) : null,
         createdAt: item.createdAt,

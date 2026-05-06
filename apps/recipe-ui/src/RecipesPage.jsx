@@ -174,7 +174,7 @@ export default function RecipesPage({
             />
             {hasVideo && (
               <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.2)' }}>
-                <PlayArrowIcon sx={{ fontSize: 36, color: 'white', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.4))' }} />
+                <PlayArrowIcon sx={{ fontSize: 20, color: 'white', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.4))' }} />
               </Box>
             )}
           </Box>
