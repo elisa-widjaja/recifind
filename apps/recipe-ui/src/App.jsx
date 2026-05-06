@@ -6514,11 +6514,43 @@ function App() {
           }
         }}
       >
-        {/* Header — iOS-style X close on top LEFT, friend name on its own row below.
-            Drag-grabber removed; the scrollable content area below still has
-            its own swipe-down-to-dismiss handler. */}
+        {/* Header — single row: avatar + name on the left, iOS-style X
+            close on the right. Drag-grabber removed; the scrollable
+            content area below still has its own swipe-down-to-dismiss
+            handler. */}
         {selectedFriend && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1, px: 2, pt: 2.5, pb: 1, flexShrink: 0 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 2, pt: 2, pb: 2.5, flexShrink: 0 }}>
+            {/* Avatar + friend name. Uses the friend's avatar image when
+                available, otherwise renders the same hashed-color initial
+                circle as the activity feed for visual continuity (same
+                palette as FriendSections.ActivityItem). */}
+            {(() => {
+              const avatarSrc = selectedFriend.avatarUrl || selectedFriend.avatar_url;
+              const name = selectedFriend.friendName || '?';
+              const palette = ['#7c3aed', '#10b981', '#f59e0b', '#ef4444', '#06b6d4'];
+              let h = 0;
+              for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
+              const color = palette[Math.abs(h) % palette.length];
+              const initial = name.charAt(0).toUpperCase();
+              return avatarSrc ? (
+                <Box
+                  component="img"
+                  src={avatarSrc}
+                  alt=""
+                  sx={{ width: 38, height: 38, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+                />
+              ) : (
+                <Box sx={{
+                  width: 38, height: 38, borderRadius: '50%', bgcolor: color,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}>
+                  <Typography sx={{ color: '#fff', fontSize: 16, fontWeight: 700, lineHeight: 1 }}>{initial}</Typography>
+                </Box>
+              );
+            })()}
+            <Typography sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 16, fontWeight: 500 }}>
+              {selectedFriend.friendName}
+            </Typography>
             <Box
               component="button"
               aria-label="Close"
@@ -6544,9 +6576,6 @@ function App() {
             >
               <CloseIcon sx={{ fontSize: 18 }} />
             </Box>
-            <Typography variant="h6" sx={{ width: '100%', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {selectedFriend.friendName}
-            </Typography>
           </Box>
         )}
 
