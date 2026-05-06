@@ -3,6 +3,7 @@ import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import IosShareOutlinedIcon from '@mui/icons-material/IosShareOutlined';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import { buildVideoEmbedUrl, getVideoThumbnailUrl, formatDuration } from '../utils/videoEmbed';
+import RecipeThumbnail from './RecipeThumbnail';
 
 /**
  * Horizontal scrollable shelf of recipe cards.
@@ -103,23 +104,12 @@ function RecipeCard({ recipe, onSave, onShare, onOpen, cardWidth, thumbHeight, p
           position: 'relative',
           width: cardWidth,
           height: thumbHeight,
-          bgcolor: 'action.hover',
           overflow: 'hidden',
         }}
       >
-        {/* Thumbnail — always shown, fallback when iframe is blocked */}
-        {thumbSrc ? (
-          <Box
-            component="img"
-            src={thumbSrc}
-            alt={recipe.title}
-            sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          />
-        ) : (
-          <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 40 }}>
-            🍳
-          </Box>
-        )}
+        {/* Thumbnail — gradient + initial letter fallback for missing /
+            broken images. Iframe (when embedded) renders on top. */}
+        <RecipeThumbnail src={thumbSrc} title={recipe.title} fontSize={40} />
 
         {/* Autoplay muted iframe — covers thumbnail when embedding works */}
         {embedUrl && (

@@ -33,8 +33,6 @@ const baseProps = {
   remoteState: { status: 'idle' },
   resolveRecipeImageUrl: () => '',
   buildEmbedUrl: () => null,
-  createImageFallbackHandler: () => noop,
-  RecipeThumbnail: () => null,
   sentinelRef: { current: null },
   availableMealTypes: ['breakfast', 'lunch', 'dinner'],
   selectedMealType: '',

@@ -1,5 +1,6 @@
 import { Box, Typography, Chip, IconButton } from '@mui/material';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
+import RecipeThumbnail from './RecipeThumbnail';
 
 /**
  * Horizontal peek carousel of AI-generated health/nutrition topic cards.
@@ -116,11 +117,8 @@ function AiPickCard({ pick, onOpen, onSave }) {
             mt: 0.5,
           }}
         >
-          <Box sx={{ width: 56, height: 56, flexShrink: 0, borderRadius: 1, overflow: 'hidden', bgcolor: 'divider' }}>
-            {thumbSrc
-              ? <Box component="img" src={thumbSrc} alt={recipe.title} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              : <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>🍳</Box>
-            }
+          <Box sx={{ width: 56, height: 56, flexShrink: 0, borderRadius: 1, overflow: 'hidden' }}>
+            <RecipeThumbnail src={thumbSrc} title={recipe.title} fontSize={24} />
           </Box>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography

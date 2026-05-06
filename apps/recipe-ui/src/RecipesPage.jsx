@@ -31,6 +31,7 @@ import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import RecipeListCard from './components/RecipeListCard';
+import RecipeThumbnail from './components/RecipeThumbnail';
 
 export default function RecipesPage({
   displayedRecipes,
@@ -64,8 +65,6 @@ export default function RecipesPage({
   remoteState,
   resolveRecipeImageUrl,
   buildEmbedUrl,
-  createImageFallbackHandler,
-  RecipeThumbnail,
   sentinelRef,
   availableMealTypes = [],
   selectedMealType = '',
@@ -170,8 +169,8 @@ export default function RecipesPage({
           >
             <RecipeThumbnail
               src={displayImageUrl}
-              alt={recipe.title || 'Recipe preview'}
-              onError={createImageFallbackHandler(recipe.title)}
+              title={recipe.title}
+              fontSize={32}
             />
             {hasVideo && (
               <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.2)' }}>

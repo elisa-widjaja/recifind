@@ -2092,6 +2092,12 @@ function App() {
     try {
       const token = (await supabase?.auth.getSession())?.data?.session?.access_token;
       if (!token) { openAuthDialog(); return; }
+      // When the source recipe is owned by another user, pass originalUserId
+      // so the worker can notify that owner: "X saved your recipe [title]".
+      // The owner's own id is filtered out server-side defensively.
+      const ownerId = recipe.userId && session?.user?.id && recipe.userId !== session.user.id
+        ? recipe.userId
+        : null;
       const payload = {
         title: recipe.title,
         sourceUrl: recipe.sourceUrl || '',
@@ -2101,6 +2107,7 @@ function App() {
         steps: recipe.steps || null,
         durationMinutes: recipe.durationMinutes || null,
         notes: '',
+        ...(ownerId ? { originalUserId: ownerId } : {}),
       };
       const res = await fetch(`${API_BASE_URL}/recipes`, {
         method: 'POST',
@@ -5147,8 +5154,6 @@ function App() {
                 remoteState={remoteState}
                 resolveRecipeImageUrl={resolveRecipeImageUrl}
                 buildEmbedUrl={buildEmbedUrl}
-                createImageFallbackHandler={createImageFallbackHandler}
-                RecipeThumbnail={RecipeThumbnail}
                 sentinelRef={sentinelRef}
                 availableMealTypes={availableMealTypes}
                 selectedMealType={selectedMealType}

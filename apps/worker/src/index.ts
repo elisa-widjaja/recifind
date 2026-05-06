@@ -75,7 +75,7 @@ interface Friend {
 }
 
 interface NotificationItem {
-  type: 'friend_request' | 'friend_accepted' | 'friend_cooked_recipe' | 'friend_saved_recipe';
+  type: 'friend_request' | 'friend_accepted' | 'friend_cooked_recipe' | 'friend_saved_recipe' | 'friend_saved_your_recipe';
   message: string;
   data: Record<string, string>;
   createdAt: string;
@@ -1929,7 +1929,18 @@ async function handleCreateRecipe(
   ).run();
   await updateCollectionMeta(env, user.userId, { countDelta: 1 });
 
-  // Notify friends that this user saved a recipe
+  // Notify friends that this user saved a recipe.
+  //
+  // If the saved recipe is a copy of another user's recipe (the request body
+  // includes `originalUserId`), the original owner gets a more specific
+  // "saved your recipe" notification instead of the generic one. This applies
+  // even if the original owner is not yet a friend of the saver — the act of
+  // saving someone's recipe is itself a connection signal.
+  const originalUserId = typeof (body as Record<string, unknown> | null)?.originalUserId === 'string'
+    ? String((body as Record<string, unknown>).originalUserId)
+    : null;
+  const notifyOwnerSeparately = !!(originalUserId && originalUserId !== user.userId);
+
   const [friendRows, profileRow] = await Promise.all([
     env.DB.prepare(`SELECT friend_id FROM friends WHERE user_id = ?`).bind(user.userId).all(),
     env.DB.prepare(`SELECT display_name FROM profiles WHERE user_id = ?`).bind(user.userId).first() as Promise<{ display_name?: string } | null>,
@@ -1937,6 +1948,9 @@ async function handleCreateRecipe(
   const saverName = profileRow?.display_name || 'Someone';
   const isPublic = Boolean(recipe.sharedWithFriends);
   for (const f of (friendRows.results as Array<{ friend_id: string }>)) {
+    // Skip the original owner here — they get the specific
+    // friend_saved_your_recipe notification below instead of the generic one.
+    if (notifyOwnerSeparately && f.friend_id === originalUserId) continue;
     await addNotification(env, f.friend_id, {
       type: 'friend_saved_recipe',
       message: isPublic ? `${saverName} saved ${recipe.title}` : `${saverName} saved a recipe`,
@@ -1954,6 +1968,24 @@ async function handleCreateRecipe(
       }).catch(() => { /* silent — push is best-effort */ });
     }
     // === [/S05] ===
+  }
+
+  // Specific notification to the original recipe owner: "{saver} saved your
+  // recipe {title}". recipeId here points to the saver's new copy so the
+  // entry dedups against /friends/recently-saved (when the owner is also a
+  // friend of the saver) — both entries reference the same recipe id.
+  if (notifyOwnerSeparately) {
+    await addNotification(env, originalUserId!, {
+      type: 'friend_saved_your_recipe',
+      message: `${saverName} saved your recipe ${recipe.title}`,
+      data: { saverId: user.userId, recipeId: recipe.id, friendName: saverName },
+      createdAt: new Date().toISOString(),
+    });
+    sendPushToUser(env as any, originalUserId!, {
+      title: 'ReciFriend',
+      body: `${saverName} saved your recipe ${recipe.title}`,
+      deepLink: `https://recifriend.com/recipes/${recipe.id}`,
+    }).catch(() => { /* silent — push is best-effort */ });
   }
 
   // Notify admin of user activity — fires only on genuine new inserts, not dedup hits

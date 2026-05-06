@@ -3,6 +3,7 @@ import { Box, Typography, Stack, Button, Dialog, DialogContent } from '@mui/mate
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import CloseIcon from '@mui/icons-material/Close';
 import SuggestionsShelf from './SuggestionsShelf';
+import RecipeThumbnail from './RecipeThumbnail';
 
 const API_BASE_URL = import.meta.env.VITE_RECIPES_API_BASE_URL || '';
 
@@ -103,11 +104,21 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
         })),
       ];
       merged.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      // Dedup by friendName + type + recipeId so the same save doesn't appear
-      // twice when both /activity and /recently-saved return it.
+      // Dedup by friendName + canonicalType + recipeId so the same save
+      // doesn't appear twice when both /activity and /recently-saved return
+      // it. friend_saved_your_recipe (specific, "saved your recipe X") and
+      // friend_saved_recipe (generic, "saved X") collapse to the same key
+      // when they reference the same recipe; the more specific one wins
+      // since notifications are added after the recipe insert and therefore
+      // sort first.
+      const SAVE_TYPE_CANONICAL = 'saved';
+      const canonicalType = (t) =>
+        (t === 'friend_saved_recipe' || t === 'friend_saved_your_recipe')
+          ? SAVE_TYPE_CANONICAL
+          : t;
       const seen = new Set();
       const dedup = merged.filter((item) => {
-        const key = `${item.friendName}|${item.type}|${item.recipe?.id || item.id}`;
+        const key = `${item.friendName}|${canonicalType(item.type)}|${item.recipe?.id || item.id}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -501,10 +512,16 @@ const VERB_MAP = {
   friend_cooked_recipe: 'cooked',
   friend_saved_recipe: 'saved',
   friend_shared_recipe: 'shared',
+  friend_saved_your_recipe: 'saved your recipe',
 };
 
 // Notification types that carry a recipe — show structured sentence + thumbnail
-const RECIPE_TYPES = new Set(['friend_cooked_recipe', 'friend_saved_recipe', 'friend_shared_recipe']);
+const RECIPE_TYPES = new Set([
+  'friend_cooked_recipe',
+  'friend_saved_recipe',
+  'friend_shared_recipe',
+  'friend_saved_your_recipe',
+]);
 
 export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest }) {
   const friendName = item.friendName ?? '?';
@@ -569,9 +586,13 @@ export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest }) {
       </Box>
 
       {isRecipeNotif ? (
-        /* Recipe notification: "Sarah saved Spicy Thai Noodles" */
+        /* Recipe notification: "Sarah saved Spicy Thai Noodles".
+           minWidth:0 + wordBreak:break-word ensure long titles or unbreakable
+           words can't push the timestamp + thumbnail out of their fixed
+           positions; the 2-line clamp + overflow:hidden clip the excess. */
         <Typography sx={{
-          flex: 1, fontSize: 12, lineHeight: 1.4,
+          flex: 1, minWidth: 0, fontSize: 12, lineHeight: 1.4,
+          wordBreak: 'break-word',
           display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
         }}>
           <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>{friendName}</Box>
@@ -581,7 +602,8 @@ export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest }) {
       ) : (
         /* Connection notification: use pre-formatted message from the server */
         <Typography sx={{
-          flex: 1, fontSize: 12, lineHeight: 1.4, color: 'text.secondary',
+          flex: 1, minWidth: 0, fontSize: 12, lineHeight: 1.4, color: 'text.secondary',
+          wordBreak: 'break-word',
           display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
         }}>
           {item.message}
@@ -602,18 +624,15 @@ export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest }) {
         {timeAgo(item.createdAt)}
       </Typography>
 
-      {/* Thumbnail — only for recipe notifications */}
+      {/* Thumbnail — only for recipe notifications. Gradient + initial
+          letter fallback handled by RecipeThumbnail when src is missing or
+          fails to load. */}
       {isRecipeNotif && (
         <Box sx={{
           width: 44, height: 44, borderRadius: '8px', flexShrink: 0,
-          overflow: 'hidden', bgcolor: 'action.hover',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          overflow: 'hidden',
         }}>
-          {item.recipe.imageUrl
-            ? <Box component="img" src={item.recipe.imageUrl} alt={item.recipe.title}
-                sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            : <Typography sx={{ fontSize: 20 }}>🍳</Typography>
-          }
+          <RecipeThumbnail src={item.recipe.imageUrl} title={item.recipe.title} fontSize={18} />
         </Box>
       )}
     </Box>

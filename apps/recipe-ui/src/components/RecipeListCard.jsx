@@ -3,6 +3,7 @@ import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import IosShareOutlinedIcon from '@mui/icons-material/IosShareOutlined';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import { formatDuration } from '../utils/videoEmbed';
+import RecipeThumbnail from './RecipeThumbnail';
 
 /**
  * Horizontal recipe card: thumbnail left, title + duration + save/share right.
@@ -36,11 +37,8 @@ export default function RecipeListCard({ recipe, onOpen, onSave, onShare, thumbn
         }}
       >
         {thumbnail ?? (
-          <Box sx={{ position: 'relative', width: 90, height: 90, flexShrink: 0, overflow: 'hidden', borderRadius: '7px', bgcolor: 'action.hover' }}>
-            {recipe.imageUrl
-              ? <Box component="img" src={recipe.imageUrl} alt={recipe.title} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              : <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>🍳</Box>
-            }
+          <Box sx={{ position: 'relative', width: 90, height: 90, flexShrink: 0, overflow: 'hidden', borderRadius: '7px' }}>
+            <RecipeThumbnail src={recipe.imageUrl} title={recipe.title} fontSize={32} />
           </Box>
         )}
 

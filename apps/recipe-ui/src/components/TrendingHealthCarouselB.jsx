@@ -1,6 +1,7 @@
 import { Box, Typography, Chip, IconButton } from '@mui/material';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import IosShareOutlinedIcon from '@mui/icons-material/IosShareOutlined';
+import RecipeThumbnail from './RecipeThumbnail';
 
 // Trim text to fit ~4 lines by cutting at the last sentence boundary within maxChars.
 function summarize(text, maxChars = 220) {
@@ -89,11 +90,8 @@ function AiPickCard({ pick, onOpen, onSave, onShare }) {
             p: 1,
           }}
         >
-          <Box sx={{ width: 56, height: 56, flexShrink: 0, borderRadius: 1, overflow: 'hidden', bgcolor: 'divider' }}>
-            {thumbSrc
-              ? <Box component="img" src={thumbSrc} alt={recipe.title} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              : <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>🍳</Box>
-            }
+          <Box sx={{ width: 56, height: 56, flexShrink: 0, borderRadius: 1, overflow: 'hidden' }}>
+            <RecipeThumbnail src={thumbSrc} title={recipe.title} fontSize={24} />
           </Box>
           <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 56 }}>
             <Typography

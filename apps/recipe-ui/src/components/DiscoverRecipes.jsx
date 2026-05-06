@@ -1,5 +1,6 @@
 import { Box, Typography } from '@mui/material';
 import { buildVideoEmbedUrl, getVideoThumbnailUrl } from '../utils/videoEmbed';
+import RecipeThumbnail from './RecipeThumbnail';
 
 /**
  * DiscoverRecipes — Instagram Suggested-Reels style horizontal shelf.
@@ -63,21 +64,9 @@ function WatchCard({ recipe, onOpen }) {
         cursor: 'pointer',
       }}
     >
-      {/* Thumbnail — always present, acts as fallback if iframe is blocked */}
-      {thumbSrc && (
-        <Box
-          component="img"
-          src={thumbSrc}
-          alt={recipe.title}
-          sx={{
-            position: 'absolute',
-            inset: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-          }}
-        />
-      )}
+      {/* Thumbnail — always present, acts as fallback if iframe is blocked.
+          Gradient + initial letter render automatically on missing/broken src. */}
+      <RecipeThumbnail src={thumbSrc} title={recipe.title} fontSize={56} />
 
       {/* Autoplay muted iframe — covers thumbnail when embedding works */}
       {embedUrl && (
