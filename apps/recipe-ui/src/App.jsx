@@ -1439,6 +1439,10 @@ function App() {
   const [authEmail, setAuthEmail] = useState('');
   const [authError, setAuthError] = useState('');
   const [authDialogReason, setAuthDialogReason] = useState(null);
+  // 'signin' (default) | 'join' — controls whether the dialog title reads
+  // "Sign in" or "Join Free". The Join Free CTA on the public landing
+  // passes mode:'join'; everything else falls back to 'signin'.
+  const [authDialogMode, setAuthDialogMode] = useState('signin');
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [accountMenuAnchor, setAccountMenuAnchor] = useState(null);
 
@@ -2629,6 +2633,7 @@ function App() {
     setAuthEmail('');
     setAuthError('');
     setAuthDialogReason(opts.reason ?? null);
+    setAuthDialogMode(opts.mode === 'join' ? 'join' : 'signin');
     setIsAuthDialogOpen(true);
   };
 
@@ -2637,6 +2642,7 @@ function App() {
     setAuthEmail('');
     setAuthError('');
     setAuthDialogReason(null);
+    setAuthDialogMode('signin');
     if (pendingShare) {
       clearPendingShare();
       setPendingShare(null);
@@ -4934,7 +4940,7 @@ function App() {
       {/* Logged-out: show discovery landing page. Only render after auth is checked to avoid flash. */}
       {!session && isAuthChecked && (
         <PublicLanding
-          onJoin={openAuthDialog}
+          onJoin={() => openAuthDialog({ mode: 'join' })}
           onLogin={openAuthDialog}
           onOpenRecipe={handleOpenRecipeDetails}
           darkMode={darkMode}
@@ -7134,7 +7140,7 @@ function App() {
             <CloseIcon sx={{ fontSize: 18 }} />
           </IconButton>
           <Typography id="auth-dialog-title" variant="h6" sx={{ flex: 1, textAlign: 'center', fontWeight: 400 }}>
-            Sign in
+            {authDialogMode === 'join' ? 'Join Free' : 'Sign in'}
           </Typography>
           {/* Spacer mirroring the close button so the title is geometrically
               centered between the two sides. */}
