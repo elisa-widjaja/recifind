@@ -1454,12 +1454,14 @@ function mapDiscoverRow(r: Record<string, unknown>): DiscoverRecipe {
 const DISCOVER_SELECT = `SELECT id, user_id, title, source_url, image_url, meal_types, duration_minutes, ingredients, steps FROM recipes`;
 
 export async function getPublicDiscover(db: D1Database): Promise<DiscoverRecipe[]> {
-  // Fetch curated shorts first (if any are configured)
+  // Privacy gate: every public-feed query requires shared_with_friends = 1.
+  // If the recipe's owner ever toggles "Make public" off, the recipe drops
+  // out of every discovery surface (curated lists included).
   let curatedShorts: DiscoverRecipe[] = [];
   if (CURATED_YOUTUBE_SHORTS_IDS.length > 0) {
     const placeholders = CURATED_YOUTUBE_SHORTS_IDS.map(() => '?').join(', ');
     const curatedRows = await db.prepare(
-      `${DISCOVER_SELECT} WHERE id IN (${placeholders})`
+      `${DISCOVER_SELECT} WHERE id IN (${placeholders}) AND shared_with_friends = 1`
     ).bind(...CURATED_YOUTUBE_SHORTS_IDS).all();
     curatedShorts = (curatedRows.results as Array<Record<string, unknown>>).map(mapDiscoverRow);
   }
@@ -1469,7 +1471,8 @@ export async function getPublicDiscover(db: D1Database): Promise<DiscoverRecipe[
   // Fill the rest with recent TikTok/Instagram/YouTube Shorts, excluding already-fetched curated ones
   const rows = await db.prepare(
     `${DISCOVER_SELECT}
-     WHERE (source_url LIKE '%tiktok.com%' OR source_url LIKE '%instagram.com%'
+     WHERE shared_with_friends = 1
+       AND (source_url LIKE '%tiktok.com%' OR source_url LIKE '%instagram.com%'
             OR source_url LIKE '%youtube.com/shorts%')
      ORDER BY created_at DESC
      LIMIT 20`
@@ -1500,7 +1503,7 @@ export async function getTrendingRecipes(db: D1Database): Promise<Array<{
   const placeholders = CURATED_COMMUNITY_IDS.map(() => '?').join(', ');
   const rows = await db.prepare(
     `SELECT id, user_id, title, source_url, image_url, meal_types, duration_minutes, ingredients, steps
-     FROM recipes WHERE id IN (${placeholders})`
+     FROM recipes WHERE id IN (${placeholders}) AND shared_with_friends = 1`
   ).bind(...CURATED_COMMUNITY_IDS).all();
   return (rows.results as Array<Record<string, unknown>>).map((r) => ({
     id: String(r.id),
@@ -1541,7 +1544,7 @@ export async function getEditorsPick(db: D1Database, titles: string[] = EDITOR_P
        SELECT title,
               COALESCE(MIN(CASE WHEN duration_minutes IS NOT NULL THEN rowid END), MIN(rowid)) AS best_rowid
        FROM recipes
-       WHERE title IN (${placeholders})
+       WHERE title IN (${placeholders}) AND shared_with_friends = 1
        GROUP BY title
      ) best ON r.rowid = best.best_rowid`
   ).bind(...titles).all();
@@ -1797,8 +1800,11 @@ export async function getFriendsRecentlySaved(db: D1Database, userId: string): P
   const items: FriendRecipeItem[] = [];
   for (const friend of (friends.results as Array<Record<string, unknown>>)) {
     const rows = await db.prepare(
-      // Exclude shared recipes — those appear in "recently shared" section to avoid duplicates
-      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at, ingredients, steps FROM recipes WHERE user_id = ? AND (shared_with_friends IS NULL OR shared_with_friends = 0) ORDER BY created_at DESC LIMIT 2`
+      // Public saves only — private recipes (shared_with_friends NULL or 0)
+      // stay in the saver's own collection and never surface to friends.
+      // Mirrors the gate added to handleCreateRecipe's notification fanout
+      // so /friends/activity and /friends/recently-saved agree.
+      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at, ingredients, steps FROM recipes WHERE user_id = ? AND shared_with_friends = 1 ORDER BY created_at DESC LIMIT 2`
     ).bind(String(friend.friend_id)).all();
     for (const r of (rows.results as Array<Record<string, unknown>>)) {
       items.push({
@@ -1957,27 +1963,31 @@ async function handleCreateRecipe(
   ]);
   const saverName = profileRow?.display_name || 'Someone';
   const isPublic = Boolean(recipe.sharedWithFriends);
-  for (const f of (friendRows.results as Array<{ friend_id: string }>)) {
-    // Skip the original owner here — they get the specific
-    // friend_saved_your_recipe notification below instead of the generic one.
-    if (notifyOwnerSeparately && f.friend_id === originalUserId) continue;
-    await addNotification(env, f.friend_id, {
-      type: 'friend_saved_recipe',
-      message: isPublic ? `${saverName} saved ${recipe.title}` : `${saverName} saved a recipe`,
-      data: isPublic
-        ? { saverId: user.userId, recipeId: recipe.id, friendName: saverName }
-        : { saverId: user.userId, friendName: saverName },
-      createdAt: new Date().toISOString(),
-    });
-    // === [S05] Push notification to friend when a public recipe is saved ===
-    if (isPublic) {
+  // Only fan out friend_saved_recipe notifications when the recipe is
+  // public. Private saves stay in the saver's collection only — friends
+  // shouldn't see them in the activity feed (parallel change in
+  // getFriendsRecentlySaved). The owner-specific friend_saved_your_recipe
+  // below still fires regardless of public/private — the original creator
+  // has a legitimate interest in knowing someone saved their recipe.
+  if (isPublic) {
+    for (const f of (friendRows.results as Array<{ friend_id: string }>)) {
+      // Skip the original owner here — they get the specific
+      // friend_saved_your_recipe notification below instead of the generic one.
+      if (notifyOwnerSeparately && f.friend_id === originalUserId) continue;
+      await addNotification(env, f.friend_id, {
+        type: 'friend_saved_recipe',
+        message: `${saverName} saved ${recipe.title}`,
+        data: { saverId: user.userId, recipeId: recipe.id, friendName: saverName },
+        createdAt: new Date().toISOString(),
+      });
+      // === [S05] Push notification to friend when a public recipe is saved ===
       sendPushToUser(env as any, f.friend_id, {
         title: 'ReciFriend',
         body: `${saverName} saved ${recipe.title}`,
         deepLink: `https://recifriend.com/recipes/${recipe.id}`,
       }).catch(() => { /* silent — push is best-effort */ });
+      // === [/S05] ===
     }
-    // === [/S05] ===
   }
 
   // Specific notification to the original recipe owner: "{saver} saved your
