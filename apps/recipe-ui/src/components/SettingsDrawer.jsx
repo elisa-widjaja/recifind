@@ -247,21 +247,6 @@ function PrivacyContent() {
 }
 
 function NotificationsContent() {
-  function openSettings() {
-    if (Capacitor.isNativePlatform()) {
-      try {
-        const App = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
-        if (App && App.openUrl) {
-          App.openUrl({ url: 'app-settings:' });
-          return;
-        }
-      } catch { /* swallow */ }
-    }
-    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-  }
-
   return (
     <>
       <H1>Notifications</H1>
@@ -280,14 +265,6 @@ function NotificationsContent() {
       <P>Notification permissions are managed by your device's system settings.</P>
       <P><strong>iOS:</strong> Settings → ReciFriend → Notifications.<br />
         <strong>Android / web:</strong> use your browser or system settings.</P>
-
-      <Button
-        variant="contained"
-        onClick={openSettings}
-        sx={{ borderRadius: 999, textTransform: 'none', fontWeight: 600, px: 3, py: 1.25, mt: 1 }}
-      >
-        Open ReciFriend Settings
-      </Button>
 
       <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 5, pt: 2.5, borderTop: 1, borderColor: 'divider' }}>
         You can revoke permissions any time. We'll never send marketing emails or push notifications.
