@@ -683,7 +683,7 @@ describe('enrichAfterSave', () => {
     expect(runCalls.find(c => c.sql.includes('UPDATE recipes'))).toBeUndefined();
   });
 
-  it('writes the row when the chain returns a title-only result so the UI can render the empty-state hint', async () => {
+  it('writes a bookkeeping-only UPDATE for title-only — preserves user-supplied meal_types / cuisines / duration_minutes / notes', async () => {
     const runCalls: Array<{ sql: string; binds: any[] }> = [];
     const dbMock = {
       prepare: (sql: string) => ({
@@ -705,9 +705,18 @@ describe('enrichAfterSave', () => {
     const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
     expect(update).toBeDefined();
     expect(update!.binds).toContain('title-only');
-    // Title is intentionally NOT updated — preserve any user edits made
-    // between save and enrichment.
+    // Title-only must update ONLY provenance + updated_at. If we wrote
+    // ingredients / steps / meal_types / cuisines / duration_minutes /
+    // notes, we'd clobber values the user (or /recipes/parse) set on the
+    // initial save.
     expect(update!.sql).not.toMatch(/SET\s+title\s*=/i);
+    expect(update!.sql).not.toMatch(/meal_types\s*=/i);
+    expect(update!.sql).not.toMatch(/cuisines\s*=/i);
+    expect(update!.sql).not.toMatch(/duration_minutes\s*=/i);
+    expect(update!.sql).not.toMatch(/ingredients\s*=/i);
+    expect(update!.sql).not.toMatch(/steps\s*=/i);
+    expect(update!.sql).not.toMatch(/notes\s*=/i);
+    expect(update!.sql).toMatch(/SET\s+provenance\s*=\s*\?,\s*updated_at\s*=\s*\?/i);
   });
 });
 

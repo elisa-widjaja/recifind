@@ -4851,19 +4851,33 @@ export async function enrichAfterSave(
 
   // Three terminal states:
   //   - ingredients + steps populated → full update (provenance: 'extracted')
-  //   - empty arrays + provenance 'title-only' → write provenance only so the
-  //     UI can render the "Tap to add ingredients manually" affordance
-  //   - completely empty (no ingredients, no title-only flag) → leave the row
-  //     alone, the user keeps the og:title and a blank recipe
+  //   - empty arrays + provenance 'title-only' → write ONLY provenance +
+  //     updated_at so the UI can render the empty-state hint without
+  //     clobbering meal_types / cuisines / duration_minutes / notes that
+  //     were already set on the row (user-supplied form fields, JSON-LD
+  //     parse output, prior enrichments, etc.)
+  //   - completely empty (no ingredients, no title-only flag) → leave the
+  //     row alone entirely
   const hasContent = result.ingredients.length > 0 || result.steps.length > 0;
   const isTitleOnly = !hasContent && result.provenance === 'title-only';
   if (!hasContent && !isTitleOnly) return;
 
   const now = new Date().toISOString();
-  // image_url is intentionally NOT updated here — /recipes/parse sets it during
-  // the initial save and Gemini's inferred image is often worse than the og:image.
-  // title is also not updated: the user may have edited it before save, and
-  // overwriting their edit is worse than keeping a slightly-imperfect title.
+
+  if (isTitleOnly) {
+    // Bookkeeping-only update: just stamp the provenance flag. Preserves
+    // every content column the row already had.
+    await env.DB.prepare(
+      `UPDATE recipes SET provenance = ?, updated_at = ? WHERE id = ?`
+    ).bind(result.provenance ?? null, now, recipeId).run();
+    return;
+  }
+
+  // Full extraction result. image_url is intentionally NOT updated here —
+  // /recipes/parse sets it during the initial save and Gemini's inferred
+  // image is often worse than the og:image. title is also not updated: the
+  // user may have edited it before save, and overwriting their edit is
+  // worse than keeping a slightly-imperfect title.
   await env.DB.prepare(
     `UPDATE recipes
      SET ingredients = ?, steps = ?, meal_types = ?, cuisines = ?, duration_minutes = ?, notes = ?, provenance = ?, updated_at = ?
