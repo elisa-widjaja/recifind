@@ -136,24 +136,58 @@ describe('fetchOembedCaption', () => {
     expect(result).toBeNull();
   });
 
-  it('returns the caption for a TikTok URL via oEmbed', async () => {
-    const mockFetch = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({ title: 'Best pasta recipe ever', author_name: 'chef_jane' })
-    })) as unknown as typeof fetch;
+  it('reads og:description from TikTok page HTML and prepends author', async () => {
+    const html = `<html><head><meta property="og:description" content="Best pasta recipe ever"></head></html>`;
+    const mockFetch = vi.fn(async () => ({ ok: true, text: async () => html })) as unknown as typeof fetch;
     const result = await fetchOembedCaption(
       'https://www.tiktok.com/@chef_jane/video/12345',
       { fetchImpl: mockFetch }
     );
-    expect(result).toBe('Recipe by chef_jane:\n\nBest pasta recipe ever');
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(String(mockFetch.mock.calls[0][0])).toContain('tiktok.com/oembed');
+    expect(result).toBe('Recipe by TikTok creator:\n\nBest pasta recipe ever');
+    // Direct page fetch — not oEmbed roundtrip.
+    expect(String(mockFetch.mock.calls[0][0])).toBe('https://www.tiktok.com/@chef_jane/video/12345');
+    // Browser User-Agent — Instagram/TikTok strip og: tags for bot UAs.
+    expect((mockFetch.mock.calls[0][1] as RequestInit).headers).toMatchObject({
+      'User-Agent': expect.stringContaining('Safari'),
+    });
   });
 
-  it('returns null when oEmbed returns a non-OK response', async () => {
-    const mockFetch = vi.fn(async () => ({ ok: false, json: async () => ({}) })) as unknown as typeof fetch;
+  it('strips Instagram metadata prefix and decodes HTML entities + emoji', async () => {
+    // og:description on a real Instagram reel arrives wrapped in metadata
+    // and double-quoted, with HTML entities + numeric entities for emoji.
+    const html = `<html><head><meta property="og:description" content="1,075 likes, 23 comments - alicelovesbreakfast on May 6, 2026: &quot;BANANA BREAD &amp; FRENCH TOAST BAKE &#x1f34c;&#x1f35e; INGREDIENTS&quot;."></head></html>`;
+    const mockFetch = vi.fn(async () => ({ ok: true, text: async () => html })) as unknown as typeof fetch;
+    const result = await fetchOembedCaption(
+      'https://www.instagram.com/reel/abc123/',
+      { fetchImpl: mockFetch }
+    );
+    expect(result).toBe('Recipe by Instagram creator:\n\nBANANA BREAD & FRENCH TOAST BAKE 🍌🍞 INGREDIENTS');
+  });
+
+  it('falls back to twitter:description when og:description is absent', async () => {
+    const html = `<html><head><meta name="twitter:description" content="Spicy Thai noodles"></head></html>`;
+    const mockFetch = vi.fn(async () => ({ ok: true, text: async () => html })) as unknown as typeof fetch;
+    const result = await fetchOembedCaption(
+      'https://www.youtube.com/watch?v=abc',
+      { fetchImpl: mockFetch }
+    );
+    expect(result).toBe('Recipe by YouTube creator:\n\nSpicy Thai noodles');
+  });
+
+  it('returns null when the page fetch fails', async () => {
+    const mockFetch = vi.fn(async () => ({ ok: false, text: async () => '' })) as unknown as typeof fetch;
     const result = await fetchOembedCaption(
       'https://www.tiktok.com/@chef_jane/video/12345',
+      { fetchImpl: mockFetch }
+    );
+    expect(result).toBeNull();
+  });
+
+  it('returns null when neither og:description nor twitter:description is present', async () => {
+    const html = `<html><head><title>Empty</title></head></html>`;
+    const mockFetch = vi.fn(async () => ({ ok: true, text: async () => html })) as unknown as typeof fetch;
+    const result = await fetchOembedCaption(
+      'https://www.instagram.com/reel/abc/',
       { fetchImpl: mockFetch }
     );
     expect(result).toBeNull();
@@ -424,36 +458,32 @@ describe('textInference', () => {
     expect(promptText).toContain('Extract ONLY what is explicitly present');
   });
 
-  it('falls back to inference prompt when extract returns empty', async () => {
-    // First Gemini call returns empty arrays; second returns inferred content.
-    let callIndex = 0;
-    const mockFetch = vi.fn(async () => {
-      const responseText = callIndex === 0
-        ? JSON.stringify({ ingredients: [], steps: [], mealTypes: [], durationMinutes: null, notes: '', title: '' })
-        : JSON.stringify({ ingredients: ['inferred'], steps: ['inferred step'], mealTypes: [], durationMinutes: null, notes: '', title: '' });
-      callIndex++;
-      return {
-        ok: true,
-        json: async () => ({ candidates: [{ content: { parts: [{ text: responseText }] } }] })
-      };
-    }) as unknown as typeof fetch;
+  it('returns empty + null provenance when extract finds no recipe (no inference fallback)', async () => {
+    // Inference-mode pass-2 was removed. When the extract-only call returns
+    // empty arrays from a long unstructured page, we return empty rather
+    // than fabricating ingredients via a permissive prompt.
+    const mockFetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: JSON.stringify({
+          ingredients: [], steps: [], mealTypes: [], durationMinutes: null, notes: '', title: ''
+        }) }] } }]
+      })
+    })) as unknown as typeof fetch;
 
     const result = await textInference(
       fakeEnv,
       'https://example.com/recipe',
       'Pasta',
-      { ...baseDeps, fetchRawRecipeText: async () => 'A long food blog post that rambles about family memories and cooking traditions without ever laying out an explicit ingredient list or numbered steps.'.padEnd(600, ' '), fetchImpl: mockFetch }
+      { ...baseDeps, fetchRawRecipeText: async () => 'A long food blog post that rambles about family memories without ever laying out an explicit ingredient list or numbered steps.'.padEnd(600, ' '), fetchImpl: mockFetch }
     );
-    expect(result.ingredients).toEqual(['inferred']);
+    expect(result.ingredients).toEqual([]);
+    expect(result.provenance).toBeNull();
 
-    // Two Gemini calls: extract first, then infer.
-    expect(mockFetch).toHaveBeenCalledTimes(2);
-
-    const firstBody = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
-    expect(firstBody.contents[0].parts[0].text).toContain('Extract ONLY what is explicitly present');
-
-    const secondBody = JSON.parse((mockFetch.mock.calls[1][1] as RequestInit).body as string);
-    expect(secondBody.contents[0].parts[0].text).toContain('culinary expert');
+    // Single Gemini call — no inference fallback.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.contents[0].parts[0].text).toContain('Extract ONLY what is explicitly present');
   });
 
   it('short-circuits without calling Gemini when raw text is an HTTP 429 error page', async () => {
@@ -472,7 +502,7 @@ describe('textInference', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('skips both passes when rawText is under 500 chars and not error-page-shaped', async () => {
+  it('skips Gemini when rawText is under 500 chars and not error-page-shaped', async () => {
     const mockFetch = vi.fn() as unknown as typeof fetch;
     const result = await textInference(
       fakeEnv,
@@ -508,28 +538,7 @@ describe('textInference', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('tags pass-2 success as provenance=inferred when pass-1 returns empty', async () => {
-    const longText = 'A food blog post with lots of words but no explicit ingredient list or steps.'.padEnd(600, ' ');
-    let call = 0;
-    const mockFetch = vi.fn(async () => {
-      const text = call++ === 0
-        ? JSON.stringify({ ingredients: [], steps: [], mealTypes: [], durationMinutes: null, notes: '', title: '' })
-        : JSON.stringify({ ingredients: ['inferred'], steps: ['step'], mealTypes: [], durationMinutes: null, notes: '', title: '' });
-      return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text }] } }] }) };
-    }) as unknown as typeof fetch;
-
-    const result = await textInference(
-      fakeEnv,
-      'https://example.com/blog',
-      'Pasta',
-      { ...baseDeps, fetchRawRecipeText: async () => longText, fetchImpl: mockFetch }
-    );
-    expect(result.ingredients).toEqual(['inferred']);
-    expect(result.provenance).toBe('inferred');
-    expect(mockFetch).toHaveBeenCalledTimes(2);
-  });
-
-  it('returns null provenance when both passes return empty', async () => {
+  it('returns null provenance when extract returns empty (single Gemini call)', async () => {
     const longText = 'Very generic food blog text with no actual recipe data anywhere.'.padEnd(600, ' ');
     const mockFetch = vi.fn(async () => ({
       ok: true,
@@ -546,7 +555,8 @@ describe('textInference', () => {
     );
     expect(result.ingredients).toEqual([]);
     expect(result.provenance).toBeNull();
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+    // Inference-mode pass-2 removed → only one Gemini call.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -601,6 +611,29 @@ describe('runEnrichmentChain', () => {
       { captionExtract: empty, youtubeVideo: empty, textInference: empty }
     );
     expect(result.ingredients).toEqual([]);
+    expect(result.provenance).toBeNull();
+    expect(winningStrategy).toBeNull();
+  });
+
+  it('promotes a title-only caption-extract result when no strategy yields ingredients', async () => {
+    // Caption-extract pulled a dish name out of an unstructured paragraph
+    // (no Ingredients / Method headers in the caption). The orchestrator
+    // should keep that title with provenance:'title-only' rather than
+    // discarding the whole row — the UI uses this signal to render a
+    // "Tap to add ingredients manually" affordance.
+    const captionStrat = vi.fn(async () => ({ ...EMPTY_EXPECTED, title: 'Banana Bread French Toast Bake' }));
+    const videoStrat = vi.fn(async () => EMPTY_EXPECTED);
+    const textStrat = vi.fn(async () => EMPTY_EXPECTED);
+    const { result, winningStrategy } = await runEnrichmentChain(
+      {} as Env,
+      'https://www.instagram.com/reel/abc/',
+      'placeholder-title-from-og',
+      { captionExtract: captionStrat, youtubeVideo: videoStrat, textInference: textStrat }
+    );
+    expect(result.title).toBe('Banana Bread French Toast Bake');
+    expect(result.ingredients).toEqual([]);
+    expect(result.steps).toEqual([]);
+    expect(result.provenance).toBe('title-only');
     expect(winningStrategy).toBeNull();
   });
 });
@@ -648,6 +681,33 @@ describe('enrichAfterSave', () => {
     });
     await enrichAfterSave(env, 'recipe-1', 'https://e.com/x', 'T', { runEnrichmentChain: fakeChain as any });
     expect(runCalls.find(c => c.sql.includes('UPDATE recipes'))).toBeUndefined();
+  });
+
+  it('writes the row when the chain returns a title-only result so the UI can render the empty-state hint', async () => {
+    const runCalls: Array<{ sql: string; binds: any[] }> = [];
+    const dbMock = {
+      prepare: (sql: string) => ({
+        bind: (...binds: any[]) => ({
+          run: async () => { runCalls.push({ sql, binds: [...binds] }); return { success: true }; },
+        }),
+      }),
+    };
+    const env = { DB: dbMock as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'x' } as unknown as Env;
+    const fakeChain = async () => ({
+      result: {
+        title: 'Banana Bread French Toast Bake', imageUrl: '', mealTypes: [], cuisines: [],
+        ingredients: [], steps: [], durationMinutes: null, notes: '',
+        provenance: 'title-only' as const,
+      },
+      winningStrategy: null,
+    });
+    await enrichAfterSave(env, 'recipe-1', 'https://www.instagram.com/reel/abc/', 'T', { runEnrichmentChain: fakeChain as any });
+    const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
+    expect(update).toBeDefined();
+    expect(update!.binds).toContain('title-only');
+    // Title is intentionally NOT updated — preserve any user edits made
+    // between save and enrichment.
+    expect(update!.sql).not.toMatch(/SET\s+title\s*=/i);
   });
 });
 

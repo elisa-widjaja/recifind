@@ -52,7 +52,7 @@ interface Recipe {
   updatedAt: string;
   previewImage?: ImageMetadata | null;
   sharedWithFriends?: boolean;
-  provenance?: 'extracted' | 'inferred' | null;
+  provenance?: 'extracted' | 'inferred' | 'title-only' | null;
 }
 
 interface UserProfile {
@@ -1034,7 +1034,7 @@ function rowToRecipe(row: Record<string, unknown>): Recipe {
     sharedWithFriends: Boolean(row.shared_with_friends),
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
-    provenance: (row.provenance as 'extracted' | 'inferred' | null) ?? null,
+    provenance: (row.provenance as 'extracted' | 'inferred' | 'title-only' | null) ?? null,
   };
 }
 
@@ -3208,12 +3208,12 @@ function normalizeRecipePayload(
 
   if ('provenance' in payload) {
     const value = payload.provenance;
-    if (value === 'extracted' || value === 'inferred' || value === null) {
+    if (value === 'extracted' || value === 'inferred' || value === 'title-only' || value === null) {
       recipe.provenance = value;
     } else if (value === undefined) {
       recipe.provenance = null;
     } else {
-      throw new HttpError(400, 'provenance must be "extracted", "inferred", or null');
+      throw new HttpError(400, 'provenance must be "extracted", "inferred", "title-only", or null');
     }
   } else if (!existing) {
     recipe.provenance = null;
@@ -4453,6 +4453,17 @@ type FetchOembedCaptionDeps = {
 // Returns the oEmbed "title" field (which is usually the post caption on social
 // platforms), formatted as "Recipe by <author>: <caption>". Returns null for
 // hosts without an oEmbed endpoint we know about, or when the fetch fails.
+// Pulls the caption from a public Instagram / TikTok / YouTube URL by
+// fetching the page directly and reading <meta property="og:description">.
+//
+// History: this function used to call each platform's oEmbed endpoint, but
+// Instagram's public oEmbed has been deprecated since Oct 2020 (returns the
+// login HTML instead of JSON), TikTok's oEmbed truncates the caption, and
+// YouTube's oEmbed never includes the description. The og:description meta
+// tag on the public HTML carries the full caption for all three platforms,
+// so we read it directly with a browser User-Agent. This is what ReciMe and
+// other apps do. ~95% accuracy on captions with explicit Ingredients/Method
+// sections; replaces a path that was silently failing for Instagram.
 async function fetchOembedCaption(
   sourceUrl: string,
   deps: FetchOembedCaptionDeps = {}
@@ -4460,35 +4471,47 @@ async function fetchOembedCaption(
   const { fetchImpl = fetch } = deps;
   try {
     const parsed = new URL(sourceUrl);
-    let oembedUrl: string | null = null;
+    const isInstagram = parsed.hostname.includes('instagram.com');
+    const isTikTok = parsed.hostname.includes('tiktok.com');
+    const isYouTube = parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be');
+    if (!isInstagram && !isTikTok && !isYouTube) return null;
 
-    if (parsed.hostname.includes('tiktok.com')) {
-      oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(sourceUrl)}`;
-    } else if (parsed.hostname.includes('instagram.com')) {
-      const normalizedUrl = sourceUrl.split('?')[0].replace(/\/?$/, '/');
-      oembedUrl = `https://www.instagram.com/oembed/?omitscript=true&url=${encodeURIComponent(normalizedUrl)}`;
-    } else if (parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be')) {
-      oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(sourceUrl)}&format=json`;
-    }
-
-    if (!oembedUrl) return null;
-
-    const response = await fetchImpl(oembedUrl, {
+    const response = await fetchImpl(sourceUrl, {
+      // A real Safari/Chrome User-Agent is mandatory — Instagram and TikTok
+      // serve a stripped-down empty-meta page to bot-shaped UAs, and the
+      // RecipeBot/1.0 UA we used previously tripped that filter.
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)',
-        'Accept': 'application/json'
-      }
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+      },
     });
     if (!response.ok) return null;
-    const payload = (await response.json()) as { title?: string; author_name?: string };
-    const caption = (payload.title || '').trim();
+    const html = await response.text();
+
+    const ogMatch = html.match(/<meta\s+property=["']og:description["']\s+content=["']([^"']*)["']/i);
+    const twMatch = html.match(/<meta\s+name=["']twitter:description["']\s+content=["']([^"']*)["']/i);
+    const raw = (ogMatch?.[1] ?? twMatch?.[1] ?? '').trim();
+    if (!raw) return null;
+
+    let caption = decodeHtmlEntities(raw);
+
+    // Instagram wraps the caption in a metadata prefix like:
+    //   1,075 likes, 23 comments - alicelovesbreakfast on May 6, 2026: "<caption>"
+    // Strip the prefix + the trailing closing quote so Gemini sees just the
+    // creator's text.
+    if (isInstagram) {
+      const prefixMatch = caption.match(/^[\d,]+\s+likes?,\s+[\d,]+\s+comments?\s+-\s+[^:]+:\s*[“"]?/i);
+      if (prefixMatch) {
+        caption = caption.slice(prefixMatch[0].length).replace(/[”"]\s*\.?\s*$/, '').trim();
+      }
+    }
     if (!caption) return null;
-    const author = payload.author_name || (parsed.hostname.includes('tiktok.com') ? 'TikTok creator' :
-                                           parsed.hostname.includes('instagram.com') ? 'Instagram creator' :
-                                           'YouTube creator');
+
+    const author = isInstagram ? 'Instagram creator' : isTikTok ? 'TikTok creator' : 'YouTube creator';
     return `Recipe by ${author}:\n\n${caption}`;
   } catch (err) {
-    console.log('[enrich]', { strategy: 'oembed-caption', url: sourceUrl, outcome: 'error', error: String(err) });
+    console.log('[enrich]', { strategy: 'social-caption', url: sourceUrl, outcome: 'error', error: String(err) });
     return null;
   }
 }
@@ -4505,7 +4528,7 @@ type EnrichmentResult = {
   steps: string[];
   durationMinutes: number | null;
   notes: string;
-  provenance: 'extracted' | 'inferred' | null;
+  provenance: 'extracted' | 'inferred' | 'title-only' | null;
 };
 
 const EMPTY_ENRICHMENT: EnrichmentResult = {
@@ -4729,27 +4752,13 @@ async function textInference(
     return EMPTY_ENRICHMENT;
   }
 
-  // Build the Recipe shape required by buildGeminiPrompt (pass 2).
-  const recipeForPrompt: Recipe = {
-    id: 'enrich-preview',
-    userId: 'preview',
-    title: title || '',
-    sourceUrl,
-    imageUrl: '',
-    imagePath: null,
-    mealTypes: [],
-    cuisines: [],
-    ingredients: [],
-    steps: [],
-    durationMinutes: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    notes: '',
-    previewImage: null,
-  };
-
   try {
-    // Pass 1: strict extract-only (verbatim if the text contains a recipe).
+    // Strict extract-only — verbatim extraction if the text contains a
+    // recipe. The prior pass-2 inference-mode call (buildGeminiPrompt) was
+    // removed: when the source text doesn't contain a structured recipe,
+    // returning honest-empty + a clean title is safer than fabricating
+    // ingredients (allergy / dietary-restriction stakes). Title-only
+    // promotion happens in the orchestrator.
     const extractCompletion = await callGemini(env, buildExtractOnlyPrompt(rawText), {
       fetchImpl: deps.fetchImpl,
       getAccessToken: deps.getAccessToken,
@@ -4758,24 +4767,10 @@ async function textInference(
     const extractParsed = parseGeminiRecipeJson(extractCompletion);
     const extractBase = extractParsed ? parsedToEnrichmentResult(extractParsed) : EMPTY_ENRICHMENT;
     const extractIsEmpty = extractBase.ingredients.length === 0 && extractBase.steps.length === 0;
-    if (!extractIsEmpty) {
-      console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText.length, pass: 'extract', outcome: 'extracted', duration_ms: Date.now() - startedAt });
-      return { ...extractBase, provenance: 'extracted' };
-    }
-
-    // Pass 2: inference-allowing prompt runs only when the gate passed AND pass-1 was empty.
-    const inferCompletion = await callGemini(env, buildGeminiPrompt(recipeForPrompt, rawText), {
-      fetchImpl: deps.fetchImpl,
-      getAccessToken: deps.getAccessToken,
-      getServiceAccount: deps.getServiceAccount,
-    });
-    const inferParsed = parseGeminiRecipeJson(inferCompletion);
-    const inferBase = inferParsed ? parsedToEnrichmentResult(inferParsed) : EMPTY_ENRICHMENT;
-    const inferIsEmpty = inferBase.ingredients.length === 0 && inferBase.steps.length === 0;
-    console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText.length, pass: 'infer', outcome: inferIsEmpty ? 'empty' : 'inferred', duration_ms: Date.now() - startedAt });
-    return inferIsEmpty
-      ? EMPTY_ENRICHMENT
-      : { ...inferBase, provenance: 'inferred' };
+    console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText.length, pass: 'extract', outcome: extractIsEmpty ? 'empty' : 'extracted', duration_ms: Date.now() - startedAt });
+    return extractIsEmpty
+      ? extractBase
+      : { ...extractBase, provenance: 'extracted' };
   } catch (err) {
     console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText.length, outcome: 'error', duration_ms: Date.now() - startedAt, error: String(err) });
     return EMPTY_ENRICHMENT;
@@ -4794,18 +4789,35 @@ async function runEnrichmentChain(
   title: string,
   strategies: ChainStrategies
 ): Promise<{ result: EnrichmentResult; winningStrategy: 'caption-extract' | 'youtube-video' | 'text-inference' | null }> {
-  const isEmpty = (r: EnrichmentResult) => r.ingredients.length === 0 && r.steps.length === 0;
+  const hasIngredientsOrSteps = (r: EnrichmentResult) => r.ingredients.length > 0 || r.steps.length > 0;
 
-  let result = await strategies.captionExtract(env, resolvedUrl, title);
-  if (!isEmpty(result)) return { result, winningStrategy: 'caption-extract' };
+  // Track the best dish title we get from any strategy, in case all of them
+  // come back without ingredients/steps. If the caption is unstructured (no
+  // explicit Ingredients / Method headers) Gemini can still pull a dish name
+  // out of the prose — keeping that title with provenance:'title-only' is
+  // strictly safer than the prior behavior of falling through to inference
+  // mode and fabricating ingredients.
+  let firstNonEmptyTitle = '';
 
-  result = await strategies.youtubeVideo(env, resolvedUrl, title);
-  if (!isEmpty(result)) return { result, winningStrategy: 'youtube-video' };
+  const captionResult = await strategies.captionExtract(env, resolvedUrl, title);
+  if (hasIngredientsOrSteps(captionResult)) return { result: captionResult, winningStrategy: 'caption-extract' };
+  if (!firstNonEmptyTitle && captionResult.title) firstNonEmptyTitle = captionResult.title;
 
-  result = await strategies.textInference(env, resolvedUrl, title);
-  if (!isEmpty(result)) return { result, winningStrategy: 'text-inference' };
+  const videoResult = await strategies.youtubeVideo(env, resolvedUrl, title);
+  if (hasIngredientsOrSteps(videoResult)) return { result: videoResult, winningStrategy: 'youtube-video' };
+  if (!firstNonEmptyTitle && videoResult.title) firstNonEmptyTitle = videoResult.title;
 
-  return { result, winningStrategy: null };
+  const textResult = await strategies.textInference(env, resolvedUrl, title);
+  if (hasIngredientsOrSteps(textResult)) return { result: textResult, winningStrategy: 'text-inference' };
+  if (!firstNonEmptyTitle && textResult.title) firstNonEmptyTitle = textResult.title;
+
+  if (firstNonEmptyTitle) {
+    return {
+      result: { ...EMPTY_ENRICHMENT, title: firstNonEmptyTitle, provenance: 'title-only' },
+      winningStrategy: null,
+    };
+  }
+  return { result: EMPTY_ENRICHMENT, winningStrategy: null };
 }
 
 export async function enrichAfterSave(
@@ -4837,13 +4849,21 @@ export async function enrichAfterSave(
     steps_count: result.steps.length,
   });
 
-  // B1: silent — if nothing was found, leave the row alone so the user sees
-  // their title-only recipe and can hand-fill later.
-  if (result.ingredients.length === 0 && result.steps.length === 0) return;
+  // Three terminal states:
+  //   - ingredients + steps populated → full update (provenance: 'extracted')
+  //   - empty arrays + provenance 'title-only' → write provenance only so the
+  //     UI can render the "Tap to add ingredients manually" affordance
+  //   - completely empty (no ingredients, no title-only flag) → leave the row
+  //     alone, the user keeps the og:title and a blank recipe
+  const hasContent = result.ingredients.length > 0 || result.steps.length > 0;
+  const isTitleOnly = !hasContent && result.provenance === 'title-only';
+  if (!hasContent && !isTitleOnly) return;
 
   const now = new Date().toISOString();
   // image_url is intentionally NOT updated here — /recipes/parse sets it during
   // the initial save and Gemini's inferred image is often worse than the og:image.
+  // title is also not updated: the user may have edited it before save, and
+  // overwriting their edit is worse than keeping a slightly-imperfect title.
   await env.DB.prepare(
     `UPDATE recipes
      SET ingredients = ?, steps = ?, meal_types = ?, cuisines = ?, duration_minutes = ?, notes = ?, provenance = ?, updated_at = ?

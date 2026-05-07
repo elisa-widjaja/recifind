@@ -3759,7 +3759,12 @@ function App() {
 
         // Provenance on its own is bookkeeping — don't let it trigger the
         // "AI suggestions added" toast when no visible field actually changed.
-        if (enriched.provenance === 'extracted' || enriched.provenance === 'inferred' || enriched.provenance === null) {
+        if (
+          enriched.provenance === 'extracted'
+          || enriched.provenance === 'inferred'
+          || enriched.provenance === 'title-only'
+          || enriched.provenance === null
+        ) {
           if (next.provenance !== enriched.provenance) {
             next.provenance = enriched.provenance;
             changed = true;
@@ -3769,11 +3774,18 @@ function App() {
         return changed ? next : prev;
       });
 
+      // Tailor the snackbar to the actual outcome. "title-only" means the
+      // server fetched the source but found a dish name without a structured
+      // ingredient list — re-running won't help; the user needs to fill in
+      // manually.
+      const isTitleOnly = enriched.provenance === 'title-only';
       setSnackbarState({
         open: true,
         message: addedContent
           ? 'AI suggestions added. Review and save to keep changes.'
-          : "We couldn't read new details for this recipe. The source may be rate-limited — try again in a minute.",
+          : isTitleOnly
+            ? "We couldn't find a structured recipe in this source — tap an ingredient row to add ingredients manually."
+            : "We couldn't read new details for this recipe. The source may be rate-limited — try again in a minute.",
         severity: addedContent ? 'info' : 'warning',
       });
     } catch (error) {
