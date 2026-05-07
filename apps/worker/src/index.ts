@@ -468,7 +468,7 @@ export default {
         // Public: parse takes only a sourceUrl and returns og/oEmbed title+image.
         // No user-specific data written or read. Needed so the iOS share extension
         // can fetch a preview before the user has signed in on this device.
-        return await handleParseRecipe(request);
+        return await handleParseRecipe(request, env, ctx);
       }
 
       if (url.pathname === '/recipes/og-image' && request.method === 'POST') {
@@ -2043,7 +2043,7 @@ async function handleGetOgImage(request: Request) {
   return json({ imageUrl: imageUrl || '' });
 }
 
-async function handleParseRecipe(request: Request) {
+async function handleParseRecipe(request: Request, env: Env, ctx: ExecutionContext) {
   const body = await readJsonBody(request);
   const rawSourceUrl = typeof body.sourceUrl === 'string' ? body.sourceUrl.trim() : '';
 
@@ -2072,6 +2072,23 @@ async function handleParseRecipe(request: Request) {
     // Fall back to the original parsedUrl if resolution produced something bad.
   }
 
+  // KV cache lookup. Instagram aggressively rate-limits Cloudflare's
+  // datacenter IPs — even when our retry strategy works, IG often serves
+  // the stripped login wall on consecutive calls from the same edge.
+  // Once any caller has successfully parsed a given URL, the next 7 days
+  // of /recipes/parse calls for that URL skip the network fetch entirely.
+  // Captions are immutable per post so a long TTL is safe.
+  const canonicalUrl = parsedUrl.toString();
+  const parseCacheKey = `parse:${canonicalUrl}`;
+  try {
+    const cached = await env.AI_PICKS_CACHE.get(parseCacheKey, { type: 'json' });
+    if (cached) {
+      return json({ parsed: cached });
+    }
+  } catch {
+    // Cache lookup is best-effort; on any error fall through to live fetch.
+  }
+
   // For TikTok URLs, use oEmbed API to get the title since direct HTML returns generic "TikTok - Make Your Day"
   if (parsedUrl.hostname.includes('tiktok.com')) {
     try {
@@ -2087,17 +2104,21 @@ async function handleParseRecipe(request: Request) {
         const caption = (payload.title || '').trim();
         if (caption) {
           const title = extractTikTokRecipeTitle(caption);
-          return json({
-            parsed: {
-              title,
-              ingredients: [],
-              steps: [],
-              mealTypes: inferMealTypesFromTitle(title),
-              cuisines: [],
-              durationMinutes: null,
-              imageUrl: (payload.thumbnail_url || '').trim() || null
-            }
-          });
+          const tiktokParsed = {
+            title,
+            ingredients: [],
+            steps: [],
+            mealTypes: inferMealTypesFromTitle(title),
+            cuisines: [],
+            durationMinutes: null,
+            imageUrl: (payload.thumbnail_url || '').trim() || null
+          };
+          // Cache for 7 days so subsequent shares of the same TikTok URL
+          // bypass IG/TT rate limits and respond instantly.
+          ctx?.waitUntil?.(
+            env.AI_PICKS_CACHE.put(parseCacheKey, JSON.stringify(tiktokParsed), { expirationTtl: 7 * 24 * 60 * 60 })
+          );
+          return json({ parsed: tiktokParsed });
         }
       }
     } catch {
@@ -2115,6 +2136,10 @@ async function handleParseRecipe(request: Request) {
     return json({ parsed: null });
   }
 
+  // Cache for 7 days. Captions don't change per-URL.
+  ctx?.waitUntil?.(
+    env.AI_PICKS_CACHE.put(parseCacheKey, JSON.stringify(parsed), { expirationTtl: 7 * 24 * 60 * 60 })
+  );
   return json({ parsed });
 }
 
@@ -3906,23 +3931,53 @@ async function fetchSupabaseObject(env: Env, objectKey: string) {
 }
 
 async function fetchRecipeHtml(sourceUrl: string): Promise<string | null> {
-  try {
-    const response = await fetch(sourceUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; RecipeWorker/1.0)',
-        Accept: 'text/html,application/xhtml+xml'
-      },
-      redirect: 'follow',
-      cf: { cacheTtl: 120 }
-    });
-    if (!response.ok) {
+  // Even with a Safari UA, Instagram's edge alternates between serving the
+  // full HTML (with og:description / og:image / og:title) and a stripped
+  // login-wall HTML with all og: tags missing. The stripped variant is what
+  // produces the "title shows as www.instagram.com" symptom on first
+  // attempt — the iOS extension's hostname fallback fires when the worker
+  // can't extract anything. One retry on a stripped response is enough to
+  // get the full HTML in nearly every case (re-tested empirically). Total
+  // budget stays well under the iOS extension's 4s deadline (each fetch is
+  // ~200–800ms typically).
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+  };
+
+  const isLikelyStripped = (html: string): boolean => {
+    // For Instagram in particular, the stripped login wall response has no
+    // og: tags. If we got HTML but it lacks any og:title / og:description /
+    // og:image, treat it as a miss worth retrying.
+    if (!/instagram\.com/i.test(sourceUrl)) return false;
+    return !/<meta\s+property=["']og:(title|description|image)["']/i.test(html);
+  };
+
+  // Intentionally no cf:cacheTtl — Cloudflare's edge cache was poisoning
+  // subsequent parse calls when Instagram's first response was the stripped
+  // login wall. /recipes/parse is called once per share session (low
+  // frequency), so always fetching fresh is fine.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetch(sourceUrl, {
+        headers,
+        redirect: 'follow',
+      });
+      if (!response.ok) {
+        if (attempt === 0) continue;
+        return null;
+      }
+      const html = await response.text();
+      if (attempt === 0 && isLikelyStripped(html)) continue;
+      return html;
+    } catch (error) {
+      console.warn('Failed to fetch recipe HTML', { attempt, error: String(error) });
+      if (attempt === 0) continue;
       return null;
     }
-    return response.text();
-  } catch (error) {
-    console.warn('Failed to fetch recipe HTML', error);
-    return null;
   }
+  return null;
 }
 
 function extractInstagramRecipeTitle(ogTitle: string): string {
@@ -4016,9 +4071,27 @@ function extractRecipeDetailsFromHtml(html: string, sourceUrl: string): ParsedRe
     extractMetaContent(html, 'name', 'twitter:title') ||
     extractTitleFromHtml(html);
 
-  // For Instagram/TikTok URLs, extract just the recipe name from the caption
+  // Instagram does NOT serve og:title in its public HTML — only og:description
+  // (with the full caption). When the title falls through to the page <title>
+  // it lands on the literal string "Instagram", which the iOS share extension
+  // then replaces with sourceURL.host ("www.instagram.com") because it looks
+  // like junk. To get a real dish-name title, peek at og:description, strip
+  // the "X likes, Y comments - author on date: " metadata prefix, and feed
+  // the bare caption to extractInstagramRecipeTitle (which knows how to pull
+  // a dish name from the caption's first line / pre-emoji segment).
   const isInstagram = /instagram\.com/i.test(sourceUrl);
   const isTikTok = /tiktok\.com/i.test(sourceUrl);
+  if (isInstagram && (!fallbackTitle || /^instagram$/i.test(fallbackTitle))) {
+    const ogDesc = extractMetaContent(html, 'property', 'og:description')
+      || extractMetaContent(html, 'name', 'twitter:description');
+    if (ogDesc) {
+      const prefixStripped = ogDesc
+        .replace(/^[\d,]+\s+likes?,\s+[\d,]+\s+comments?\s+-\s+[^:]+:\s*[“"]?/i, '')
+        .replace(/[”"]\s*\.?\s*$/, '')
+        .trim();
+      if (prefixStripped) fallbackTitle = prefixStripped;
+    }
+  }
   if (isInstagram && fallbackTitle) {
     fallbackTitle = extractInstagramRecipeTitle(fallbackTitle);
   } else if (isTikTok && fallbackTitle) {
