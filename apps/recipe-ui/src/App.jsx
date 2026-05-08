@@ -7115,7 +7115,11 @@ function App() {
 
       <Drawer
         anchor="bottom"
-        open={showInstallBanner && isMobile && !isAddDialogOpen && !isFriendsDialogOpen}
+        // A2HS prompt hidden on web. Flip back to the commented expression below
+        // (or set ENABLE_INSTALL_BANNER=true) when we want to re-enable it. The
+        // beforeinstallprompt listener + 90s timers are intentionally left alive
+        // so showInstallBanner state still tracks readiness for instant re-enable.
+        open={false /* showInstallBanner && isMobile && !isAddDialogOpen && !isFriendsDialogOpen */}
         onClose={() => setShowInstallBanner(false)}
         PaperProps={{
           sx: {
