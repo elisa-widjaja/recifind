@@ -244,7 +244,7 @@ const ARROW_PX = 16;
 const SOURCE_LOGOS = [
   '/landing-instagram-75.svg',
   '/landing-tiktok-75.svg',
-  '/landing-youtube-75.svg',
+  '/landing-youtube-75.png',
 ];
 
 // Cycling source-platform slot. All three logos are stacked in DOM and we
