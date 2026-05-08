@@ -113,6 +113,7 @@ import OnboardingDrawer from './components/OnboardingDrawer';
 import SettingsDrawer from './components/SettingsDrawer';
 import FriendsPage from './components/FriendsPage';
 import AddFriendDrawer from './components/AddFriendDrawer';
+import SourcesWorkflowRow from './components/SourcesWorkflowRow';
 // === [S04] Friend picker wiring ===
 import { FriendPicker } from './components/FriendPicker';
 import { ShareSheet } from './components/ShareSheet';
@@ -6436,8 +6437,25 @@ function App() {
             </Box>
           ) : (
             <Box sx={{ px: 3, pt: 1, pb: 1, display: 'flex', flexDirection: 'column', gap: 2, position: 'relative' }}>
-              <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.4 }}>
-                Share from Instagram, TikTok, or YouTube or paste a link below.
+              {/* Reels-first onboarding: animated workflow row teaches the
+                  share-extension flow, with the URL field as the fallback.
+                  The row is rendered only while the drawer is open (Drawer
+                  conditionally mounts its children) so the cycling logo's
+                  setInterval is torn down on close. */}
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, mt: 0.5 }}>
+                <SourcesWorkflowRow darkMode={darkMode} />
+                <Typography variant="body2" sx={{ color: 'text.primary', textAlign: 'center', mt: 0.5 }}>
+                  Share directly from social media reels
+                </Typography>
+              </Box>
+              {/* "or" divider — horizontal rule on either side of the word. */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, my: 0.5 }}>
+                <Box sx={{ flex: 1, height: '1px', bgcolor: 'divider' }} />
+                <Typography variant="body2" sx={{ color: 'text.secondary' }}>or</Typography>
+                <Box sx={{ flex: 1, height: '1px', bgcolor: 'divider' }} />
+              </Box>
+              <Typography variant="body2" sx={{ color: 'text.primary', textAlign: 'center' }}>
+                Copy and paste a link below
               </Typography>
               <TextField
                 label="Source URL"
@@ -6447,7 +6465,7 @@ function App() {
                 fullWidth
                 placeholder="https://example.com/recipe"
                 error={Boolean(newRecipeErrors.sourceUrl)}
-                helperText={newRecipeErrors.sourceUrl}
+                helperText={newRecipeErrors.sourceUrl || 'Link to the original recipe or video.'}
               />
               <TextField
                 label="Title"

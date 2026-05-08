@@ -5,6 +5,7 @@ import {
 import { keyframes } from '@emotion/react';
 import RecipeShelf from './RecipeShelf';
 import DiscoverRecipes from './DiscoverRecipes';
+import SourcesWorkflowRow from './SourcesWorkflowRow';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import { getVideoThumbnailUrl } from '../utils/videoEmbed';
 
@@ -236,89 +237,9 @@ function StatusBar() {
 // IG/TT/YT) → share icon → ReciFriend logo. Phone shell is "cropped" so it
 // bleeds off the bottom of the card per the mock.
 
-// Workflow row icons — designer-supplied PNGs, scaled to 80% of native size
-// (logos 75 → 60, arrows 20 → 16). Total row: 60+16+60+16+60 = 212px, fits
-// comfortably inside the 264px card content area.
-const LOGO_PX = 60;
-const ARROW_PX = 16;
-const SOURCE_LOGOS = [
-  '/landing-instagram-75.svg',
-  '/landing-tiktok-75.svg',
-  '/landing-youtube-75.png',
-];
-
-// Cycling source-platform slot. All three logos are stacked in DOM and we
-// cross-fade between them by toggling opacity — earlier Storyboard-based
-// approach mounted the active frame and unmounted the previous one, leaving
-// a brief blank slot during the swap. With opacity stacking the outgoing
-// logo fades out as the incoming one fades in over the same window.
-function CyclingSourceLogo() {
-  const [active, setActive] = useState(0);
-  useEffect(() => {
-    const id = setInterval(
-      () => setActive((i) => (i + 1) % SOURCE_LOGOS.length),
-      2400,
-    );
-    return () => clearInterval(id);
-  }, []);
-  return (
-    <Box sx={{ position: 'relative', width: LOGO_PX, height: LOGO_PX, flexShrink: 0 }}>
-      {SOURCE_LOGOS.map((src, i) => (
-        <Box
-          key={src}
-          component="img"
-          src={src}
-          alt=""
-          sx={{
-            position: 'absolute', inset: 0,
-            width: LOGO_PX, height: LOGO_PX,
-            display: 'block',
-            opacity: i === active ? 1 : 0,
-            transition: 'opacity 800ms cubic-bezier(.25,.46,.45,.94)',
-            willChange: 'opacity',
-          }}
-        />
-      ))}
-    </Box>
-  );
-}
-
-// Workflow row laid out exactly per spec — assets used at native size, no
-// resize. Rendered with no gaps between icons since the asset spacing is
-// designed-in.
-function WorkflowRow({ darkMode = false }) {
-  const arrowSrc = darkMode ? '/landing-arrow-20-dark.svg' : '/landing-arrow-20.svg';
-  const shareSrc = darkMode ? '/landing-share-ios-dark.png' : '/landing-share-ios.png';
-  return (
-    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <CyclingSourceLogo />
-      <Box
-        component="img"
-        src={arrowSrc}
-        alt=""
-        sx={{ width: ARROW_PX, height: ARROW_PX, display: 'block', flexShrink: 0 }}
-      />
-      <Box
-        component="img"
-        src={shareSrc}
-        alt=""
-        sx={{ width: 56, height: 56, display: 'block', flexShrink: 0, objectFit: 'contain' }}
-      />
-      <Box
-        component="img"
-        src={arrowSrc}
-        alt=""
-        sx={{ width: ARROW_PX, height: ARROW_PX, display: 'block', flexShrink: 0 }}
-      />
-      <Box
-        component="img"
-        src="/landing-recifriend-75.png"
-        alt="ReciFriend"
-        sx={{ width: LOGO_PX, height: LOGO_PX, display: 'block', flexShrink: 0 }}
-      />
-    </Box>
-  );
-}
+// Workflow row component (Source platform → share → ReciFriend) lives in a
+// shared file because the Add Recipe drawer now reuses the same animation.
+// See components/SourcesWorkflowRow.jsx for the implementation.
 
 // Card 1 phone animation — drives three layered KR assets through a 3-phase
 // loop per the storyboard direction:
@@ -537,7 +458,7 @@ function CardSaveFromAnywhere({ onJoin, darkMode }) {
       {/* Top content stacks naturally from the top: workflow row → subhead.
           Subhead has mt:'10px' to push it 10px down from the workflow row. */}
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, alignItems: 'center' }}>
-        <WorkflowRow darkMode={darkMode} />
+        <SourcesWorkflowRow darkMode={darkMode} />
         <Typography
           sx={{ display: 'block', mt: '10px', fontSize: 13, fontWeight: 500, lineHeight: 1.35, px: 0.5, color: 'text.primary' }}
         >
