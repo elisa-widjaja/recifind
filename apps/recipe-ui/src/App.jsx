@@ -1274,68 +1274,76 @@ function App() {
   const [isStickyStuck, setIsStickyStuck] = useState(false);
   const scrollHandlerRef = useRef(null);
   const dialogContentRef = useCallback((node) => {
-    // Cleanup previous listener
+    // Cleanup previous listeners
     if (scrollHandlerRef.current) {
       const prev = scrollHandlerRef.current;
-      prev.el.removeEventListener('scroll', prev.fn);
+      prev.el.removeEventListener('scroll', prev.onScroll);
+      prev.el.removeEventListener('touchstart', prev.onTouchStart);
+      prev.el.removeEventListener('touchend', prev.onTouchEnd);
+      prev.el.removeEventListener('touchcancel', prev.onTouchEnd);
       scrollHandlerRef.current = null;
     }
     if (node) {
-      // The thumbnail wrapper toggles between row (64px tall, "stuck") and
-      // column (190px tall, "unstuck") layouts based on isStickyStuck. That
-      // ~126px height change is layout-affecting — toggling fires a
-      // synthetic scroll event for visual stability, which can re-trip the
-      // threshold and create an oscillation loop. Symptom: scroll-up from
-      // a stuck state freezes the screen until the user overscrolls
-      // (pulls past 0) to break the cycle.
+      // Why this is touch-aware:
       //
-      // Three guards combined:
-      //   1. Hysteresis band — enter stuck at scrollTop > 80, exit at <= 5.
-      //   2. Transition lock — once we toggle, ignore scroll events for
-      //      two RAFs (layout-shift settles in one or two frames). Any
-      //      synthetic scrolls from the layout change are dropped.
-      //   3. Snap on unstick — after the lock window, force scrollTop = 0
-      //      so the user lands at the top of the now-expanded thumbnail
-      //      instead of being scrolled 126px down by the browser's
-      //      auto-stability adjustment.
+      // The sticky thumbnail toggles between collapsed (64px row) and
+      // expanded (190px column) on a 250ms CSS transition. The collapse
+      // direction (scroll-down → stick) works fine because the browser's
+      // visual-stability adjustment to scrollTop matches the user's intent
+      // (they're scrolling down anyway). The EXPAND direction (scroll-up
+      // back to top → unstick) is what freezes iOS Safari: the wrapper
+      // grows ~126px under an active finger, the browser bumps scrollTop
+      // up to compensate, and Safari's gesture handler loses track of the
+      // touch — the screen "freezes" until the user lifts and starts a
+      // new gesture (which is what an overscroll-pull-down accomplishes).
       //
-      // The state is mirrored in a ref because the listener closure
-      // captures setState but not the latest value of isStickyStuck.
+      // Fix: only resize the wrapper between gestures, never during one.
+      //   • Collapse (stick) fires immediately on scroll — fine because
+      //     the user is scrolling away from the resized region.
+      //   • Expand (unstick) is deferred to touchend — when the finger
+      //     lifts, if scrollTop is at the top, play the smooth 250ms
+      //     expand. Mouse wheel / programmatic scrolls go through the
+      //     immediate path (no touch session to defer to).
+      const TRANSITION_LOCK_MS = 300;
       let stuck = false;
-      let locked = false;
+      let touching = false;
+      let lockUntil = 0;
       const setStuck = (next) => {
         if (next === stuck) return;
         stuck = next;
         setIsStickyStuck(next);
       };
-      const handleScroll = () => {
-        if (locked) return;
+      const triggerExpand = () => {
+        setStuck(false);
+        lockUntil = performance.now() + TRANSITION_LOCK_MS;
+        // After the 250ms grow, snap to 0 so the user lands at the top
+        // instead of being shifted by the browser's auto-compensation.
+        setTimeout(() => { node.scrollTop = 0; }, TRANSITION_LOCK_MS);
+      };
+      const onScroll = () => {
+        if (performance.now() < lockUntil) return;
         const top = node.scrollTop;
         if (!stuck && top > 80) {
-          locked = true;
           setStuck(true);
-          // Layout shrinks ~126px; browser compensates by reducing
-          // scrollTop. After two RAFs, layout has settled — release lock.
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => { locked = false; });
-          });
-        } else if (stuck && top <= 5) {
-          locked = true;
-          setStuck(false);
-          // Layout grows ~126px; browser auto-adjusts scrollTop to keep
-          // visual stability, which would push the user 126px down from
-          // their intended "scrolled to top" position. Snap back to 0
-          // after layout, then release the lock.
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              node.scrollTop = 0;
-              locked = false;
-            });
-          });
+          lockUntil = performance.now() + TRANSITION_LOCK_MS;
+        } else if (stuck && top <= 5 && !touching) {
+          // Desktop / programmatic path — no active touch to wait for.
+          triggerExpand();
         }
       };
-      node.addEventListener('scroll', handleScroll, { passive: true });
-      scrollHandlerRef.current = { el: node, fn: handleScroll };
+      const onTouchStart = () => { touching = true; };
+      const onTouchEnd = () => {
+        touching = false;
+        // Defer-then-fire: only expand if the user released near the top.
+        if (stuck && node.scrollTop <= 5) {
+          triggerExpand();
+        }
+      };
+      node.addEventListener('scroll', onScroll, { passive: true });
+      node.addEventListener('touchstart', onTouchStart, { passive: true });
+      node.addEventListener('touchend', onTouchEnd, { passive: true });
+      node.addEventListener('touchcancel', onTouchEnd, { passive: true });
+      scrollHandlerRef.current = { el: node, onScroll, onTouchStart, onTouchEnd };
       // Reset on mount — at scroll 0, treat as not-stuck
       setIsStickyStuck(false);
     }
@@ -5539,8 +5547,7 @@ function App() {
                       overflow: 'hidden',
                       height: isMobile && isStickyStuck ? 64 : { xs: 190, md: 250 },
                       cursor: activeRecipeView.sourceUrl ? 'pointer' : 'default',
-                      transition: 'all 250ms ease',
-                      '&:hover .dialog-play-overlay': { opacity: activeRecipeView.sourceUrl ? 1 : 0 }
+                      transition: 'all 250ms ease'
                     }}
                   >
                     <Box
@@ -5556,25 +5563,6 @@ function App() {
                         objectFit: 'cover'
                       }}
                     />
-                    <Box
-                      className="dialog-play-overlay"
-                      sx={{
-                        position: 'absolute',
-                        inset: 0,
-                        display: isStickyStuck ? 'none' : 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 1,
-                        color: 'common.white',
-                        background: 'linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.55) 100%)',
-                        opacity: 0,
-                        transition: 'opacity 200ms ease'
-                      }}
-                    >
-                      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                        View source
-                      </Typography>
-                    </Box>
                     {/* Close button overlay on thumbnail — hidden when stuck.
                         iOS-style: small circular translucent backdrop in the
                         top-left corner with safe-area-aware padding. */}
