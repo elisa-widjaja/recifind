@@ -32,9 +32,13 @@ private let pendingShareAppGroupId = "group.com.recifriend.app"
 private let pendingShareKey = "pending_share.v1"
 
 // Keep the JSON shape identical to the extension's PendingShare Codable.
+// imageUrl is optional — old payloads written before the field was added
+// decode with imageUrl == nil; new payloads carry the share-sheet preview
+// thumbnail through to the Add Recipe drawer after sign-in.
 private struct PendingSharePayload: Codable {
     let url: String
     let title: String
+    let imageUrl: String?
     let createdAt: TimeInterval
 }
 
@@ -123,11 +127,15 @@ public class SharedAuthStorePlugin: CAPPlugin {
             call.reject("no-pending-share")
             return
         }
-        call.resolve([
+        var payload: [String: Any] = [
             "url": share.url,
             "title": share.title,
             "createdAt": share.createdAt,
-        ])
+        ]
+        if let imageUrl = share.imageUrl, !imageUrl.isEmpty {
+            payload["imageUrl"] = imageUrl
+        }
+        call.resolve(payload)
     }
 
     @objc func clearPendingShare(_ call: CAPPluginCall) {

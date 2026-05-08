@@ -152,7 +152,8 @@ final class ShareFormViewModel: ObservableObject {
                 SharedKeychain.clearJwt()
                 SharedPendingShare.write(
                     url: urlSnapshot,
-                    title: titleSnapshot.isEmpty ? (self.sourceURL.host ?? "Recipe") : titleSnapshot
+                    title: titleSnapshot.isEmpty ? (self.sourceURL.host ?? "Recipe") : titleSnapshot,
+                    imageUrl: imageSnapshot
                 )
                 await MainActor.run {
                     self.needsSignIn = true
@@ -199,7 +200,11 @@ final class ShareFormViewModel: ObservableObject {
         isSigningIn = true
         let titleSnapshot = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedTitle = titleSnapshot.isEmpty ? (sourceURL.host ?? "Recipe") : titleSnapshot
-        SharedPendingShare.write(url: sourceURL.absoluteString, title: resolvedTitle)
+        SharedPendingShare.write(
+            url: sourceURL.absoluteString,
+            title: resolvedTitle,
+            imageUrl: imageUrl?.absoluteString
+        )
         autoDismissTask?.cancel()
         onFinish(.signIn)
     }

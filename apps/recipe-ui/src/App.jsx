@@ -1731,20 +1731,6 @@ function App() {
   const accessTokenRef = useRef(null);
 
   const dispatchDeepLink = useCallback(async (urlString) => {
-    // Within-session dedup. Capacitor's appUrlOpen listener and getLaunchUrl()
-    // both fire for the SAME URL on cold-boot from a deep link. For auth
-    // callbacks that's fatal — Supabase's exchangeCodeForSession consumes the
-    // PKCE code_verifier from storage on first read; the second invocation
-    // throws "PKCE code verifier not found in storage". The Set lives at
-    // module scope (NOT useRef) so React remounts (HMR, sign-in/out cycles,
-    // navigation) don't reset it within a single app run.
-    if (dispatchedDeepLinks.has(urlString)) {
-      // eslint-disable-next-line no-console
-      console.warn('[deeplink] dedup skip — URL already dispatched this run');
-      return;
-    }
-    dispatchedDeepLinks.add(urlString);
-
     // Magic-link sign-in is no longer supported — only the 8-digit code flow.
     // Drop any stale `?token_hash=&type=magiclink` deep links silently so the
     // PKCE / verifyOtp errors that used to leak into a snackbar are gone.
@@ -1755,6 +1741,33 @@ function App() {
         return;
       }
     } catch { /* not a parseable URL; fall through */ }
+
+    // Within-session dedup — scoped to auth callbacks ONLY.
+    //
+    // The cold-boot path fires the SAME URL twice (Capacitor's appUrlOpen
+    // listener AND getLaunchUrl() both flush retained launch URLs). For
+    // auth_callback that's fatal: Supabase's exchangeCodeForSession consumes
+    // the PKCE code_verifier from storage on first read, so the second
+    // invocation throws "PKCE code verifier not found in storage".
+    //
+    // Navigation URLs (recipes_list, recipe_detail, friend_requests,
+    // add_recipe, open_pending_share) are idempotent — re-dispatch is safe
+    // and de-duping breaks the share-extension's "View on ReciFriend" flow:
+    // the URL is the same `recifriend://recipes` string every share, so the
+    // second tap (and onward) within an app run was being silently dropped,
+    // leaving the user on whatever view they were on (usually Home).
+    //
+    // The Set lives at module scope (NOT useRef) so React remounts (HMR,
+    // sign-in/out cycles, navigation) don't reset it within a single app run.
+    const isAuthCallback = /\/auth\/callback(\b|\/|\?)/.test(urlString);
+    if (isAuthCallback) {
+      if (dispatchedDeepLinks.has(urlString)) {
+        // eslint-disable-next-line no-console
+        console.warn('[deeplink] dedup skip — auth callback already dispatched this run');
+        return;
+      }
+      dispatchedDeepLinks.add(urlString);
+    }
 
     const dispatch = createDispatcher({
       onAuthCallback: async (code) => {
@@ -1853,6 +1866,10 @@ function App() {
         ...prev,
         sourceUrl: pendingShare.url,
         title: pendingShare.title || prev.title || '',
+        // Carry the share-sheet's preview thumbnail through so the Add
+        // Recipe drawer renders the same image the user just saw,
+        // instead of falling back to the title-letter placeholder.
+        imageUrl: pendingShare.imageUrl || prev.imageUrl || '',
       }));
       setNewRecipeErrors({});
       setNewRecipePrefillInfo({ matched: false, hasIngredients: false, hasSteps: false });

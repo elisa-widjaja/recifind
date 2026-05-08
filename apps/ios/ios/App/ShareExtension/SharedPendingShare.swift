@@ -9,9 +9,10 @@ import Foundation
 // (PendingShare JSON) is the single source of truth; keep the constants
 // in sync if either side changes.
 //
-// Versioned key ("v1") leaves headroom for a future schema bump (e.g.,
-// carry preview imageUrl) alongside older binaries that will ignore
-// what they can't decode.
+// Versioned key ("v1") was originally chosen with headroom for a schema
+// bump in mind. `imageUrl` is now part of the v1 payload as an optional
+// field — Codable decodes existing payloads without it (Swift Optional
+// defaults to nil) and older binaries silently ignore the new field.
 //
 // Entitlement required on both targets:
 //   com.apple.security.application-groups = [ group.com.recifriend.app ]
@@ -20,6 +21,7 @@ import Foundation
 struct PendingShare: Codable, Equatable {
     let url: String
     let title: String
+    let imageUrl: String?
     let createdAt: TimeInterval
 }
 
@@ -31,9 +33,14 @@ enum SharedPendingShare {
         UserDefaults(suiteName: appGroupId)
     }
 
-    static func write(url: String, title: String) {
+    static func write(url: String, title: String, imageUrl: String? = nil) {
         guard let d = defaults() else { return }
-        let payload = PendingShare(url: url, title: title, createdAt: Date().timeIntervalSince1970)
+        let payload = PendingShare(
+            url: url,
+            title: title,
+            imageUrl: imageUrl,
+            createdAt: Date().timeIntervalSince1970
+        )
         guard let data = try? JSONEncoder().encode(payload) else { return }
         d.set(data, forKey: key)
     }
