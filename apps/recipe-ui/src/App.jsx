@@ -3870,7 +3870,7 @@ function App() {
           ? 'AI suggestions added. Review and save to keep changes.'
           : isTitleOnly
             ? "We couldn't find a structured recipe in this source — tap an ingredient row to add ingredients manually."
-            : "We couldn't read new details for this recipe. The source may be rate-limited — try again in a minute.",
+            : "Couldn't grab recipe details right now. Try again in a minute, or add the ingredients yourself.",
         severity: addedContent ? 'info' : 'warning',
       });
     } catch (error) {
@@ -3917,7 +3917,7 @@ function App() {
       if (!silent && !contentChanged) {
         setSnackbarState({
           open: true,
-          message: "We couldn't read new details for this recipe. The source may be rate-limited — try again in a minute.",
+          message: "Couldn't grab recipe details right now. Try again in a minute, or add the ingredients yourself.",
           severity: 'warning',
         });
       }
