@@ -2179,6 +2179,15 @@ async function handleEnrichRecipe(request: Request, env: Env) {
     steps_count: result.steps.length,
   });
 
+  // Stamp 'title-only' on the response when the chain produced no
+  // content. The frontend snackbar + Auto-fill UI gate key off this
+  // flag — without it, an Auto-fill tap on a reel with no extractable
+  // content would surface the misleading "rate-limited, try again"
+  // copy and the button would stay visible.
+  const empty = result.ingredients.length === 0 && result.steps.length === 0;
+  const responseProvenance: 'extracted' | 'inferred' | 'title-only' | null =
+    empty ? 'title-only' : (result.provenance ?? null);
+
   return json({
     enriched: {
       title: result.title || title,
@@ -2190,7 +2199,7 @@ async function handleEnrichRecipe(request: Request, env: Env) {
       steps: result.steps,
       durationMinutes: result.durationMinutes,
       notes: result.notes,
-      provenance: result.provenance ?? null,
+      provenance: responseProvenance,
     },
   });
 }
@@ -4924,25 +4933,27 @@ export async function enrichAfterSave(
 
   // Three terminal states:
   //   - ingredients + steps populated → full update (provenance: 'extracted')
-  //   - empty arrays + provenance 'title-only' → write ONLY provenance +
-  //     updated_at so the UI can render the empty-state hint without
-  //     clobbering meal_types / cuisines / duration_minutes / notes that
-  //     were already set on the row (user-supplied form fields, JSON-LD
-  //     parse output, prior enrichments, etc.)
-  //   - completely empty (no ingredients, no title-only flag) → leave the
-  //     row alone entirely
+  //   - empty arrays but the chain produced a usable title (orchestrator
+  //     marked it 'title-only') → bookkeeping-only update, sets provenance
+  //     so the UI hides Auto-fill and shows the manual-entry hint.
+  //   - chain returned fully empty (no title from any strategy, no
+  //     content) → ALSO bookkeeping-only with provenance 'title-only'.
+  //     The recipe still has its og:title from the original save; the
+  //     flag tells the UI "we tried to enrich, came up empty, don't
+  //     bother re-running." Without this, every empty IG-stripped reel
+  //     would keep provenance:null and the UI would surface Auto-fill +
+  //     the misleading "rate-limited, try again" snackbar indefinitely.
   const hasContent = result.ingredients.length > 0 || result.steps.length > 0;
-  const isTitleOnly = !hasContent && result.provenance === 'title-only';
-  if (!hasContent && !isTitleOnly) return;
-
   const now = new Date().toISOString();
 
-  if (isTitleOnly) {
-    // Bookkeeping-only update: just stamp the provenance flag. Preserves
-    // every content column the row already had.
+  if (!hasContent) {
+    // Bookkeeping-only update: stamp provenance to 'title-only' and let
+    // the UI key off it. We don't touch ingredients / steps / meal_types
+    // / cuisines / duration_minutes / notes — preserving any user-set
+    // values from the initial save.
     await env.DB.prepare(
       `UPDATE recipes SET provenance = ?, updated_at = ? WHERE id = ?`
-    ).bind(result.provenance ?? null, now, recipeId).run();
+    ).bind('title-only', now, recipeId).run();
     return;
   }
 

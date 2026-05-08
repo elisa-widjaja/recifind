@@ -206,7 +206,7 @@ describe('enrichAfterSave', () => {
     expect(update!.binds.some(b => typeof b === 'string' && b.includes('flour'))).toBe(true);
   });
 
-  it('leaves the row unchanged when every strategy returns empty', async () => {
+  it('stamps provenance="title-only" when every strategy returns empty (so the UI hides Auto-fill)', async () => {
     const runCalls: Array<{ sql: string; binds: any[] }> = [];
     const db = {
       prepare: (sql: string) => ({
@@ -220,7 +220,7 @@ describe('enrichAfterSave', () => {
       GEMINI_SERVICE_ACCOUNT_B64: 'fake-b64',
     } as Env;
 
-    // r.jina.ai returns an error page → strategies all short-circuit to empty.
+    // Every fetch fails → strategies all short-circuit to empty.
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: false,
       text: async () => '<html>HTTP ERROR 429 Too Many Requests</html>',
@@ -229,7 +229,16 @@ describe('enrichAfterSave', () => {
     await enrichAfterSave(env, 'recipe-456', 'https://instagram.com/reel/abc', 'Mystery');
 
     const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
-    expect(update).toBeUndefined();
+    // Bookkeeping-only UPDATE: provenance stamped to 'title-only' so the
+    // recipe-detail UI knows enrichment was attempted and won't surface
+    // Auto-fill or the "rate-limited, try again" snackbar indefinitely.
+    // Content columns (ingredients/steps/meal_types/etc.) must NOT be in
+    // the SET clause — preserves anything the user supplied at save time.
+    expect(update).toBeDefined();
+    expect(update!.binds).toContain('title-only');
+    expect(update!.sql).toMatch(/SET\s+provenance\s*=\s*\?,\s*updated_at\s*=\s*\?/i);
+    expect(update!.sql).not.toMatch(/ingredients\s*=/i);
+    expect(update!.sql).not.toMatch(/meal_types\s*=/i);
   });
 });
 

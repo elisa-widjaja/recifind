@@ -662,7 +662,12 @@ describe('enrichAfterSave', () => {
     expect(update!.binds).toContain('inferred');
   });
 
-  it('does NOT UPDATE when the chain returns empty (B1 silent no-op preserved)', async () => {
+  it('writes a bookkeeping-only UPDATE with provenance="title-only" when the chain returns fully empty', async () => {
+    // Even when the orchestrator returns no title from any strategy
+    // (e.g., Instagram stripped login wall + r.jina.ai also failed),
+    // we stamp provenance:'title-only' on the row so the UI knows
+    // enrichment was attempted and won't surface Auto-fill or the
+    // misleading "rate-limited, try again" snackbar.
     const runCalls: Array<{ sql: string; binds: any[] }> = [];
     const dbMock = {
       prepare: (sql: string) => ({
@@ -680,7 +685,13 @@ describe('enrichAfterSave', () => {
       winningStrategy: null,
     });
     await enrichAfterSave(env, 'recipe-1', 'https://e.com/x', 'T', { runEnrichmentChain: fakeChain as any });
-    expect(runCalls.find(c => c.sql.includes('UPDATE recipes'))).toBeUndefined();
+    const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
+    expect(update).toBeDefined();
+    expect(update!.binds).toContain('title-only');
+    // Bookkeeping-only — content fields must NOT be in the SET clause.
+    expect(update!.sql).not.toMatch(/ingredients\s*=/i);
+    expect(update!.sql).not.toMatch(/meal_types\s*=/i);
+    expect(update!.sql).toMatch(/SET\s+provenance\s*=\s*\?,\s*updated_at\s*=\s*\?/i);
   });
 
   it('writes a bookkeeping-only UPDATE for title-only — preserves user-supplied meal_types / cuisines / duration_minutes / notes', async () => {
