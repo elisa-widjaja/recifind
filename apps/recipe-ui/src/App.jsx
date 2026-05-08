@@ -6084,33 +6084,44 @@ function App() {
                         state: the worker already determined there's no
                         structured recipe in the source URL, so re-running
                         the enrichment chain would just return the same
-                        empty result. The user needs to fill in manually. */}
-                    {isRemoteEnabled && activeRecipeDraft?.sourceUrl && activeRecipeDraft?.provenance !== 'title-only' ? (
-                      <Typography
-                        component="button"
-                        onClick={isActiveRecipeEnhancing ? undefined : handleEnhanceActiveRecipe}
-                        sx={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 0.5,
-                          background: 'none',
-                          border: 'none',
-                          cursor: isActiveRecipeEnhancing ? 'default' : 'pointer',
-                          color: isActiveRecipeEnhancing ? 'text.disabled' : (darkMode ? '#fff' : 'primary.main'),
-                          fontSize: '0.9375rem',
-                          fontWeight: 500,
-                          p: 0,
-                          '&:hover': isActiveRecipeEnhancing ? {} : { textDecoration: 'underline' },
-                        }}
-                      >
-                        {isActiveRecipeEnhancing ? (
-                          <CircularProgress size={16} />
-                        ) : (
-                          <AutoAwesomeIcon sx={{ fontSize: 16 }} />
-                        )}
-                        Auto-fill
-                      </Typography>
-                    ) : <Box />}
+                        empty result. The user needs to fill in manually.
+                        We use visibility:hidden + pointerEvents:none rather
+                        than conditional render so the slot keeps its width
+                        — otherwise the row's space-between redistributes
+                        and Cancel/Save shift left. */}
+                    {(() => {
+                      const showAutofill = isRemoteEnabled && !!activeRecipeDraft?.sourceUrl && activeRecipeDraft?.provenance !== 'title-only';
+                      return (
+                        <Typography
+                          component="button"
+                          onClick={(isActiveRecipeEnhancing || !showAutofill) ? undefined : handleEnhanceActiveRecipe}
+                          aria-hidden={!showAutofill}
+                          tabIndex={showAutofill ? 0 : -1}
+                          sx={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 0.5,
+                            background: 'none',
+                            border: 'none',
+                            cursor: isActiveRecipeEnhancing ? 'default' : 'pointer',
+                            color: isActiveRecipeEnhancing ? 'text.disabled' : (darkMode ? '#fff' : 'primary.main'),
+                            fontSize: '0.9375rem',
+                            fontWeight: 500,
+                            p: 0,
+                            visibility: showAutofill ? 'visible' : 'hidden',
+                            pointerEvents: showAutofill ? 'auto' : 'none',
+                            '&:hover': isActiveRecipeEnhancing ? {} : { textDecoration: 'underline' },
+                          }}
+                        >
+                          {isActiveRecipeEnhancing ? (
+                            <CircularProgress size={16} />
+                          ) : (
+                            <AutoAwesomeIcon sx={{ fontSize: 16 }} />
+                          )}
+                          Auto-fill
+                        </Typography>
+                      );
+                    })()}
                     <Typography
                       component="button"
                       onClick={() => { setIsEditMode(false); setActiveRecipeDraft(activeRecipe ? { ...activeRecipe, ingredients: [...(activeRecipe.ingredients || [])], steps: [...(activeRecipe.steps || [])] } : null); }}
