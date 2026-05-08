@@ -6115,17 +6115,22 @@ function App() {
                 </>
               ) : isEditMode ? (
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', px: isMobile ? 3 : 2 }}>
-                    {/* Auto-fill is hidden when the recipe is in 'title-only'
-                        state: the worker already determined there's no
-                        structured recipe in the source URL, so re-running
-                        the enrichment chain would just return the same
-                        empty result. The user needs to fill in manually.
-                        We use visibility:hidden + pointerEvents:none rather
-                        than conditional render so the slot keeps its width
-                        — otherwise the row's space-between redistributes
-                        and Cancel/Save shift left. */}
+                    {/* Auto-fill is shown for any recipe with a sourceUrl —
+                        even when provenance is 'title-only' from a prior
+                        empty enrichment. Reason: the chain can come back
+                        empty for transient reasons (CF datacenter rate-
+                        limited by Instagram, r.jina.ai blocking, Gemini
+                        timeout) where re-running later WILL succeed. Hiding
+                        the button stranded users on real recipes whose
+                        first parse happened to fail. The "couldn't find a
+                        structured recipe" snackbar still surfaces when the
+                        retry comes back empty, so users get the right
+                        signal either way.
+                        visibility:hidden + pointerEvents:none keeps the
+                        slot width (Cancel/Save stay anchored) for the
+                        no-sourceUrl case. */}
                     {(() => {
-                      const showAutofill = isRemoteEnabled && !!activeRecipeDraft?.sourceUrl && activeRecipeDraft?.provenance !== 'title-only';
+                      const showAutofill = isRemoteEnabled && !!activeRecipeDraft?.sourceUrl;
                       return (
                         <Typography
                           component="button"
