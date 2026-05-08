@@ -1278,41 +1278,64 @@ function App() {
     if (scrollHandlerRef.current) {
       const prev = scrollHandlerRef.current;
       prev.el.removeEventListener('scroll', prev.fn);
-      prev.el.removeEventListener('touchmove', prev.touchFn);
-      prev.el.removeEventListener('touchend', prev.touchFn);
       scrollHandlerRef.current = null;
     }
     if (node) {
-      // The thumbnail wrapper toggles between row (64px tall) and column
-      // (190px tall) layouts based on isStickyStuck. That ~126px height
-      // change is layout-affecting, so toggling fires a synthetic scroll
-      // event for visual stability — which can re-trip the threshold and
-      // create an oscillation loop the user sees as a frozen screen
-      // (only resolved by pulling down past 0). Two guards:
-      //   1. Hysteresis band: enter stuck at >80, exit only at <=0. Layout-
-      //      induced scroll deltas (~74 after collapse, ~126 after expand)
-      //      stay inside the band and don't flip the state.
-      //   2. touchActive gate: ignore scroll events on iOS unless a touch
-      //      is currently in flight or recently ended. Programmatic /
-      //      layout-induced scrolls happen with no touch and are skipped.
-      let lastTouchTime = 0;
-      const onTouch = () => { lastTouchTime = Date.now(); };
+      // The thumbnail wrapper toggles between row (64px tall, "stuck") and
+      // column (190px tall, "unstuck") layouts based on isStickyStuck. That
+      // ~126px height change is layout-affecting — toggling fires a
+      // synthetic scroll event for visual stability, which can re-trip the
+      // threshold and create an oscillation loop. Symptom: scroll-up from
+      // a stuck state freezes the screen until the user overscrolls
+      // (pulls past 0) to break the cycle.
+      //
+      // Three guards combined:
+      //   1. Hysteresis band — enter stuck at scrollTop > 80, exit at <= 5.
+      //   2. Transition lock — once we toggle, ignore scroll events for
+      //      two RAFs (layout-shift settles in one or two frames). Any
+      //      synthetic scrolls from the layout change are dropped.
+      //   3. Snap on unstick — after the lock window, force scrollTop = 0
+      //      so the user lands at the top of the now-expanded thumbnail
+      //      instead of being scrolled 126px down by the browser's
+      //      auto-stability adjustment.
+      //
+      // The state is mirrored in a ref because the listener closure
+      // captures setState but not the latest value of isStickyStuck.
+      let stuck = false;
+      let locked = false;
+      const setStuck = (next) => {
+        if (next === stuck) return;
+        stuck = next;
+        setIsStickyStuck(next);
+      };
       const handleScroll = () => {
-        const isUserDriven = Date.now() - lastTouchTime < 250;
+        if (locked) return;
         const top = node.scrollTop;
-        if (top > 80) {
-          setIsStickyStuck(true);
-        } else if (top <= 0 && isUserDriven) {
-          // Only unstick on a user-driven return to absolute top — prevents
-          // a layout-shift-induced scroll change from re-expanding the
-          // thumbnail and triggering the oscillation cycle.
-          setIsStickyStuck(false);
+        if (!stuck && top > 80) {
+          locked = true;
+          setStuck(true);
+          // Layout shrinks ~126px; browser compensates by reducing
+          // scrollTop. After two RAFs, layout has settled — release lock.
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => { locked = false; });
+          });
+        } else if (stuck && top <= 5) {
+          locked = true;
+          setStuck(false);
+          // Layout grows ~126px; browser auto-adjusts scrollTop to keep
+          // visual stability, which would push the user 126px down from
+          // their intended "scrolled to top" position. Snap back to 0
+          // after layout, then release the lock.
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              node.scrollTop = 0;
+              locked = false;
+            });
+          });
         }
       };
       node.addEventListener('scroll', handleScroll, { passive: true });
-      node.addEventListener('touchmove', onTouch, { passive: true });
-      node.addEventListener('touchend', onTouch, { passive: true });
-      scrollHandlerRef.current = { el: node, fn: handleScroll, touchFn: onTouch };
+      scrollHandlerRef.current = { el: node, fn: handleScroll };
       // Reset on mount — at scroll 0, treat as not-stuck
       setIsStickyStuck(false);
     }
