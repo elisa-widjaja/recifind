@@ -149,8 +149,11 @@ describe('enrichAfterSave', () => {
     const runCalls: Array<{ sql: string; binds: any[] }> = [];
     const db = {
       prepare: (sql: string) => ({
-        bind: (...binds: any[]) => ({
-          run: async () => { runCalls.push({ sql, binds }); return { success: true }; }
+        bind: (..._binds: any[]) => ({
+          run: async () => { runCalls.push({ sql, binds: _binds }); return { success: true }; },
+          // first() supports updateCollectionMeta's SELECT — return null so it
+          // takes the INSERT path with a fresh version=1.
+          first: async () => null,
         })
       })
     };
@@ -197,7 +200,7 @@ describe('enrichAfterSave', () => {
       return { ok: false, text: async () => '' } as Response;
     }) as typeof fetch);
 
-    await enrichAfterSave(env, 'recipe-123', 'https://example.com/pancake', 'Pancake');
+    await enrichAfterSave(env, 'user-1', 'recipe-123', 'https://example.com/pancake', 'Pancake');
 
     const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
     expect(update).toBeDefined();
@@ -210,8 +213,9 @@ describe('enrichAfterSave', () => {
     const runCalls: Array<{ sql: string; binds: any[] }> = [];
     const db = {
       prepare: (sql: string) => ({
-        bind: (...binds: any[]) => ({
-          run: async () => { runCalls.push({ sql, binds }); return { success: true }; }
+        bind: (..._binds: any[]) => ({
+          run: async () => { runCalls.push({ sql, binds: _binds }); return { success: true }; },
+          first: async () => null,
         })
       })
     };
@@ -226,7 +230,7 @@ describe('enrichAfterSave', () => {
       text: async () => '<html>HTTP ERROR 429 Too Many Requests</html>',
     })) as typeof fetch);
 
-    await enrichAfterSave(env, 'recipe-456', 'https://instagram.com/reel/abc', 'Mystery');
+    await enrichAfterSave(env, 'user-1', 'recipe-456', 'https://instagram.com/reel/abc', 'Mystery');
 
     const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
     // Bookkeeping-only UPDATE: provenance stamped to 'title-only' so the

@@ -645,6 +645,9 @@ describe('enrichAfterSave', () => {
       prepare: (sql: string) => ({
         bind: (...binds: any[]) => ({
           run: async () => { runCalls.push({ sql, binds: [...binds] }); return { success: true }; },
+          // first() supports updateCollectionMeta's SELECT — return null so
+          // it takes the INSERT path with a fresh version=1.
+          first: async () => null,
         }),
       }),
     };
@@ -656,7 +659,7 @@ describe('enrichAfterSave', () => {
       },
       winningStrategy: 'text-inference' as const,
     });
-    await enrichAfterSave(env, 'recipe-1', 'https://e.com/x', 'T', { runEnrichmentChain: fakeChain as any });
+    await enrichAfterSave(env, 'user-1', 'recipe-1', 'https://e.com/x', 'T', { runEnrichmentChain: fakeChain as any });
     const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
     expect(update).toBeDefined();
     expect(update!.binds).toContain('inferred');
@@ -673,6 +676,9 @@ describe('enrichAfterSave', () => {
       prepare: (sql: string) => ({
         bind: (...binds: any[]) => ({
           run: async () => { runCalls.push({ sql, binds: [...binds] }); return { success: true }; },
+          // first() supports updateCollectionMeta's SELECT — return null so
+          // it takes the INSERT path with a fresh version=1.
+          first: async () => null,
         }),
       }),
     };
@@ -684,7 +690,7 @@ describe('enrichAfterSave', () => {
       },
       winningStrategy: null,
     });
-    await enrichAfterSave(env, 'recipe-1', 'https://e.com/x', 'T', { runEnrichmentChain: fakeChain as any });
+    await enrichAfterSave(env, 'user-1', 'recipe-1', 'https://e.com/x', 'T', { runEnrichmentChain: fakeChain as any });
     const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
     expect(update).toBeDefined();
     expect(update!.binds).toContain('title-only');
@@ -700,6 +706,9 @@ describe('enrichAfterSave', () => {
       prepare: (sql: string) => ({
         bind: (...binds: any[]) => ({
           run: async () => { runCalls.push({ sql, binds: [...binds] }); return { success: true }; },
+          // first() supports updateCollectionMeta's SELECT — return null so
+          // it takes the INSERT path with a fresh version=1.
+          first: async () => null,
         }),
       }),
     };
@@ -712,7 +721,7 @@ describe('enrichAfterSave', () => {
       },
       winningStrategy: null,
     });
-    await enrichAfterSave(env, 'recipe-1', 'https://www.instagram.com/reel/abc/', 'T', { runEnrichmentChain: fakeChain as any });
+    await enrichAfterSave(env, 'user-1', 'recipe-1', 'https://www.instagram.com/reel/abc/', 'T', { runEnrichmentChain: fakeChain as any });
     const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
     expect(update).toBeDefined();
     expect(update!.binds).toContain('title-only');

@@ -2024,7 +2024,7 @@ async function handleCreateRecipe(
   // re-enrichment pass. Symmetric with enrichAfterSave's internal empty check.
   if (recipe.sourceUrl && recipe.ingredients.length === 0 && recipe.steps.length === 0) {
     ctx.waitUntil(
-      enrichAfterSave(env, recipe.id, recipe.sourceUrl, recipe.title)
+      enrichAfterSave(env, user.userId, recipe.id, recipe.sourceUrl, recipe.title)
         .catch(err => console.error('[enrichAfterSave] failed', { recipeId: recipe.id, err: String(err) }))
     );
   }
@@ -2338,6 +2338,9 @@ export async function handleReEnrichRecipe(
     user.userId,
     recipeId
   ).run();
+  // Bump version so the frontend's lightweight syncRecipesFromApi check
+  // refetches and picks up the re-enrichment results across views/devices.
+  await updateCollectionMeta(env, user.userId, { countDelta: 0 });
 
   const refreshed: Recipe = {
     ...existing,
@@ -4906,6 +4909,7 @@ async function runEnrichmentChain(
 
 export async function enrichAfterSave(
   env: Env,
+  userId: string,
   recipeId: string,
   sourceUrl: string,
   title: string,
@@ -4956,6 +4960,10 @@ export async function enrichAfterSave(
     await env.DB.prepare(
       `UPDATE recipes SET provenance = ?, updated_at = ? WHERE id = ?`
     ).bind('title-only', now, recipeId).run();
+    // Bump collection version so syncRecipesFromApi's lightweight check
+    // refetches and the UI picks up the title-only flag (otherwise the
+    // frontend stays on the pre-enrich snapshot indefinitely).
+    await updateCollectionMeta(env, userId, { countDelta: 0 });
     return;
   }
 
@@ -4979,6 +4987,13 @@ export async function enrichAfterSave(
     now,
     recipeId
   ).run();
+  // Bump collection version so the frontend's lightweight version check
+  // refetches /recipes and picks up the new ingredients/steps/provenance.
+  // Without this bump, syncRecipesFromApi only refetches when count or
+  // version changes — neither of which fires for a row UPDATE — so a
+  // user who opened the app between the empty save and enrichAfterSave
+  // completing keeps seeing the empty pre-enrich snapshot.
+  await updateCollectionMeta(env, userId, { countDelta: 0 });
 }
 
 async function fetchRawRecipeText(sourceUrl: string | undefined) {
