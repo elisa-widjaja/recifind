@@ -13,24 +13,35 @@ export const sel = {
   shareBtn: (page: Page) => page.getByRole('button', { name: 'Share recipe' }),
   sourceUrlField: (page: Page) => page.getByLabel('Source URL'),
   titleField: (page: Page) => page.getByLabel('Title'),
-  hamburgerBtn: (page: Page) => page.getByRole('button', { name: 'Open menu' }),
+  bottomNavRecipes: (page: Page) => page.getByRole('button', { name: 'Recipes', exact: true }),
+  bottomNavFriends: (page: Page) => page.getByRole('button', { name: 'Friends', exact: true }),
+  bottomNavProfile: (page: Page) => page.getByRole('button', { name: 'Profile', exact: true }),
+  // Filters drawer on the Recipes view (toggled by a button on the page itself).
+  filtersBtn: (page: Page) => page.getByRole('button', { name: /filter/i }),
 };
 
 /**
- * Navigate to the Recipes view on mobile by opening the hamburger drawer
- * and tapping the "Recipes" button.
+ * Navigate to the Recipes view on mobile by tapping the bottom-nav "Recipes" tab.
+ * (The old hamburger drawer + "View recipes" stats-tile button were both
+ * superseded by the bottom-nav redesign.)
  */
 export async function navigateToRecipesMobile(page: Page) {
-  // The home view has a "View recipes" button in the stats tiles
-  await page.getByRole('button', { name: 'View recipes' }).click();
-  // Wait for recipes view to render
-  await page.waitForTimeout(500);
+  await sel.bottomNavRecipes(page).click();
+  await page.waitForTimeout(400);
 }
 
 /**
- * Open the meal type filter drawer on mobile. Filters and search
- * are inside the hamburger drawer on mobile viewports.
+ * Navigate to the Friends page on mobile by tapping the bottom-nav "Friends" tab.
+ */
+export async function navigateToFriendsMobile(page: Page) {
+  await sel.bottomNavFriends(page).click();
+  await page.waitForTimeout(400);
+}
+
+/**
+ * Filters/search drawer on the Recipes view. Old hamburger entry-point is gone;
+ * the Recipes view now has its own filter button.
  */
 export async function openMobileDrawer(page: Page) {
-  await sel.hamburgerBtn(page).click();
+  await sel.filtersBtn(page).click();
 }

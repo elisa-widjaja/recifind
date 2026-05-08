@@ -94,11 +94,43 @@ async function injectSessionAndSave(page: any, email: string, outputPath: string
     // No second dialog
   }
 
-  // On mobile, Account button is hidden. Open the hamburger menu and check for "Logout"
-  // which only appears when logged in.
-  await page.getByRole('button', { name: 'Open menu' }).waitFor({ timeout: 15_000 });
-  await page.getByRole('button', { name: 'Open menu' }).click();
-  await page.getByText('Logout').waitFor({ timeout: 5_000 });
+  // The bottom-nav "Profile" tab only renders for a logged-in session,
+  // so its presence is a stable signal the auth-injection landed.
+  // (Replaces the old "Open menu" hamburger sentinel — the top AppBar
+  // was removed in the homepage bottom-nav redesign.)
+  await page.getByRole('button', { name: 'Profile' }).waitFor({ timeout: 15_000 });
+
+  // Wipe leftover [TEST]-prefixed recipes from prior test runs that died
+  // before their afterEach. Without this, the recipes-cache localStorage
+  // (recifriend-recipes-cache-v2, set by App.jsx after the post-login fetch)
+  // gets baked into the saved storageState with stale entries, and tests
+  // that look for a freshly-API-created recipe see clutter instead.
+  const apiBase = process.env.API_BASE || 'http://localhost:8787';
+  const accessToken = session.access_token;
+  try {
+    const listRes = await fetch(`${apiBase}/recipes`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (listRes.ok) {
+      const data = await listRes.json() as { recipes: Array<{ id: string; title: string }> };
+      const stale = data.recipes.filter(r => r.title.startsWith('[TEST]'));
+      await Promise.all(stale.map(r =>
+        fetch(`${apiBase}/recipes/${r.id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        })
+      ));
+      if (stale.length) console.log(`Cleared ${stale.length} leftover [TEST] recipes for ${email}`);
+    }
+  } catch (e) {
+    console.warn(`Pre-test recipe cleanup failed for ${email}:`, e);
+  }
+
+  // Drop the recipes cache so the saved storageState doesn't carry the
+  // pre-cleanup snapshot. Tests will get a clean fetch on first navigate.
+  await page.evaluate(() => {
+    localStorage.removeItem('recifriend-recipes-cache-v2');
+  });
 
   fs.mkdirSync(AUTH_DIR, { recursive: true });
   await page.context().storageState({ path: outputPath });

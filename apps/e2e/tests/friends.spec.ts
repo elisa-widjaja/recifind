@@ -1,20 +1,11 @@
 import { test, expect, Page } from '@playwright/test';
 import { getAuthToken, getUserId, getEmail, getDisplayName, removeFriend, deleteRecipeByTitle, acceptFriendRequest, sendFriendRequest } from '../helpers/api';
-import { sel } from '../helpers/selectors';
+import { sel, navigateToFriendsMobile } from '../helpers/selectors';
 import path from 'path';
 import * as fs from 'fs';
 const ALICE_STATE = path.join(__dirname, '../.auth/alice.json');
 const BOB_STATE = path.join(__dirname, '../.auth/bob.json');
 const API_BASE = process.env.API_BASE!;
-
-
-async function openFriendsDrawer(page: Page) {
-  // Homepage stats card has "View friends" when friends.length > 0 — opens the
-  // same bottom drawer as the hamburger "Friends" menu item. All callers here
-  // run after a friendship has been established, so the button is present.
-  await page.getByRole('button', { name: 'View friends' }).click();
-  await sel.friendsDrawer(page).waitFor({ state: 'visible', timeout: 10_000 });
-}
 
 test.describe('Friends flow', () => {
   let sharedRecipeTitle = '';
@@ -59,13 +50,12 @@ test.describe('Friends flow', () => {
 
     const bobDisplayName = await getDisplayName(BOB_STATE);
     await page.goto('/');
-    await openFriendsDrawer(page);
+    // Friends list now lives on the FriendsPage (bottom-nav Friends tab),
+    // not inside the old "View friends" drawer.
+    await navigateToFriendsMobile(page);
 
-    // Friends list shows a button with the friend's display name inside the friends drawer
-    const friendsDrawer = page.getByTestId('friends-drawer');
-    await expect(
-      friendsDrawer.getByText(new RegExp(bobDisplayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')).first()
-    ).toBeVisible({ timeout: 10_000 });
+    const nameRe = new RegExp(bobDisplayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    await expect(page.getByText(nameRe).first()).toBeVisible({ timeout: 10_000 });
   });
 
   test('Bob shared recipe is visible to Alice in friends tab', async ({ page }, testInfo) => {
@@ -90,11 +80,13 @@ test.describe('Friends flow', () => {
     });
 
     await page.goto('/');
-    await openFriendsDrawer(page);
+    await navigateToFriendsMobile(page);
 
-    // Click on Bob's entry inside the friends drawer
-    const friendsDrawer = page.getByTestId('friends-drawer');
-    await friendsDrawer.getByText(new RegExp(bobDisplayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')).first().click();
+    // Tapping Bob's row on the FriendsPage opens the per-friend recipes
+    // drawer (testid='friends-drawer'); the shared recipe lives inside it.
+    const nameRe = new RegExp(bobDisplayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    await page.getByText(nameRe).first().click();
+    await sel.friendsDrawer(page).waitFor({ state: 'visible', timeout: 10_000 });
     await expect(page.getByText(sharedRecipeTitle).first()).toBeVisible({ timeout: 8_000 });
   });
 
