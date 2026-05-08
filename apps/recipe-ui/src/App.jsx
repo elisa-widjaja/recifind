@@ -414,7 +414,9 @@ async function buildApiRecipePayload(recipe, { includePreviewImage = false } = {
     notes: recipe.notes || '',
     sharedWithFriends: Boolean(recipe.sharedWithFriends),
     provenance:
-      recipe.provenance === 'extracted' || recipe.provenance === 'inferred'
+      recipe.provenance === 'extracted'
+        || recipe.provenance === 'inferred'
+        || recipe.provenance === 'title-only'
         ? recipe.provenance
         : null,
   };
@@ -493,7 +495,14 @@ const NEW_RECIPE_TEMPLATE = {
   ingredients: '',
   steps: '',
   durationMinutes: '',
-  sharedWithFriends: true
+  sharedWithFriends: true,
+  // Carries provenance through from /recipes/parse + /recipes/enrich into
+  // POST /recipes so a "title-only" reel (no caption / no structured data)
+  // is born with provenance='title-only', and the recipe-detail UI gates
+  // the legacy Enhance/Auto-fill button correctly from the first render.
+  // Without this, the row sits at provenance=null until enrichAfterSave
+  // catches up server-side and the silent 6s/18s refetch lands.
+  provenance: null,
 };
 
 function validateRecipesPayload(payload) {
@@ -4474,6 +4483,20 @@ function App() {
             if (!next.durationMinutes && enriched.durationMinutes) {
               next.durationMinutes = String(enriched.durationMinutes); changed = true;
             }
+            // Stamp provenance so the POST /recipes payload reflects the
+            // enrich outcome — most importantly 'title-only' for empty-
+            // caption reels, which the recipe-detail UI uses to hide the
+            // Auto-fill / Enhance-with-AI button.
+            if (
+              enriched.provenance === 'extracted'
+              || enriched.provenance === 'inferred'
+              || enriched.provenance === 'title-only'
+            ) {
+              if (next.provenance !== enriched.provenance) {
+                next.provenance = enriched.provenance;
+                changed = true;
+              }
+            }
             return changed ? next : prev;
           });
 
@@ -4644,7 +4667,8 @@ function App() {
       ingredients,
       steps: steps.length > 0 ? steps : null,
       durationMinutes,
-      sharedWithFriends: newRecipeForm.sharedWithFriends ? 1 : 0
+      sharedWithFriends: newRecipeForm.sharedWithFriends ? 1 : 0,
+      provenance: newRecipeForm.provenance ?? null,
     };
 
     const resetFormState = (message) => {
@@ -4700,7 +4724,12 @@ function App() {
               steps: savedHasSteps ? savedRecipe.steps : (enrichedSteps ?? savedRecipe.steps ?? []),
               mealTypes: savedRecipe.mealTypes?.length ? savedRecipe.mealTypes : (enriched.mealTypes ?? []),
               durationMinutes: savedRecipe.durationMinutes ?? enriched.durationMinutes ?? null,
-              provenance: enriched.provenance === 'extracted' || enriched.provenance === 'inferred' ? enriched.provenance : (savedRecipe.provenance ?? null),
+              provenance:
+                enriched.provenance === 'extracted'
+                  || enriched.provenance === 'inferred'
+                  || enriched.provenance === 'title-only'
+                  ? enriched.provenance
+                  : (savedRecipe.provenance ?? null),
             };
             try {
               const updated = await callRecipesApi(`/recipes/${savedRecipe.id}`, {
