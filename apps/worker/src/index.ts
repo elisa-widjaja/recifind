@@ -2008,13 +2008,15 @@ async function handleCreateRecipe(
     }).catch(() => { /* silent — push is best-effort */ });
   }
 
-  // Notify admin of user activity — fires only on genuine new inserts, not dedup hits
-  ctx.waitUntil(sendEmailNotification(
-    env,
-    'elisa.widjaja@gmail.com',
-    `Recipe saved by ${user.email}`,
-    `<div style="font-family:sans-serif;padding:24px;"><strong>${user.email}</strong> saved a recipe: <strong>${recipe.title}</strong></div>`
-  ));
+  // Notify admin of user activity — fires only on genuine new inserts, not dedup hits.
+  // TEMPORARILY DISABLED while iterating: every save burns one Resend send and we're
+  // close to the free-tier monthly quota. Uncomment to re-enable after testing.
+  // ctx.waitUntil(sendEmailNotification(
+  //   env,
+  //   'elisa.widjaja@gmail.com',
+  //   `Recipe saved by ${user.email}`,
+  //   `<div style="font-family:sans-serif;padding:24px;"><strong>${user.email}</strong> saved a recipe: <strong>${recipe.title}</strong></div>`
+  // ));
 
   // Kick off enrichment asynchronously — response returns in ~300ms, enrichment
   // runs up to 30s in the background. B1: silent on failure. Gated with AND so
