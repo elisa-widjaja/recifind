@@ -26,13 +26,46 @@ final class ShareFormViewModel: ObservableObject {
     func loadPreview() async {
         isLoadingPreview = true
         defer { isLoadingPreview = false }
-        do {
-            let preview = try await WorkerClient.parseRecipe(sourceUrl: sourceURL.absoluteString)
-            if title.isEmpty { title = preview.title.isEmpty ? sourceURL.host ?? "Recipe" : preview.title }
-            if let s = preview.imageUrl, let u = URL(string: s) { imageUrl = u }
-        } catch {
-            if title.isEmpty { title = sourceURL.host ?? "Recipe" }
+
+        // Race two parallel preview sources:
+        //   1. Worker /recipes/parse — KV-cached for repeat URLs (instant
+        //      on second+ shares of the same reel), runs JSON-LD parsing
+        //      for blogs, fastest for non-Instagram URLs.
+        //   2. DeviceMetadataFetcher — fetches og:description directly
+        //      from the source URL on the device's residential IP. This
+        //      bypasses Instagram's datacenter-IP rate-limiting that
+        //      makes the worker path unreliable for fresh IG reels.
+        //
+        // Whichever returns a usable title first wins. If neither does,
+        // fall back to the URL host (today's behavior). Total budget
+        // stays under the share-extension's 4s deadline because both
+        // requests run concurrently and use ~3.5s per-request timeouts.
+        async let workerPreview: ParsePreview? = {
+            do { return try await WorkerClient.parseRecipe(sourceUrl: sourceURL.absoluteString) }
+            catch { return nil }
+        }()
+        async let devicePreview: ParsePreview? = DeviceMetadataFetcher.fetchSocialPreview(sourceUrl: sourceURL)
+
+        let workerResult = await workerPreview
+        let deviceResult = await devicePreview
+
+        // Prefer the worker's result when it has a usable title — it
+        // benefits from the KV cache + structured-data extraction. Fall
+        // back to the device fetch when the worker came back empty (most
+        // commonly because Instagram rate-limited the datacenter IPs).
+        let resolvedTitle: String
+        if let workerTitle = workerResult?.title, !workerTitle.isEmpty {
+            resolvedTitle = workerTitle
+        } else if let deviceTitle = deviceResult?.title, !deviceTitle.isEmpty {
+            resolvedTitle = deviceTitle
+        } else {
+            resolvedTitle = sourceURL.host ?? "Recipe"
         }
+
+        let resolvedImage = workerResult?.imageUrl ?? deviceResult?.imageUrl
+
+        if title.isEmpty { title = resolvedTitle }
+        if imageUrl == nil, let s = resolvedImage, let u = URL(string: s) { imageUrl = u }
     }
 
     func save() {
