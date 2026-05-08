@@ -288,7 +288,7 @@ function CyclingSourceLogo() {
 // designed-in.
 function WorkflowRow({ darkMode = false }) {
   const arrowSrc = darkMode ? '/landing-arrow-20-dark.svg' : '/landing-arrow-20.svg';
-  const shareSrc = darkMode ? '/landing-share-75-dark.svg' : '/landing-share-75.svg';
+  const shareSrc = darkMode ? '/landing-share-ios-dark.png' : '/landing-share-ios.png';
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <CyclingSourceLogo />
@@ -302,7 +302,7 @@ function WorkflowRow({ darkMode = false }) {
         component="img"
         src={shareSrc}
         alt=""
-        sx={{ width: LOGO_PX, height: LOGO_PX, display: 'block', flexShrink: 0 }}
+        sx={{ width: 56, height: 56, display: 'block', flexShrink: 0, objectFit: 'contain' }}
       />
       <Box
         component="img"
