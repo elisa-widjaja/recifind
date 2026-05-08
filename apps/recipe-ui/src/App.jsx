@@ -1276,17 +1276,45 @@ function App() {
   const dialogContentRef = useCallback((node) => {
     // Cleanup previous listener
     if (scrollHandlerRef.current) {
-      scrollHandlerRef.current.el.removeEventListener('scroll', scrollHandlerRef.current.fn);
+      const prev = scrollHandlerRef.current;
+      prev.el.removeEventListener('scroll', prev.fn);
+      prev.el.removeEventListener('touchmove', prev.touchFn);
+      prev.el.removeEventListener('touchend', prev.touchFn);
       scrollHandlerRef.current = null;
     }
     if (node) {
+      // The thumbnail wrapper toggles between row (64px tall) and column
+      // (190px tall) layouts based on isStickyStuck. That ~126px height
+      // change is layout-affecting, so toggling fires a synthetic scroll
+      // event for visual stability — which can re-trip the threshold and
+      // create an oscillation loop the user sees as a frozen screen
+      // (only resolved by pulling down past 0). Two guards:
+      //   1. Hysteresis band: enter stuck at >80, exit only at <=0. Layout-
+      //      induced scroll deltas (~74 after collapse, ~126 after expand)
+      //      stay inside the band and don't flip the state.
+      //   2. touchActive gate: ignore scroll events on iOS unless a touch
+      //      is currently in flight or recently ended. Programmatic /
+      //      layout-induced scrolls happen with no touch and are skipped.
+      let lastTouchTime = 0;
+      const onTouch = () => { lastTouchTime = Date.now(); };
       const handleScroll = () => {
-        setIsStickyStuck(node.scrollTop > 10);
+        const isUserDriven = Date.now() - lastTouchTime < 250;
+        const top = node.scrollTop;
+        if (top > 80) {
+          setIsStickyStuck(true);
+        } else if (top <= 0 && isUserDriven) {
+          // Only unstick on a user-driven return to absolute top — prevents
+          // a layout-shift-induced scroll change from re-expanding the
+          // thumbnail and triggering the oscillation cycle.
+          setIsStickyStuck(false);
+        }
       };
       node.addEventListener('scroll', handleScroll, { passive: true });
-      scrollHandlerRef.current = { el: node, fn: handleScroll };
-      // Reset on mount
-      handleScroll();
+      node.addEventListener('touchmove', onTouch, { passive: true });
+      node.addEventListener('touchend', onTouch, { passive: true });
+      scrollHandlerRef.current = { el: node, fn: handleScroll, touchFn: onTouch };
+      // Reset on mount — at scroll 0, treat as not-stuck
+      setIsStickyStuck(false);
     }
   }, []);
   const wakeLockRef = useRef(null);
@@ -6029,7 +6057,12 @@ function App() {
                 </>
               ) : isEditMode ? (
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', px: isMobile ? 3 : 2 }}>
-                    {isRemoteEnabled && activeRecipeDraft?.sourceUrl ? (
+                    {/* Auto-fill is hidden when the recipe is in 'title-only'
+                        state: the worker already determined there's no
+                        structured recipe in the source URL, so re-running
+                        the enrichment chain would just return the same
+                        empty result. The user needs to fill in manually. */}
+                    {isRemoteEnabled && activeRecipeDraft?.sourceUrl && activeRecipeDraft?.provenance !== 'title-only' ? (
                       <Typography
                         component="button"
                         onClick={isActiveRecipeEnhancing ? undefined : handleEnhanceActiveRecipe}
