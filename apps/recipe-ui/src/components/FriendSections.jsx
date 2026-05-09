@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Box, Typography, Stack, Button, Dialog, DialogContent } from '@mui/material';
+import { Box, Typography, Stack, Button, Dialog, DialogContent, Skeleton } from '@mui/material';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import CloseIcon from '@mui/icons-material/Close';
 import SuggestionsShelf from './SuggestionsShelf';
@@ -143,20 +143,25 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
     return () => observer.disconnect();
   }, [onCookWithFriendsVisible, loaded]);
 
-  if (!loaded) return null;
-
   return (
     <Stack sx={{ gap: '32px' }}>
-      {unifiedFeed.length > 0 && (
+      {!loaded ? (
         <Box>
           <SectionLabel>Friend Activity</SectionLabel>
-          <FriendActivityTicker
-            items={unifiedFeed}
-            onOpenRecipe={onOpenRecipe}
-            onOpenFriendRequest={(it) => setRequestDialogItem(it)}
-            onOpenFriendRecipes={onOpenFriendRecipes}
-          />
+          <FriendActivitySkeleton />
         </Box>
+      ) : (
+        unifiedFeed.length > 0 && (
+          <Box>
+            <SectionLabel>Friend Activity</SectionLabel>
+            <FriendActivityTicker
+              items={unifiedFeed}
+              onOpenRecipe={onOpenRecipe}
+              onOpenFriendRequest={(it) => setRequestDialogItem(it)}
+              onOpenFriendRecipes={onOpenFriendRecipes}
+            />
+          </Box>
+        )
       )}
 
       <SuggestionsShelf accessToken={accessToken} onTapCard={onSuggestionTap} />
@@ -293,6 +298,37 @@ const FA_SLIDE_EASE = 'cubic-bezier(0.4, 0, 0.2, 1)';
 // shadows aren't clipped at the sides. Negative outer margin pulls the
 // container back outward so cards stay visually flush with parent content.
 const FA_SIDE_PAD = 8;
+
+function FriendActivitySkeleton() {
+  return (
+    <Stack spacing={`${FA_GAP}px`}>
+      {Array.from({ length: FA_VISIBLE }).map((_, i) => (
+        <Box
+          key={i}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.25,
+            minHeight: FA_ROW_HEIGHT,
+            bgcolor: 'background.paper',
+            borderRadius: '12px',
+            boxShadow: (theme) => theme.palette.mode === 'dark'
+              ? '0 0 0 1px rgba(255,255,255,0.10)'
+              : '0 1px 4px rgba(0,0,0,.08)',
+            px: 1.5,
+          }}
+        >
+          <Skeleton variant="circular" animation="wave" width={36} height={36} sx={{ flexShrink: 0 }} />
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Skeleton variant="text" animation="wave" width="70%" height={16} />
+            <Skeleton variant="text" animation="wave" width="40%" height={12} />
+          </Box>
+          <Skeleton variant="rectangular" animation="wave" width={44} height={44} sx={{ borderRadius: '8px', flexShrink: 0 }} />
+        </Box>
+      ))}
+    </Stack>
+  );
+}
 
 function FriendActivityTicker({ items, onOpenRecipe, onOpenFriendRequest, onOpenFriendRecipes }) {
   // Cap the pool the ticker will ever surface. Excess items are dropped.

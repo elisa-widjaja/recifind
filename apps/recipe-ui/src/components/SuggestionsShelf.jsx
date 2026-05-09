@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  Box, Typography, IconButton, useTheme,
+  Box, Typography, IconButton, useTheme, Skeleton,
   Dialog, DialogTitle, DialogContent, DialogActions, Button,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
@@ -179,7 +179,40 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, onTapCard
     }
   }
 
-  if (loading) return null;
+  if (loading) {
+    return (
+      <Box>
+        <Box sx={{ display: 'flex', justifyContent: v.headerJustify, alignItems: 'center', mb: 2 }}>
+          <Typography sx={{ fontWeight: 700, fontSize: 13, color: 'text.primary' }}>
+            Friends You May Know
+          </Typography>
+        </Box>
+        <Box
+          sx={{
+            display: 'flex',
+            gap: v.gap,
+            overflow: 'hidden',
+            mr: v.bleedMr,
+          }}
+        >
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton
+              key={i}
+              variant="rectangular"
+              animation="wave"
+              sx={{
+                minWidth: v.cardSize,
+                maxWidth: v.cardSize,
+                height: v.cardHeight,
+                borderRadius: v.cardRadius,
+                flexShrink: 0,
+              }}
+            />
+          ))}
+        </Box>
+      </Box>
+    );
+  }
   const visible = suggestions.filter(s => !dismissedIds.has(s.userId));
   if (visible.length === 0) return null;
 
