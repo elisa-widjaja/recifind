@@ -92,7 +92,7 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
           friendName: i.friendName,
           friendUserId: i.friendId,
           recipe: i.recipe,
-          createdAt: i.createdAt || new Date().toISOString(),
+          createdAt: i.recipe?.createdAt || i.createdAt || new Date().toISOString(),
           _kind: 'saved',
         })),
         ...(shared?.items || []).map((i) => ({
@@ -101,7 +101,7 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
           friendName: i.friendName,
           friendUserId: i.friendId,
           recipe: i.recipe,
-          createdAt: i.createdAt || new Date().toISOString(),
+          createdAt: i.recipe?.createdAt || i.createdAt || new Date().toISOString(),
           _kind: 'shared',
         })),
       ];
