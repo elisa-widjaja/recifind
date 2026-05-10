@@ -1739,6 +1739,10 @@ function App() {
   // links arriving via Universal Link / appUrlOpen on already-running app.
   const acceptFriendRequestRef = useRef(null);
   const accessTokenRef = useRef(null);
+  // Same ref pattern for the recipe-detail close handler so the share
+  // extension's "View on ReciFriend" deep link can dismiss an already-open
+  // recipe before navigating to /recipes.
+  const closeDialogRef = useRef(null);
 
   const dispatchDeepLink = useCallback(async (urlString) => {
     // Magic-link sign-in is no longer supported — only the 8-digit code flow.
@@ -1842,6 +1846,11 @@ function App() {
         if (recipe) handleOpenRecipeDetailsRef.current?.(recipe);
       },
       onRecipesList: () => {
+        // If a recipe detail is already open (user was browsing a recipe
+        // before sharing from social media), dismiss it so the View on
+        // ReciFriend tap lands them on the collection page cleanly instead
+        // of behind the existing dialog.
+        closeDialogRef.current?.();
         setCurrentView('recipes');
       },
     });
@@ -4099,6 +4108,9 @@ function App() {
       window.history.pushState({}, '', url.toString());
     }
   };
+  // Keep the ref pointed at the latest closeDialog so the stable deep-link
+  // dispatcher can call it when 'View on ReciFriend' fires.
+  closeDialogRef.current = closeDialog;
 
   const toggleCookMode = async () => {
     if (cookMode) {
