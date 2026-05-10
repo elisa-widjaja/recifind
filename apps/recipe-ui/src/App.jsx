@@ -7120,7 +7120,11 @@ function App() {
           && (currentView === 'home' || currentView === 'recipes')
           && !isAddDialogOpen
           && !isFriendsDialogOpen
-         
+          // Recipe-detail dialog body-locks window scroll, so PTR's window-level
+          // scrollTop check always reads 0 — without this guard, every downward
+          // gesture inside the dialog would call preventDefault and freeze the
+          // dialog's own scroll.
+          && !activeRecipeView
         }
         onRefresh={handlePullRefresh}
       />
