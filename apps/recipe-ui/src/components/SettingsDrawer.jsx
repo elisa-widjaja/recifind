@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Drawer, Box, Typography, IconButton, TextField, Button, Stack, CircularProgress, Rating, Chip, Divider } from '@mui/material';
+import { Drawer, Box, Typography, IconButton, TextField, Button, Stack, CircularProgress, Rating, Chip, Divider, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
 import { Capacitor } from '@capacitor/core';
 
@@ -27,6 +27,10 @@ export default function SettingsDrawer({
   // Cooking preferences (read initial values from profile; save closes drawer).
   preferences,
   onSavePreferences,
+  // Account deletion — fired when the user confirms the in-About delete
+  // dialog. App.jsx implements the actual DELETE /profile call + sign-out
+  // + redirect; the drawer just renders the UI and routes the click.
+  onDeleteAccount,
 }) {
   const open = !!kind;
   return (
@@ -78,7 +82,7 @@ export default function SettingsDrawer({
         <BackButton onClick={onClose} />
       </Box>
       <Box sx={{ px: '24px', pb: '40px', overflowY: 'auto' }}>
-        {kind === 'about' && <AboutContent />}
+        {kind === 'about' && <AboutContent onDeleteAccount={onDeleteAccount} />}
         {kind === 'privacy' && <PrivacyContent />}
         {kind === 'notifications' && <NotificationsContent />}
         {kind === 'preferences' && (
@@ -162,11 +166,30 @@ function ExternalLink({ href, children }) {
   return <Box component="a" href={href} target="_blank" rel="noopener" sx={{ color: 'primary.main', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>{children}</Box>;
 }
 
-function AboutContent() {
+function AboutContent({ onDeleteAccount }) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
+  async function handleConfirmDelete() {
+    if (typeof onDeleteAccount !== 'function') return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await onDeleteAccount();
+      // On success, App.jsx signs out + redirects — this component unmounts
+      // with the drawer before this resolves further, so no state cleanup
+      // is needed here.
+    } catch (err) {
+      setDeleting(false);
+      setDeleteError(err?.message || "Couldn't delete the account. Try again, or email hello@recifriend.com.");
+    }
+  }
+
   return (
     <>
       <H1>ReciFriend</H1>
-      <Tagline>A group chat for cooking.</Tagline>
+      <Tagline>Recipes you save, shared with the people you cook with.</Tagline>
 
       <H2>What it is</H2>
       <P>ReciFriend is a recipe-saving and sharing app for home cooks. Save the recipes you love, share them with friends, and see what the people you cook with are making.</P>
@@ -175,10 +198,47 @@ function AboutContent() {
       <P>Made for home cooks sharing with family and friends — not influencers, not audiences. If you've ever sent a recipe link in a group chat and wished it lived somewhere better, ReciFriend is for you.</P>
 
       <H2>How it works</H2>
-      <P>Paste a recipe URL from anywhere — TikTok, Instagram, food blogs, YouTube — and we'll extract the ingredients and steps so you can cook from the recipe directly. Add friends, share what you're cooking, and let your people inspire your next meal.</P>
+      <P>Paste a link to any TikTok, Instagram, or YouTube cooking video — or use the iOS share sheet — and we'll extract the ingredients and steps automatically. Add friends, share what you're cooking, and let the people you eat with inspire your next meal.</P>
 
       <H2>Get in touch</H2>
       <P>Questions, feedback, feature ideas, bugs — anything: <ExternalLink href="mailto:hello@recifriend.com">hello@recifriend.com</ExternalLink>.</P>
+
+      <H2>Delete account</H2>
+      <P>This permanently removes your account, your saved recipes, friend connections, notifications, and any images you've uploaded. It can't be undone, and any recipes you saved that friends had already copied stay in their collections.</P>
+      <Button
+        variant="outlined"
+        color="error"
+        disabled={deleting || typeof onDeleteAccount !== 'function'}
+        onClick={() => { setDeleteError(''); setConfirmOpen(true); }}
+        sx={{ textTransform: 'none', fontWeight: 600, mt: 1 }}
+      >
+        Delete my account
+      </Button>
+      {deleteError && (
+        <Typography sx={{ color: 'error.main', fontSize: 13, mt: 1 }}>{deleteError}</Typography>
+      )}
+
+      <Dialog
+        open={confirmOpen}
+        onClose={() => { if (!deleting) setConfirmOpen(false); }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>Delete your account?</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 14, color: 'text.secondary' }}>
+            This removes your profile, saved recipes, friend connections, notifications, and uploaded images. This action is permanent.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setConfirmOpen(false)} disabled={deleting} sx={{ textTransform: 'none' }}>
+            Cancel
+          </Button>
+          <Button onClick={handleConfirmDelete} color="error" variant="contained" disabled={deleting} sx={{ textTransform: 'none' }}>
+            {deleting ? 'Deleting…' : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Box sx={{ mt: 5, pt: 2.5, borderTop: 1, borderColor: 'divider' }}>
         <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 0.5 }}>recifriend.com</Typography>

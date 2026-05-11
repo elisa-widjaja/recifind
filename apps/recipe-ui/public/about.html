@@ -41,6 +41,62 @@
     .back:hover { background: rgba(0, 0, 0, 0.1); text-decoration: none; }
     .back:active { transform: scale(0.92); }
     .back svg { display: block; width: 18px; height: 18px; }
+    /* Destructive button used by Delete account. Stretches full-width on
+       mobile, has the iOS red palette + a subtle press state. */
+    .danger-btn {
+      display: inline-block;
+      background: #FFEBEE;
+      color: #B00020;
+      border: 1px solid #FFCDD2;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-size: 15px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background-color 120ms ease, transform 120ms ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .danger-btn:hover { background: #FFD6D9; }
+    .danger-btn:active { transform: scale(0.98); }
+    .danger-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .delete-status {
+      font-size: 14px;
+      color: #B00020;
+      margin: 10px 0 0;
+      min-height: 1em;
+    }
+    .delete-status.success { color: #1b5e20; }
+    .delete-status.muted   { color: #888; }
+    /* Native <dialog> baseline styling — overlay backdrop + iOS-card surface. */
+    dialog#delete-confirm {
+      max-width: 360px;
+      width: calc(100% - 32px);
+      border: none;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.25);
+      color: #1a1a1a;
+      font-family: inherit;
+    }
+    dialog#delete-confirm::backdrop {
+      background: rgba(0,0,0,0.45);
+    }
+    dialog#delete-confirm h3 { margin: 0 0 8px; font-size: 18px; font-weight: 700; }
+    dialog#delete-confirm p  { margin: 0 0 16px; font-size: 14px; color: #444; line-height: 1.5; }
+    .dialog-actions { display: flex; gap: 10px; justify-content: flex-end; }
+    .dialog-actions button {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .dialog-actions .cancel { background: rgba(0,0,0,0.06); color: #1a1a1a; }
+    .dialog-actions .confirm { background: #B00020; color: #fff; }
+    .dialog-actions .confirm:disabled { background: #888; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -74,6 +130,118 @@
     <li><strong>Only TikTok, Instagram, and YouTube links work.</strong> That's intentional — other sources are coming, but for now we focus on the reel-first sources where most home cooks find recipes.</li>
   </ul>
   <p>Read our <a href="/privacy.html">Privacy Policy</a>.</p>
+
+  <h2>Delete account</h2>
+  <p>This permanently removes your account, your saved recipes, friend connections, notifications, and any images you've uploaded. It can't be undone, and any recipes you saved that friends had already copied stay in their collections (they're theirs now).</p>
+  <p id="delete-signed-out" class="delete-status muted" style="display: none;">You're not signed in on this device — open ReciFriend and sign in first, then return to this page.</p>
+  <div id="delete-controls" style="display: none;">
+    <button id="delete-account-btn" class="danger-btn" type="button">Delete my account</button>
+    <p id="delete-status" class="delete-status" aria-live="polite"></p>
+  </div>
+
+  <dialog id="delete-confirm" aria-labelledby="delete-confirm-title">
+    <h3 id="delete-confirm-title">Delete your account?</h3>
+    <p>This removes your profile, saved recipes, friend connections, notifications, and uploaded images. This action is permanent.</p>
+    <div class="dialog-actions">
+      <button class="cancel" type="button" id="delete-cancel">Cancel</button>
+      <button class="confirm" type="button" id="delete-confirm-btn">Delete</button>
+    </div>
+  </dialog>
+
+  <script>
+    (function() {
+      // The React app passes `storageKey: 'recifriend-auth'` to Supabase
+      // (see src/supabaseClient.js) so that's where the web session lives.
+      // On iOS the session is in Keychain instead — this script will find
+      // nothing there and quietly fall back to the email FAQ entry below.
+      var STORAGE_KEY = 'recifriend-auth';
+      var API_BASE   = 'https://api.recifriend.com';
+
+      function readSession() {
+        try {
+          var raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return null;
+          var parsed = JSON.parse(raw);
+          return parsed && parsed.access_token ? parsed : null;
+        } catch (_) { return null; }
+      }
+
+      var session = readSession();
+      var controls = document.getElementById('delete-controls');
+      var signedOut = document.getElementById('delete-signed-out');
+
+      if (!session) {
+        // No web session — likely an iOS WebView (Keychain-backed) or a
+        // signed-out browser. Iframe-friendly hint that points them at
+        // the in-app delete path that DOES work on iOS.
+        signedOut.textContent = 'Open the ReciFriend app and use Settings → About → Delete account, or email hello@recifriend.com from your signed-up address.';
+        signedOut.style.display = 'block';
+        return;
+      }
+      controls.style.display = 'block';
+
+      var btn = document.getElementById('delete-account-btn');
+      var dialog = document.getElementById('delete-confirm');
+      var cancelBtn = document.getElementById('delete-cancel');
+      var confirmBtn = document.getElementById('delete-confirm-btn');
+      var statusEl = document.getElementById('delete-status');
+
+      function setStatus(text, className) {
+        statusEl.textContent = text || '';
+        statusEl.className = 'delete-status' + (className ? ' ' + className : '');
+      }
+
+      btn.addEventListener('click', function() {
+        setStatus('');
+        if (typeof dialog.showModal === 'function') {
+          dialog.showModal();
+        } else {
+          // Fallback for older browsers without <dialog> support.
+          if (window.confirm('Delete your account? This cannot be undone.')) {
+            doDelete();
+          }
+        }
+      });
+
+      cancelBtn.addEventListener('click', function() {
+        dialog.close();
+      });
+
+      confirmBtn.addEventListener('click', function() {
+        confirmBtn.disabled = true;
+        cancelBtn.disabled = true;
+        doDelete();
+      });
+
+      function doDelete() {
+        setStatus('Deleting…', 'muted');
+        var token = session.access_token;
+        fetch(API_BASE + '/profile', {
+          method: 'DELETE',
+          headers: { 'Authorization': 'Bearer ' + token },
+        })
+          .then(function(res) {
+            if (!res.ok && res.status !== 204) {
+              throw new Error('Server returned ' + res.status);
+            }
+            // Clear every storage key Supabase + the app might own so the
+            // WebView doesn't try to re-hydrate the now-deleted session.
+            try { localStorage.clear(); } catch (_) {}
+            try { sessionStorage.clear(); } catch (_) {}
+            setStatus('Account deleted. Redirecting…', 'success');
+            if (dialog.open) dialog.close();
+            setTimeout(function() { window.location.replace('/'); }, 900);
+          })
+          .catch(function(err) {
+            console.error('[delete-account] failed:', err);
+            confirmBtn.disabled = false;
+            cancelBtn.disabled = false;
+            setStatus("Couldn't delete the account. Try again, or email hello@recifriend.com.", '');
+            if (dialog.open) dialog.close();
+          });
+      }
+    })();
+  </script>
 
   <div class="meta">
     <p>recifriend.com</p>

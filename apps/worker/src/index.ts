@@ -586,6 +586,10 @@ export default {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
         return await handleUpdateProfile(request, env, user);
       }
+      if (url.pathname === '/profile' && request.method === 'DELETE') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return await handleDeleteAccount(env, user);
+      }
       if (url.pathname === '/profile/avatar' && request.method === 'POST') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
         return await handleUploadAvatar(request, env, user);
@@ -1249,6 +1253,83 @@ async function handleDeleteAvatar(env: Env, user: AuthenticatedUser) {
   }
 
   return json({ avatarUrl: null });
+}
+
+// Full account-deletion handler. Removes the user from every D1 table that
+// stores their data, cleans up Supabase Storage objects (preview images +
+// avatar), and finally deletes the Supabase auth user so the JWT becomes
+// unusable. Best-effort on each step: a failure in one cleanup branch
+// shouldn't strand the user with a half-deleted account.
+async function handleDeleteAccount(env: Env, user: AuthenticatedUser) {
+  const userId = user.userId;
+
+  // 1) Collect storage object keys before deleting D1 rows.
+  const recipesWithImages = await env.DB.prepare(
+    'SELECT preview_image FROM recipes WHERE user_id = ? AND preview_image IS NOT NULL'
+  ).bind(userId).all<{ preview_image: string | null }>();
+  const objectKeysToDelete: string[] = [];
+  for (const row of (recipesWithImages.results || [])) {
+    try {
+      const parsed = row.preview_image ? JSON.parse(row.preview_image as unknown as string) : null;
+      if (parsed?.objectKey && typeof parsed.objectKey === 'string') {
+        objectKeysToDelete.push(parsed.objectKey);
+      }
+    } catch { /* malformed row; skip */ }
+  }
+  const avatarRow = await env.DB.prepare(
+    'SELECT avatar_url FROM profiles WHERE user_id = ?'
+  ).bind(userId).first<{ avatar_url: string | null }>();
+  const avatarKey = avatarRow?.avatar_url ? extractAvatarObjectKey(avatarRow.avatar_url, env) : null;
+
+  // 2) Delete D1 rows. Order is dependency-first → leafy tables before
+  //    profiles. Each statement is scoped tightly so we never touch other
+  //    users' data.
+  // Notifications: this user's inbox + any notifications anywhere that
+  // reference them as actor (saver/sharer/cooker/from_user) so the row
+  // doesn't keep surfacing "X did Y" in friends' activity feeds after X is gone.
+  await env.DB.prepare(`DELETE FROM notifications WHERE user_id = ?`).bind(userId).run();
+  await env.DB.prepare(
+    `DELETE FROM notifications WHERE json_extract(data, '$.saverId') = ? OR json_extract(data, '$.sharerId') = ? OR json_extract(data, '$.cookerId') = ? OR json_extract(data, '$.fromUserId') = ?`
+  ).bind(userId, userId, userId, userId).run();
+
+  await env.DB.prepare(`DELETE FROM cook_events WHERE user_id = ?`).bind(userId).run();
+  await env.DB.prepare(`DELETE FROM dismissed_suggestions WHERE user_id = ? OR dismissed_user_id = ?`).bind(userId, userId).run();
+  await env.DB.prepare(`DELETE FROM recipe_shares WHERE sharer_id = ? OR recipient_id = ?`).bind(userId, userId).run();
+  await env.DB.prepare(`DELETE FROM friend_requests WHERE from_user_id = ? OR to_user_id = ?`).bind(userId, userId).run();
+  await env.DB.prepare(`DELETE FROM friend_requests_sent WHERE from_user_id = ? OR to_user_id = ?`).bind(userId, userId).run();
+  await env.DB.prepare(`DELETE FROM friends WHERE user_id = ? OR friend_id = ?`).bind(userId, userId).run();
+  await env.DB.prepare(`DELETE FROM pending_invites WHERE inviter_user_id = ?`).bind(userId).run();
+  await env.DB.prepare(`DELETE FROM recipes WHERE user_id = ?`).bind(userId).run();
+  await env.DB.prepare(`DELETE FROM profiles WHERE user_id = ?`).bind(userId).run();
+
+  // 3) Delete Supabase Storage objects (best-effort). A leaked object is not
+  //    a correctness problem and most of these will age out naturally if the
+  //    bucket has a lifecycle policy.
+  for (const key of objectKeysToDelete) {
+    try { await deleteSupabaseObject(env, key); } catch (_) { /* swallow */ }
+  }
+  if (avatarKey) {
+    try { await deleteSupabaseObject(env, avatarKey); } catch (_) { /* swallow */ }
+  }
+
+  // 4) Delete the Supabase auth user. Without this the user could still
+  //    sign in (their auth row would just create a brand-new empty profile).
+  try {
+    if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
+      await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+          apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+        },
+      });
+    }
+  } catch (_) {
+    // Even if this fails the D1 wipe means a re-login would land on an empty
+    // account; the user can email support to fully purge.
+  }
+
+  return new Response(null, { status: 204, headers: withCors() });
 }
 
 // Pull the storage object key out of a public URL we previously generated via

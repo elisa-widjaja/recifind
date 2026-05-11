@@ -2702,6 +2702,30 @@ function App() {
     });
   };
 
+  // Hits the worker's DELETE /profile, then signs out + closes the settings
+  // drawer + redirects to the logged-out home. Throws so AboutContent can
+  // show an inline error message on failure (network blip, etc).
+  const handleDeleteAccount = async () => {
+    if (!accessToken) {
+      throw new Error('You appear to be signed out. Refresh and try again.');
+    }
+    await callRecipesApi('/profile', { method: 'DELETE' }, accessToken);
+    clearRecipesCache();
+    setRecipes([]);
+    setHasNewRecipes(false);
+    pendingRecipesRef.current = null;
+    setSettingsDrawer(null);
+    if (supabase) {
+      try { await supabase.auth.signOut(); } catch (_) { /* swallow — local state is already wiped */ }
+    }
+    setSnackbarState({
+      open: true,
+      message: 'Account deleted.',
+      severity: 'info',
+      duration: 2000,
+    });
+  };
+
   const handleAccountMenuOpen = (event) => {
     setAccountMenuAnchor(event.currentTarget);
   };
@@ -7521,6 +7545,7 @@ function App() {
           // pick up the new prefs without a reload.
           fetchProfile();
         }}
+        onDeleteAccount={handleDeleteAccount}
       />
 
       {/* Floating Add Friend FAB — only on the Friends page. Always visible
