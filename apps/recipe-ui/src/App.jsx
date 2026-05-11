@@ -2707,6 +2707,18 @@ function App() {
   // the `https://apps.apple.com/…` fallback opens in Safari and bounces
   // to the App Store. iOS handles both transparently.
   const APP_STORE_ID = '6763828182';
+  // Show the row in the Capacitor iOS app AND in iOS mobile Safari (PWA /
+  // recifriend.com on iPhone). iOS recognizes the itms-apps:// scheme in
+  // both contexts. Hide on desktop / Android since there's nothing to open.
+  // The MacIntel + maxTouchPoints guard catches iPad on iPadOS 13+, which
+  // otherwise reports a desktop UA.
+  const isIOSEnv = (() => {
+    if (Capacitor.isNativePlatform()) return true;
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    if (/iPad|iPhone|iPod/.test(ua)) return true;
+    return navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1;
+  })();
   const handleRateOnAppStore = () => {
     const url = `itms-apps://itunes.apple.com/app/id${APP_STORE_ID}?action=write-review`;
     try {
@@ -5397,7 +5409,7 @@ function App() {
                 }}
                 onEditCookingPrefs={() => setSettingsDrawer('preferences')}
                 onSendFeedback={() => setSettingsDrawer('feedback')}
-                onRateOnAppStore={Capacitor.isNativePlatform() ? handleRateOnAppStore : undefined}
+                onRateOnAppStore={isIOSEnv ? handleRateOnAppStore : undefined}
                 onOpenAbout={() => setSettingsDrawer('about')}
                 onOpenNotifications={() => setSettingsDrawer('notifications')}
                 onPrivacy={() => setSettingsDrawer('privacy')}
