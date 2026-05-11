@@ -518,20 +518,27 @@ export default {
         return await (async () => {
           const recipeId = decodeURIComponent(cookMatch[1]);
           await logCookEvent(env.DB, user.userId, recipeId);
-          // Notify each friend
-          const friends = await env.DB.prepare(`SELECT friend_id FROM friends WHERE user_id = ?`).bind(user.userId).all();
-          const recipe = await env.DB.prepare(`SELECT title FROM recipes WHERE user_id = ? AND id = ?`).bind(user.userId, recipeId).first() as { title?: string } | null;
-          const recipeName = recipe?.title || 'a recipe';
-          const profile = await env.DB.prepare(`SELECT display_name FROM profiles WHERE user_id = ?`).bind(user.userId).first() as { display_name?: string } | null;
-          const cookerName = profile?.display_name || 'Someone';
-          // Use the existing addNotification helper — it handles the 50-row trim side-effect
-          for (const f of (friends.results as Array<{ friend_id: string }>)) {
-            await addNotification(env, f.friend_id as unknown as string, {
-              type: 'friend_cooked_recipe',
-              message: `${cookerName} cooked ${recipeName} 🍳`,
-              data: { cookerId: user.userId, recipeId, friendName: cookerName },
-              createdAt: new Date().toISOString(),
-            });
+          // Privacy gate: only fan out friend_cooked_recipe notifications
+          // when the recipe is public. Private cooks stay invisible to
+          // friends — parallel to handleCreateRecipe's friend_saved_recipe
+          // gate (line ~1991) and getFriendsRecentlySaved's WHERE clause.
+          const recipe = await env.DB.prepare(
+            `SELECT title, shared_with_friends FROM recipes WHERE user_id = ? AND id = ?`
+          ).bind(user.userId, recipeId).first() as { title?: string; shared_with_friends?: number } | null;
+          if (recipe && recipe.shared_with_friends === 1) {
+            const friends = await env.DB.prepare(`SELECT friend_id FROM friends WHERE user_id = ?`).bind(user.userId).all();
+            const recipeName = recipe.title || 'a recipe';
+            const profile = await env.DB.prepare(`SELECT display_name FROM profiles WHERE user_id = ?`).bind(user.userId).first() as { display_name?: string } | null;
+            const cookerName = profile?.display_name || 'Someone';
+            // Use the existing addNotification helper — it handles the 50-row trim side-effect
+            for (const f of (friends.results as Array<{ friend_id: string }>)) {
+              await addNotification(env, f.friend_id as unknown as string, {
+                type: 'friend_cooked_recipe',
+                message: `${cookerName} cooked ${recipeName} 🍳`,
+                data: { cookerId: user.userId, recipeId, friendName: cookerName },
+                createdAt: new Date().toISOString(),
+              });
+            }
           }
           return json({ ok: true }, 200, withCors());
         })();
@@ -1738,12 +1745,16 @@ export async function getFriendActivity(
       .filter((id): id is string => Boolean(id))
   )];
 
-  // Batch fetch recipes in one query
+  // Batch fetch recipes in one query. shared_with_friends = 1 gate matches
+  // the rest of the friends-feed surface and catches the public→private
+  // toggle case: notifications fired when a recipe was public get cleanly
+  // dropped from the activity feed once the owner makes it private. The
+  // filter on parsed.filter(...) below drops the now-empty notification.
   const recipeMap = new Map<string, { id: string; title: string; imageUrl: string | null; sourceUrl: string; ingredients: string[]; steps: string[] }>();
   if (recipeIds.length > 0) {
     const placeholders = recipeIds.map(() => '?').join(', ');
     const recipeRows = await db.prepare(
-      `SELECT id, title, image_url, source_url, ingredients, steps FROM recipes WHERE id IN (${placeholders})`
+      `SELECT id, title, image_url, source_url, ingredients, steps FROM recipes WHERE id IN (${placeholders}) AND shared_with_friends = 1`
     ).bind(...recipeIds).all();
     for (const r of (recipeRows.results as Array<Record<string, unknown>>)) {
       recipeMap.set(String(r.id), {
