@@ -1907,6 +1907,25 @@ async function handleCreateRecipe(
   const body = await readJsonBody(request);
   const { recipe, previewImagePayload } = normalizeRecipePayload(body, user.userId);
 
+  // Allowlist check at save time — defense in depth so a client that bypasses
+  // /recipes/parse can't store an arbitrary URL. Only enforced when a
+  // sourceUrl is actually supplied; recipes saved without a sourceUrl are
+  // user-typed and have no external link to abuse.
+  if (recipe.sourceUrl) {
+    let parsedSource: URL;
+    try {
+      parsedSource = new URL(recipe.sourceUrl);
+    } catch {
+      throw new HttpError(400, 'sourceUrl must be a valid URL');
+    }
+    if (!['http:', 'https:'].includes(parsedSource.protocol)) {
+      throw new HttpError(400, 'sourceUrl must use http or https');
+    }
+    if (!isAllowedSourceHost(parsedSource.hostname)) {
+      throw new HttpError(400, 'Only TikTok, Instagram, and YouTube links are supported right now.');
+    }
+  }
+
   // Rapid-reshare dedup: return the existing recipe if (user_id, source_url) was
   // inserted within the last 60s. Prevents duplicates from iOS extension retries
   // and accidental double-taps on Save.
@@ -2064,6 +2083,13 @@ async function handleParseRecipe(request: Request, env: Env, ctx: ExecutionConte
     throw new HttpError(400, 'sourceUrl must use http or https');
   }
 
+  // Reject before any network fetch — the allowlist is the cheapest filter we
+  // have, so failing fast here saves a redirect-resolve round trip on
+  // obviously-unsupported URLs.
+  if (!isAllowedSourceHost(parsedUrl.hostname)) {
+    throw new HttpError(400, 'Only TikTok, Instagram, and YouTube links are supported right now.');
+  }
+
   // Resolve iOS short URLs (vm.tiktok.com/xxx, youtu.be/xxx) to their
   // canonical form so oEmbed + og scraping work the same as when a user
   // pastes a full URL on web.
@@ -2072,6 +2098,14 @@ async function handleParseRecipe(request: Request, env: Env, ctx: ExecutionConte
     parsedUrl = new URL(resolved);
   } catch {
     // Fall back to the original parsedUrl if resolution produced something bad.
+  }
+
+  // Re-check after redirect resolution. A short-URL host on the allowlist
+  // (e.g. youtu.be, vm.tiktok.com) could in principle resolve to a non-
+  // allowlisted destination if the platform ever links out — keep the
+  // resolved URL inside the same allowlist before we save or fetch it.
+  if (!isAllowedSourceHost(parsedUrl.hostname)) {
+    throw new HttpError(400, 'That link redirected to an unsupported source.');
   }
 
   // KV cache lookup. Instagram aggressively rate-limits Cloudflare's
@@ -2154,12 +2188,37 @@ async function handleEnrichRecipe(request: Request, env: Env) {
     throw new HttpError(400, 'sourceUrl is required');
   }
 
+  // Allowlist check before any work — both fail-fast on the input and after
+  // redirect resolution. Same gate as /recipes/parse.
+  let parsedInput: URL;
+  try {
+    parsedInput = new URL(sourceUrl);
+  } catch {
+    throw new HttpError(400, 'sourceUrl must be a valid URL');
+  }
+  if (!['http:', 'https:'].includes(parsedInput.protocol)) {
+    throw new HttpError(400, 'sourceUrl must use http or https');
+  }
+  if (!isAllowedSourceHost(parsedInput.hostname)) {
+    throw new HttpError(400, 'Only TikTok, Instagram, and YouTube links are supported right now.');
+  }
+
   if (!env.GEMINI_SERVICE_ACCOUNT_B64) {
     throw new HttpError(503, 'Enrichment service is not configured');
   }
 
   // Resolve short URLs once up front so every strategy sees the canonical form.
   const resolvedUrl = await resolveSourceUrl(sourceUrl);
+  try {
+    const resolvedHost = new URL(resolvedUrl).hostname;
+    if (!isAllowedSourceHost(resolvedHost)) {
+      throw new HttpError(400, 'That link redirected to an unsupported source.');
+    }
+  } catch (err) {
+    if (err instanceof HttpError) throw err;
+    // Resolution produced an unparseable URL — fall through and let the chain
+    // try the original sourceUrl; isAllowedSourceHost has already passed it.
+  }
 
   const startedAt = Date.now();
   // og:image fetch runs in parallel with the strategy chain — it is never blocked by
@@ -4508,6 +4567,24 @@ function resolveExternalUrl(value: string, baseUrl: string): string {
   } catch (error) {
     return value;
   }
+}
+
+// Hosts the app accepts as recipe sources. Limited to the short-video
+// platforms the product is positioned around so a bad actor can't trick a
+// friend into tapping "View source" on a phishing/malware page saved as a
+// recipe. Matches exact host or any subdomain (e.g. `www.tiktok.com`,
+// `m.youtube.com`). Suffix match is rooted with a leading dot to avoid the
+// classic `tiktok.com.evil.com` bypass.
+const ALLOWED_SOURCE_HOSTS = [
+  'tiktok.com',
+  'instagram.com',
+  'youtube.com',
+  'youtu.be',
+] as const;
+
+function isAllowedSourceHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return ALLOWED_SOURCE_HOSTS.some(d => host === d || host.endsWith('.' + d));
 }
 
 // Resolve iOS Share Extension short URLs (vm.tiktok.com, tiktok.com/t/..., etc.)

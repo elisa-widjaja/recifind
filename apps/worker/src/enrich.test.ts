@@ -794,7 +794,7 @@ describe('handleEnrichRecipe response', () => {
     const req = new Request('https://worker/recipes/enrich', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sourceUrl: 'https://somerecipeblog.com/pasta', title: 'Pasta' }),
+      body: JSON.stringify({ sourceUrl: 'https://www.tiktok.com/@u/video/pasta', title: 'Pasta' }),
     });
 
     const env = { GEMINI_SERVICE_ACCOUNT_B64: FAKE_SA_B64 } as unknown as Env;

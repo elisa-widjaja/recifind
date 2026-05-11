@@ -4359,6 +4359,14 @@ function App() {
       } catch (error) {
         if (!isActive || error?.name === 'AbortError') return;
         console.error('Unable to parse recipe from URL.', error);
+        // Worker returns a 400 with a friendly message for unsupported hosts
+        // (the source-URL allowlist). Surface that so the user sees why the
+        // form didn't auto-fill instead of an unexplained "idle" state.
+        const message = typeof error?.message === 'string' ? error.message : '';
+        if (/tiktok|instagram|youtube|unsupported source/i.test(message)) {
+          setSourceParseState({ status: 'error', message });
+          return;
+        }
       }
 
       if (!isActive) return;

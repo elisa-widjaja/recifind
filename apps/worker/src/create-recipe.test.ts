@@ -17,7 +17,7 @@ function makeMockDb(options: {
         id: options.existingRecipe.id,
         user_id: 'user-abc',
         title: 'Pasta',
-        source_url: 'https://example.com/pasta',
+        source_url: 'https://www.tiktok.com/@u/video/pasta',
         image_url: '',
         image_path: null,
         meal_types: JSON.stringify([]),
@@ -89,7 +89,7 @@ describe('handleCreateRecipe dedup', () => {
     const req = new Request('https://worker/recipes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'Pasta', sourceUrl: 'https://example.com/pasta' }),
+      body: JSON.stringify({ title: 'Pasta', sourceUrl: 'https://www.tiktok.com/@u/video/pasta' }),
     });
 
     const res = await handleCreateRecipe(req, env, ctx, user as any);
@@ -121,7 +121,7 @@ describe('handleCreateRecipe dedup', () => {
     const req = new Request('https://worker/recipes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'Pasta', sourceUrl: 'https://example.com/pasta' }),
+      body: JSON.stringify({ title: 'Pasta', sourceUrl: 'https://www.tiktok.com/@u/video/pasta' }),
     });
 
     const res = await handleCreateRecipe(req, env, ctx, user as any);
@@ -267,7 +267,7 @@ describe('handleCreateRecipe fires ctx.waitUntil(enrichAfterSave)', () => {
     const req = new Request('https://worker/recipes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'Bread', sourceUrl: 'https://example.com/bread', ingredients: [], steps: [] }),
+      body: JSON.stringify({ title: 'Bread', sourceUrl: 'https://www.tiktok.com/@u/video/bread', ingredients: [], steps: [] }),
     });
 
     await handleCreateRecipe(req, env, ctx, user as any);
@@ -294,7 +294,7 @@ describe('handleCreateRecipe fires ctx.waitUntil(enrichAfterSave)', () => {
     const req = new Request('https://worker/recipes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'Bread', sourceUrl: 'https://example.com/bread' }),
+      body: JSON.stringify({ title: 'Bread', sourceUrl: 'https://www.tiktok.com/@u/video/bread' }),
     });
 
     await handleCreateRecipe(req, env, ctx, user as any);
@@ -312,7 +312,7 @@ describe('handleCreateRecipe provenance', () => {
     const req = new Request('https://worker/recipes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'Pasta', sourceUrl: 'https://example.com/pasta', provenance: 'inferred' }),
+      body: JSON.stringify({ title: 'Pasta', sourceUrl: 'https://www.tiktok.com/@u/video/pasta', provenance: 'inferred' }),
     });
 
     await handleCreateRecipe(req, env, ctx, user as any);
@@ -330,7 +330,7 @@ describe('handleCreateRecipe provenance', () => {
     const req = new Request('https://worker/recipes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'Pasta', sourceUrl: 'https://example.com/pasta' }),
+      body: JSON.stringify({ title: 'Pasta', sourceUrl: 'https://www.tiktok.com/@u/video/pasta' }),
     });
 
     await handleCreateRecipe(req, env, ctx, user as any);
@@ -341,6 +341,70 @@ describe('handleCreateRecipe provenance', () => {
   });
 });
 
+describe('handleCreateRecipe sourceUrl allowlist', () => {
+  // Defense in depth: even if a client bypasses /recipes/parse, the save
+  // endpoint must refuse to persist sourceUrls outside the supported
+  // platforms so a malicious link can't be planted in someone's collection
+  // (and then surfaced to friends via "View source").
+  function makeEmptyDb() {
+    return { prepare: (_sql: string) => ({ bind: () => ({ first: async () => null, run: async () => ({ success: true }), all: async () => ({ results: [] }) }) }) };
+  }
+
+  it('rejects a sourceUrl pointing at a non-allowlisted host', async () => {
+    const env = { DB: makeEmptyDb() as unknown as D1Database } as Env;
+    const user = { userId: 'user-abc', email: 'a@b.c' };
+    const ctx = { waitUntil: () => {} } as unknown as ExecutionContext;
+    const req = new Request('https://worker/recipes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Pasta', sourceUrl: 'https://evil.example.com/x' }),
+    });
+    await expect(handleCreateRecipe(req, env, ctx, user as any))
+      .rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects subdomain-spoofing tiktok.com.evil.com', async () => {
+    const env = { DB: makeEmptyDb() as unknown as D1Database } as Env;
+    const user = { userId: 'user-abc', email: 'a@b.c' };
+    const ctx = { waitUntil: () => {} } as unknown as ExecutionContext;
+    const req = new Request('https://worker/recipes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Pasta', sourceUrl: 'https://tiktok.com.evil.com/x' }),
+    });
+    await expect(handleCreateRecipe(req, env, ctx, user as any))
+      .rejects.toMatchObject({ status: 400 });
+  });
+
+  it('accepts subdomains of allowlisted hosts (vm.tiktok.com)', async () => {
+    // Just verify it doesn't throw at the allowlist gate; the rest of the
+    // insert path runs against the empty mock and won't crash.
+    const env = { DB: makeEmptyDb() as unknown as D1Database } as Env;
+    const user = { userId: 'user-abc', email: 'a@b.c' };
+    const ctx = { waitUntil: () => {} } as unknown as ExecutionContext;
+    const req = new Request('https://worker/recipes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Pasta', sourceUrl: 'https://vm.tiktok.com/abc123' }),
+    });
+    const res = await handleCreateRecipe(req, env, ctx, user as any);
+    expect(res.status).toBeLessThan(400);
+  });
+
+  it('allows recipes saved without a sourceUrl (user-typed)', async () => {
+    const env = { DB: makeEmptyDb() as unknown as D1Database } as Env;
+    const user = { userId: 'user-abc', email: 'a@b.c' };
+    const ctx = { waitUntil: () => {} } as unknown as ExecutionContext;
+    const req = new Request('https://worker/recipes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Grandma\'s soup' }),
+    });
+    const res = await handleCreateRecipe(req, env, ctx, user as any);
+    expect(res.status).toBeLessThan(400);
+  });
+});
+
 describe('handleUpdateRecipe provenance', () => {
   function makeUpdateMockDb(existing: { provenance: string | null; ingredients: string[]; steps: string[]; notes: string; title: string }) {
     const runCalls: Array<{ sql: string; binds: any[] }> = [];
@@ -348,7 +412,7 @@ describe('handleUpdateRecipe provenance', () => {
       id: 'recipe-1',
       user_id: 'user-abc',
       title: existing.title,
-      source_url: 'https://example.com/x',
+      source_url: 'https://www.tiktok.com/@u/video/x',
       image_url: '',
       image_path: null,
       meal_types: JSON.stringify([]),
