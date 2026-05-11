@@ -407,4 +407,49 @@ describe('handleUpdateRecipe provenance', () => {
     expect(update).toBeDefined();
     expect(update!.binds).toContain('inferred');
   });
+
+  it('leaves provenance untouched when ingredients/steps/notes are sent unchanged (share toggle path)', async () => {
+    // Mirrors the client's buildApiRecipePayload: full payload with all
+    // enrichment-owned fields included, but their values match `existing`.
+    // The public/private share toggle hits this path on every flip — before
+    // the fix this wiped provenance and flipped blank-content recipes back
+    // to the legacy "Enhance with AI" empty-state template.
+    const { db, runCalls } = makeUpdateMockDb({
+      provenance: 'title-only', ingredients: [], steps: [], notes: '', title: 'Reel recipe'
+    });
+    const env = { DB: db as unknown as D1Database } as Env;
+    const user = { userId: 'user-abc', email: 'a@b.c' };
+    const req = new Request('https://worker/recipes/recipe-1', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Reel recipe',
+        ingredients: [],
+        steps: [],
+        notes: '',
+        sharedWithFriends: false,
+      }),
+    });
+    await handleUpdateRecipe(req, env, user as any, 'recipe-1');
+    const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
+    expect(update).toBeDefined();
+    expect(update!.binds).toContain('title-only');
+  });
+
+  it('still clears provenance when steps actually change', async () => {
+    const { db, runCalls } = makeUpdateMockDb({
+      provenance: 'inferred', ingredients: ['keep'], steps: ['step a'], notes: '', title: 'Pasta'
+    });
+    const env = { DB: db as unknown as D1Database } as Env;
+    const user = { userId: 'user-abc', email: 'a@b.c' };
+    const req = new Request('https://worker/recipes/recipe-1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ingredients: ['keep'], steps: ['step a', 'step b'] }),
+    });
+    await handleUpdateRecipe(req, env, user as any, 'recipe-1');
+    const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
+    expect(update).toBeDefined();
+    expect(update!.binds).not.toContain('inferred');
+  });
 });

@@ -2231,9 +2231,25 @@ async function handleUpdateRecipe(request: Request, env: Env, user: Authenticate
     }
   }
 
-  // Clear provenance when the user has manually touched enrichment-owned
-  // fields. The chip should disappear once the content is user-owned.
-  const contentEdited = 'ingredients' in body || 'steps' in body || 'notes' in body;
+  // Clear provenance ONLY when the user has actually changed enrichment-
+  // owned fields. Key presence is the wrong signal — buildApiRecipePayload
+  // on the client always sends ingredients/steps/notes, even on no-op
+  // updates like the public/private share toggle. Wiping provenance on
+  // every PUT flipped blank-content recipes back to the legacy "Enhance
+  // with AI" empty-state template the moment the share checkbox was
+  // touched. Compare actual values instead.
+  const stringArraysEqual = (a: unknown, b: unknown): boolean => {
+    if (!Array.isArray(a) || !Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  };
+  const ingredientsChanged = 'ingredients' in body && !stringArraysEqual(body.ingredients, existing.ingredients);
+  const stepsChanged = 'steps' in body && !stringArraysEqual(body.steps, existing.steps);
+  const notesChanged = 'notes' in body && (body.notes || '') !== (existing.notes || '');
+  const contentEdited = ingredientsChanged || stepsChanged || notesChanged;
   const effectiveProvenance = contentEdited ? null : (existing.provenance ?? null);
 
   await env.DB.prepare(
