@@ -2702,6 +2702,26 @@ function App() {
     });
   };
 
+  // App Store Connect Apple ID for ReciFriend. The `itms-apps://` scheme
+  // launches the App Store app directly to the write-review page on iOS;
+  // the `https://apps.apple.com/…` fallback opens in Safari and bounces
+  // to the App Store. iOS handles both transparently.
+  const APP_STORE_ID = '6763828182';
+  const handleRateOnAppStore = () => {
+    const url = `itms-apps://itunes.apple.com/app/id${APP_STORE_ID}?action=write-review`;
+    try {
+      window.location.href = url;
+    } catch (err) {
+      console.error('[rate] failed to open App Store:', err);
+      setSnackbarState({
+        open: true,
+        message: "Couldn't open the App Store. Please try again.",
+        severity: 'warning',
+        duration: 3000,
+      });
+    }
+  };
+
   // Hits the worker's DELETE /profile, then signs out + closes the settings
   // drawer + redirects to the logged-out home. Throws so AboutContent can
   // show an inline error message on failure (network blip, etc).
@@ -5377,6 +5397,7 @@ function App() {
                 }}
                 onEditCookingPrefs={() => setSettingsDrawer('preferences')}
                 onSendFeedback={() => setSettingsDrawer('feedback')}
+                onRateOnAppStore={Capacitor.isNativePlatform() ? handleRateOnAppStore : undefined}
                 onOpenAbout={() => setSettingsDrawer('about')}
                 onOpenNotifications={() => setSettingsDrawer('notifications')}
                 onPrivacy={() => setSettingsDrawer('privacy')}

@@ -33,6 +33,7 @@ const BellD = (
   </>
 );
 const ChatD = <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>;
+const StarD = <path d="M12 2l2.92 6.18 6.83.99-4.93 4.8 1.16 6.79L12 17.56l-6.11 3.21 1.16-6.79-4.93-4.8 6.83-.99L12 2z"/>;
 const InfoD = (
   <>
     <circle cx="12" cy="12" r="10"/>
@@ -88,6 +89,9 @@ export default function ProfilePage({
   onRemoveAvatar,
   onEditCookingPrefs,
   onSendFeedback,
+  // iOS-only: deep-links to the App Store "Write a review" page. Pass
+  // undefined on web/Android and the row is hidden.
+  onRateOnAppStore,
   onOpenAbout,
   onOpenNotifications,
   onPrivacy,
@@ -255,6 +259,9 @@ export default function ProfilePage({
       <Row icon={<LineIcon d={CogD} size={20} />} label="Cooking preferences" onClick={onEditCookingPrefs} />
       <Row icon={<LineIcon d={BellD} size={20} />} label="Notifications" value={notificationsEnabled ? 'On' : 'Off'} onClick={onOpenNotifications} />
       <Row icon={<LineIcon d={ChatD} size={20} />} label="Send feedback" onClick={onSendFeedback} />
+      {typeof onRateOnAppStore === 'function' && (
+        <Row icon={<LineIcon d={StarD} size={20} />} label="Rate us on the App Store" onClick={onRateOnAppStore} />
+      )}
       <Row icon={<LineIcon d={InfoD} size={20} />} label="About" onClick={onOpenAbout} />
       <Row icon={<LineIcon d={ShieldD} size={20} />} label="Privacy" onClick={onPrivacy} />
       <Row icon={<LogoutIcon sx={{ fontSize: 20 }} />} label="Sign out" onClick={onSignOut} noChevron />
