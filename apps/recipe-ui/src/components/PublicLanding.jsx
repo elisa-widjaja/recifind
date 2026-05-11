@@ -768,7 +768,7 @@ function CardCookWithFriends({ onJoin, darkMode, isActive = false }) {
         <Typography
           sx={{ display: 'block', mt: '10px', fontSize: 13, fontWeight: 500, lineHeight: 1.35, px: 0.5, color: 'text.primary' }}
         >
-          Share recipes with friends and see what they are cooking.
+          Share recipes and cook with friends.
         </Typography>
       </Box>
 
