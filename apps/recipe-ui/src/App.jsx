@@ -499,10 +499,10 @@ const NEW_RECIPE_TEMPLATE = {
   sharedWithFriends: true,
   // Carries provenance through from /recipes/parse + /recipes/enrich into
   // POST /recipes so a "title-only" reel (no caption / no structured data)
-  // is born with provenance='title-only', and the recipe-detail UI gates
-  // the legacy Enhance/Auto-fill button correctly from the first render.
-  // Without this, the row sits at provenance=null until enrichAfterSave
-  // catches up server-side and the silent 6s/18s refetch lands.
+  // is born with provenance='title-only'. The AI-inferred chip + the edit-
+  // mode Auto-fill button both gate on this; without it the row sits at
+  // provenance=null until enrichAfterSave catches up server-side and the
+  // silent 6s/18s refetch lands.
   provenance: null,
 };
 
@@ -1280,7 +1280,6 @@ function App() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [recipeMenuAnchor, setRecipeMenuAnchor] = useState(null);
   const [isInferredCaveatOpen, setIsInferredCaveatOpen] = useState(false);
-  const [isReEnriching, setIsReEnriching] = useState(false);
   const [isStickyStuck, setIsStickyStuck] = useState(false);
   const scrollHandlerRef = useRef(null);
   const dialogContentRef = useCallback((node) => {
@@ -3286,7 +3285,6 @@ function App() {
 
   useEffect(() => {
     setIsInferredCaveatOpen(false);
-    setIsReEnriching(false);
   }, [activeRecipe?.id]);
 
   // Handle URL parameters to open recipe modal on page load
@@ -3894,57 +3892,6 @@ function App() {
       setIsActiveRecipeEnhancing(false);
     }
   }, [activeRecipeDraft, isRemoteEnabled]);
-
-  const handleReEnrichActiveRecipe = useCallback(async ({ silent = false, onDone } = {}) => {
-    if (!activeRecipe?.id || !isRemoteEnabled) {
-      onDone?.({ ok: false, reason: 'no-recipe' });
-      return;
-    }
-    const prevIngredientsLen = (activeRecipe.ingredients?.length ?? 0);
-    const prevStepsLen = (activeRecipe.steps?.length ?? 0);
-    setIsReEnriching(true);
-    try {
-      const response = await callRecipesApi(
-        `/recipes/${encodeURIComponent(activeRecipe.id)}/re-enrich`,
-        { method: 'POST' },
-        accessToken
-      );
-      const refreshed = normalizeRecipeFromApi(response?.recipe);
-      if (refreshed) {
-        setRecipes((prev) => prev.map((r) => (r.id === refreshed.id ? refreshed : r)));
-        setActiveRecipe(refreshed);
-        setActiveRecipeDraft({
-          ...refreshed,
-          ingredients: Array.isArray(refreshed.ingredients) ? [...refreshed.ingredients] : [],
-          steps: Array.isArray(refreshed.steps) ? [...refreshed.steps] : [],
-        });
-      }
-      const newIngredientsLen = refreshed?.ingredients?.length ?? 0;
-      const newStepsLen = refreshed?.steps?.length ?? 0;
-      const contentChanged = newIngredientsLen !== prevIngredientsLen || newStepsLen !== prevStepsLen;
-      // Non-silent callers (the empty-state "Enhance with AI" link) should hear
-      // when the server came back empty — otherwise the button just looks broken.
-      if (!silent && !contentChanged) {
-        setSnackbarState({
-          open: true,
-          message: "Couldn't grab recipe details right now. Try again in a minute, or add the ingredients yourself.",
-          severity: 'warning',
-        });
-      }
-      onDone?.({ ok: contentChanged, recipe: refreshed, reason: contentChanged ? null : 'no-change' });
-    } catch (err) {
-      if (!silent) {
-        setSnackbarState({
-          open: true,
-          message: "Couldn't refresh recipe. Try again later.",
-          severity: 'error',
-        });
-      }
-      onDone?.({ ok: false, reason: 'error' });
-    } finally {
-      setIsReEnriching(false);
-    }
-  }, [activeRecipe?.id, isRemoteEnabled, accessToken, setRecipes]);
 
   const handleEnhanceNewRecipe = async () => {
     trackEvent('autofill_click', { context: 'new_recipe' });
@@ -5771,63 +5718,7 @@ function App() {
 
               <Box sx={isMobile ? { px: 3, pt: '20px' } : { pt: '20px' }}>
 
-              {(() => {
-                const emptyStateIngredients = (activeRecipeView.ingredients || []).length;
-                const emptyStateSteps = (activeRecipeView.steps || []).length;
-                const showEmptyState =
-                  !isEditMode &&
-                  !activeRecipeView.provenance &&
-                  emptyStateIngredients === 0 &&
-                  emptyStateSteps === 0 &&
-                  Boolean(activeRecipeView.sourceUrl);
-                return (
-                  <Stack spacing={3}>
-                    {showEmptyState && (
-                      <Box
-                        sx={{
-                          borderRadius: 2,
-                          border: 1,
-                          borderColor: 'divider',
-                          bgcolor: 'action.hover',
-                          p: 2,
-                        }}
-                      >
-                        {isReEnriching ? (
-                          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
-                            <CircularProgress size={14} />
-                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                              Checking for ingredients…
-                            </Typography>
-                          </Box>
-                        ) : (
-                          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                            We couldn't read this recipe.{' '}
-                            <Typography
-                              component="button"
-                              onClick={() => handleReEnrichActiveRecipe({ silent: false })}
-                              sx={{
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                color: 'primary.main',
-                                fontSize: 'inherit',
-                                fontFamily: 'inherit',
-                                fontWeight: 500,
-                                lineHeight: 'inherit',
-                                p: 0,
-                                verticalAlign: 'baseline',
-                                '&:hover': { textDecoration: 'underline' },
-                              }}
-                            >
-                              <AutoAwesomeIcon sx={{ fontSize: 14, verticalAlign: '-2px', mr: 0.25 }} />
-                              Enhance with AI
-                            </Typography>
-                            {' '}or refer to the source.
-                          </Typography>
-                        )}
-                      </Box>
-                    )}
-                    {!showEmptyState && (
+              <Stack spacing={3}>
                 <Box>
                   {isEditMode && !isSharedRecipeView ? (
                     <>
@@ -5874,13 +5765,9 @@ function App() {
                     </>
                   )}
                 </Box>
-                    )}
-                    {!showEmptyState && (
                 <Box sx={{ mt: '0 !important', pt: '20px', pb: '4px' }}>
                   <Divider />
                 </Box>
-                    )}
-                    {!showEmptyState && (
                 <Box>
                   {isEditMode && !isSharedRecipeView ? (
                     <>
@@ -5935,7 +5822,6 @@ function App() {
                     </>
                   )}
                 </Box>
-                    )}
 
                 {activeRecipeView.sourceUrl && (
                   <Box>
@@ -6076,8 +5962,6 @@ function App() {
                   </Box>
                 )}
               </Stack>
-                );
-              })()}
               </Box>
             </DialogContent>
             <DialogActions sx={{ justifyContent: (isSharedRecipeView || !session) ? 'space-between' : 'flex-end', gap: 1, px: (isSharedRecipeView || !session) ? '24px' : (isEditMode && !isSharedRecipeView ? 0 : 1), ...(isEditMode && !isSharedRecipeView ? (darkMode ? { backgroundColor: '#121212', borderTop: '1px solid rgba(255, 255, 255, 0.13)' } : { backgroundColor: '#fff', borderTop: '1px solid rgba(0, 0, 0, 0.12)' }) : (darkMode ? { backgroundColor: '#121212', borderTop: '1px solid rgba(255, 255, 255, 0.13)' } : {})) }}>
