@@ -2014,7 +2014,7 @@ async function handleCreateRecipe(
       throw new HttpError(400, 'sourceUrl must use http or https');
     }
     if (!isAllowedSourceHost(parsedSource.hostname)) {
-      throw new HttpError(400, 'Only TikTok, Instagram, and YouTube links are supported right now.');
+      throw new HttpError(400, 'Only TikTok, Instagram, YouTube, Pinterest, Allrecipes, and NYT Cooking links are supported right now.');
     }
   }
 
@@ -2179,7 +2179,7 @@ async function handleParseRecipe(request: Request, env: Env, ctx: ExecutionConte
   // have, so failing fast here saves a redirect-resolve round trip on
   // obviously-unsupported URLs.
   if (!isAllowedSourceHost(parsedUrl.hostname)) {
-    throw new HttpError(400, 'Only TikTok, Instagram, and YouTube links are supported right now.');
+    throw new HttpError(400, 'Only TikTok, Instagram, YouTube, Pinterest, Allrecipes, and NYT Cooking links are supported right now.');
   }
 
   // Resolve iOS short URLs (vm.tiktok.com/xxx, youtu.be/xxx) to their
@@ -2292,7 +2292,7 @@ async function handleEnrichRecipe(request: Request, env: Env) {
     throw new HttpError(400, 'sourceUrl must use http or https');
   }
   if (!isAllowedSourceHost(parsedInput.hostname)) {
-    throw new HttpError(400, 'Only TikTok, Instagram, and YouTube links are supported right now.');
+    throw new HttpError(400, 'Only TikTok, Instagram, YouTube, Pinterest, Allrecipes, and NYT Cooking links are supported right now.');
   }
 
   if (!env.GEMINI_SERVICE_ACCOUNT_B64) {
@@ -4672,6 +4672,12 @@ const ALLOWED_SOURCE_HOSTS = [
   'instagram.com',
   'youtube.com',
   'youtu.be',
+  'pinterest.com',
+  'allrecipes.com',
+  // cooking.nytimes.com only — keeps the rule tight to NYT Cooking and
+  // doesn't admit arbitrary nytimes.com paths. The leading-dot suffix match
+  // still works (matches e.g. cooking.nytimes.com exactly, but not nytimes.com).
+  'cooking.nytimes.com',
 ] as const;
 
 function isAllowedSourceHost(hostname: string): boolean {

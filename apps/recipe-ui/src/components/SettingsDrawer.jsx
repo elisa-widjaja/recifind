@@ -198,7 +198,7 @@ function AboutContent({ onDeleteAccount }) {
       <P>Made for home cooks sharing with family and friends — not influencers, not audiences. If you've ever sent a recipe link in a group chat and wished it lived somewhere better, ReciFriend is for you.</P>
 
       <H2>How it works</H2>
-      <P>Paste a link to any TikTok, Instagram, or YouTube cooking video — or use the iOS share sheet — and we'll extract the ingredients and steps automatically. Add friends, share what you're cooking, and let the people you eat with inspire your next meal.</P>
+      <P>Paste a link to a TikTok, Instagram, YouTube, Pinterest, Allrecipes, or NYT Cooking recipe — or use the iOS share sheet — and we'll extract the ingredients and steps automatically. Add friends, share what you're cooking, and let the people you eat with inspire your next meal.</P>
 
       <H2>Get in touch</H2>
       <P>Questions, feedback, feature ideas, bugs — anything: <ExternalLink href="mailto:hello@recifriend.com">hello@recifriend.com</ExternalLink>.</P>

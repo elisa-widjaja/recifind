@@ -391,6 +391,36 @@ describe('handleCreateRecipe sourceUrl allowlist', () => {
     expect(res.status).toBeLessThan(400);
   });
 
+  it.each([
+    'https://www.pinterest.com/pin/123456789012345678/',
+    'https://www.allrecipes.com/recipe/22941/easy-pasta/',
+    'https://cooking.nytimes.com/recipes/1024074-pasta-carbonara',
+  ])('accepts %s', async (sourceUrl) => {
+    const env = { DB: makeEmptyDb() as unknown as D1Database } as Env;
+    const user = { userId: 'user-abc', email: 'a@b.c' };
+    const ctx = { waitUntil: () => {} } as unknown as ExecutionContext;
+    const req = new Request('https://worker/recipes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Pasta', sourceUrl }),
+    });
+    const res = await handleCreateRecipe(req, env, ctx, user as any);
+    expect(res.status).toBeLessThan(400);
+  });
+
+  it('rejects plain nytimes.com (only cooking.nytimes.com is allowed)', async () => {
+    const env = { DB: makeEmptyDb() as unknown as D1Database } as Env;
+    const user = { userId: 'user-abc', email: 'a@b.c' };
+    const ctx = { waitUntil: () => {} } as unknown as ExecutionContext;
+    const req = new Request('https://worker/recipes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Article', sourceUrl: 'https://www.nytimes.com/section/business' }),
+    });
+    await expect(handleCreateRecipe(req, env, ctx, user as any))
+      .rejects.toMatchObject({ status: 400 });
+  });
+
   it('allows recipes saved without a sourceUrl (user-typed)', async () => {
     const env = { DB: makeEmptyDb() as unknown as D1Database } as Env;
     const user = { userId: 'user-abc', email: 'a@b.c' };

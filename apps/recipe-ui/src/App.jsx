@@ -4417,9 +4417,11 @@ function App() {
         console.error('Unable to parse recipe from URL.', error);
         // Worker returns a 400 with a friendly message for unsupported hosts
         // (the source-URL allowlist). Surface that so the user sees why the
-        // form didn't auto-fill instead of an unexplained "idle" state.
+        // form didn't auto-fill instead of an unexplained "idle" state. Match
+        // on the word "supported" since both pre- and post-redirect messages
+        // include it and the platform list may change over time.
         const message = typeof error?.message === 'string' ? error.message : '';
-        if (/tiktok|instagram|youtube|unsupported source/i.test(message)) {
+        if (/supported/i.test(message)) {
           setSourceParseState({ status: 'error', message });
           return;
         }
