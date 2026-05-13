@@ -1228,14 +1228,31 @@ function App() {
   }, [currentView]);
 
   const toggleFavorite = useCallback((recipeId) => {
+    let nextFavorited = false;
     setFavorites((prev) => {
       const wasFavorited = prev.has(recipeId);
+      nextFavorited = !wasFavorited;
       const next = new Set(prev);
       if (wasFavorited) next.delete(recipeId); else next.add(recipeId);
       localStorage.setItem('recifriend-favorites', JSON.stringify([...next]));
       trackEvent('favorite', { recipe_id: recipeId, action: wasFavorited ? 'remove' : 'add' });
       return next;
     });
+    // Mirror to the server so server-side surfaces (Editor's Picks) can read
+    // the user's favorite collection. Fire-and-forget — localStorage stays
+    // authoritative on the client.
+    (async () => {
+      try {
+        const token = (await supabase?.auth.getSession())?.data?.session?.access_token;
+        if (!token) return;
+        await fetch(`${API_BASE_URL}/recipes/${encodeURIComponent(recipeId)}/favorite`, {
+          method: nextFavorited ? 'POST' : 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch {
+        // Network errors are non-fatal — next bulk sync on cold start will reconcile.
+      }
+    })();
   }, []);
 
   const isRemoteEnabled = Boolean(API_BASE_URL);
@@ -1496,6 +1513,63 @@ function App() {
   const [session, setSession] = useState(null);
   const [pendingShare, setPendingShare] = useState(null);
   const [isAuthChecked, setIsAuthChecked] = useState(false);
+  // Logged-out users can't be on account-only views (friends/profile). Snap
+  // them to Home if they land there via sessionStorage (e.g., signed out
+  // while on Profile, then reloaded). Lives here — not next to currentView
+  // state above — so it sees session/isAuthChecked after they're declared.
+  useEffect(() => {
+    if (!isAuthChecked) return;
+    if (session) return;
+    if (currentView === 'friends' || currentView === 'profile') {
+      setCurrentView('home');
+    }
+  }, [isAuthChecked, session, currentView]);
+
+  // Server-side favorites reconciliation. On sign-in:
+  //   1. Push this browser's localStorage favorites to the server (additive —
+  //      never wipes server state).
+  //   2. Pull the server set and UNION it with local. Local ∪ server ensures
+  //      reloading a browser where the server is stale/empty can't drop
+  //      favorites the user hearted before server sync existed, and a
+  //      browser that's missing entries (different origin / fresh device)
+  //      picks them up from the server.
+  //   Removes happen exclusively through the per-recipe DELETE endpoint, so
+  //   union here is safe (won't resurrect intentionally unhearted recipes
+  //   because they were already removed from both sides at the time).
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+    (async () => {
+      try {
+        const token = (await supabase?.auth.getSession())?.data?.session?.access_token;
+        if (!token) return;
+        const stored = localStorage.getItem('recifriend-favorites');
+        let localIds = [];
+        try { localIds = stored ? JSON.parse(stored) : []; } catch { localIds = []; }
+        if (!Array.isArray(localIds)) localIds = [];
+        // Push local → server when local has anything to contribute.
+        if (localIds.length > 0) {
+          await fetch(`${API_BASE_URL}/recipes/favorites/sync`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ ids: localIds }),
+          });
+        }
+        // Pull server → union into local.
+        const pullRes = await fetch(`${API_BASE_URL}/recipes/favorites`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!pullRes.ok) return;
+        const { ids: serverIds } = await pullRes.json();
+        if (!Array.isArray(serverIds)) return;
+        const merged = new Set([...localIds, ...serverIds]);
+        setFavorites(merged);
+        localStorage.setItem('recifriend-favorites', JSON.stringify([...merged]));
+      } catch {
+        // non-fatal — keep existing localStorage favorites; retry on next sign-in
+      }
+    })();
+  }, [session?.user?.id]);
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState(
     () => !!(
       sessionStorage.getItem('pending_open_invite') ||
@@ -5080,8 +5154,11 @@ function App() {
       />
       {/* === [/S11] === */}
 
-      {/* Logged-out: show discovery landing page. Only render after auth is checked to avoid flash. */}
-      {!session && isAuthChecked && (
+      {/* Logged-out home: show discovery landing page. Other tabs (recipes,
+          discover) are reachable for logged-out users via the bottom nav so
+          Apple App Review can access non-account features without registering.
+          Only render after auth is checked to avoid flash. */}
+      {!session && isAuthChecked && currentView === 'home' && (
         <PublicLanding
           onJoin={() => openAuthDialog({ mode: 'join' })}
           onLogin={openAuthDialog}
@@ -5092,7 +5169,10 @@ function App() {
         />
       )}
 
-      {(session || !isAuthChecked) && (<Container maxWidth="lg" disableGutters>
+      {/* Main container renders for logged-in users (all views) and for
+          logged-out users on non-home tabs. PublicLanding owns the logged-out
+          home layout above. */}
+      {(session || !isAuthChecked || (isAuthChecked && currentView !== 'home')) && (<Container maxWidth="lg" disableGutters>
         <Box
           sx={{
             px: { xs: 2, sm: 3, md: 4 },
@@ -5341,7 +5421,7 @@ function App() {
                 onCancelInvite={cancelInvite}
               />
             )}
-            {currentView === 'discover' && session && (
+            {currentView === 'discover' && (
               <DiscoverPage
                 accessToken={accessToken}
                 cookingFor={userProfile?.cookingFor ?? null}
@@ -5423,7 +5503,7 @@ function App() {
         </Box>
       </Container>)}
 
-      {session && (
+      {isAuthChecked && (
         <BottomAppBar
           activeTab={
             currentView === 'home' ? 'home' :
@@ -5434,15 +5514,20 @@ function App() {
             null
           }
           onTabChange={(tab) => {
+            if (!session && (tab === 'friends' || tab === 'profile')) {
+              openAuthDialog({ mode: 'join' });
+              return;
+            }
             if (tab === 'friends') {
               navigateToFriendsTab();
             } else {
               setCurrentView(tab);
             }
           }}
-          pendingFriendCount={friendRequests?.length ?? 0}
-          profileInitial={userProfile?.displayName || session.user?.email || 'U'}
+          pendingFriendCount={session ? (friendRequests?.length ?? 0) : 0}
+          profileInitial={userProfile?.displayName || session?.user?.email || 'U'}
           profileAvatarUrl={userProfile?.avatarUrl || null}
+          signedIn={!!session}
         />
       )}
 
@@ -7624,18 +7709,14 @@ function App() {
       )}
 
       {/* Floating FAB — mobile only, slides up when user scrolls down.
-          Logged-in: Add Recipe pill (sits above the BottomAppBar).
-          Logged-out: Join Free CTA (no bottom bar, sits at the page bottom). */}
+          Logged-in: Add Recipe pill. Logged-out: Join Free CTA.
+          BottomAppBar is now always rendered after auth, so FAB always
+          sits 16px above its top edge. */}
       {isMobile && (
         <Box
           sx={{
             position: 'fixed',
-            // Logged-in users have the BottomAppBar (64px + safe-area) below;
-            // float the FAB 16px above its top edge. Logged-out users get the
-            // original 24px page-bottom anchor.
-            bottom: session
-              ? 'calc(64px + env(safe-area-inset-bottom) + 16px)'
-              : 24,
+            bottom: 'calc(64px + env(safe-area-inset-bottom) + 16px)',
             left: '50%',
             transform: (() => {
               const visible = session

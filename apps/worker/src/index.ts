@@ -554,6 +554,59 @@ export default {
         return await handleReEnrichRecipe(env, user, recipeId);
       }
 
+      // List the current user's favorited recipe ids. The frontend uses
+      // this to seed localStorage from the server on cold start so the
+      // favorite set is canonical across browsers / devices / origins
+      // (recifriend.com, dev.recifriend.com, iOS WebView all share state).
+      if (url.pathname === '/recipes/favorites' && request.method === 'GET') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return await (async () => {
+          const rows = await env.DB.prepare(
+            'SELECT id FROM recipes WHERE user_id = ? AND is_favorite = 1'
+          ).bind(user.userId).all();
+          const ids = (rows.results as Array<Record<string, unknown>>).map(r => String(r.id));
+          return json({ ids }, 200, withCors());
+        })();
+      }
+
+      // Bulk favorites sync — ADDITIVE: marks the given recipe ids as
+      // favorited for this user. Does NOT clear any existing favorites,
+      // because the frontend calls this on every cold start and a clean
+      // browser would otherwise wipe the server-side set (regression bug
+      // observed 2026-05-13). Unfavoriting happens via the per-recipe
+      // DELETE endpoint below.
+      if (url.pathname === '/recipes/favorites/sync' && request.method === 'POST') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return await (async () => {
+          const body = await readJsonBody(request) as { ids?: unknown };
+          const rawIds = Array.isArray(body.ids) ? body.ids : [];
+          const ids = rawIds
+            .filter((v): v is string => typeof v === 'string' && v.length > 0);
+          if (ids.length === 0) {
+            return json({ ok: true, favoriteCount: 0, note: 'no-op (empty list)' }, 200, withCors());
+          }
+          const placeholders = ids.map(() => '?').join(', ');
+          await env.DB.prepare(
+            `UPDATE recipes SET is_favorite = 1 WHERE user_id = ? AND id IN (${placeholders})`
+          ).bind(user.userId, ...ids).run();
+          return json({ ok: true, favoriteCount: ids.length }, 200, withCors());
+        })();
+      }
+
+      // Per-recipe favorite toggle. POST = favorite, DELETE = unfavorite.
+      const favoriteMatch = url.pathname.match(/^\/recipes\/([^/]+)\/favorite$/);
+      if (favoriteMatch && (request.method === 'POST' || request.method === 'DELETE')) {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return await (async () => {
+          const recipeId = decodeURIComponent(favoriteMatch[1]);
+          const isFavorite = request.method === 'POST' ? 1 : 0;
+          await env.DB.prepare(
+            'UPDATE recipes SET is_favorite = ? WHERE user_id = ? AND id = ?'
+          ).bind(isFavorite, user.userId, recipeId).run();
+          return new Response(null, { status: 204, headers: withCors() });
+        })();
+      }
+
       if (recipeMatch) {
         const recipeId = decodeURIComponent(recipeMatch[1]);
         if (request.method === 'GET') {
@@ -1572,28 +1625,46 @@ export async function getPublicDiscover(db: D1Database): Promise<DiscoverRecipe[
   return [...curatedShorts, ...rest];
 }
 
-const CURATED_COMMUNITY_IDS = [
-  '2c8627ea-2cf1-447c-8c45-8118f0db88a0',
-  'bbb0b42d-fc3f-4f3d-a6ad-8c75dcae6ab3',
-  // 'c49498b7-3772-4304-86a1-b62a8eb42aad', // YouTube Short — moved to Discover
-  'ce72aae2-d5a0-4e3c-b088-fbfd8a6d870f',
-  '953bdf9f-6088-4449-8692-0c68d6822a0a',
-  '40267c63-abe5-4c66-8477-94d26626de1b',
-  // 'e0853763-d134-4547-8496-efa18bfa5062', // YouTube Short — moved to Discover
-  '3190c934-f0d4-45b9-8379-4efdc839189a',
-];
+// Trending Now (public homepage) pulls from the same favorites pool as
+// Editor's Picks but uses a different hash seed AND explicitly excludes the
+// IDs already chosen for this week's Editor's Picks — guaranteeing the two
+// shelves never share a recipe within the same week.
+const TRENDING_WEEKLY_LIMIT = 5;
 
-export async function getTrendingRecipes(db: D1Database): Promise<Array<{
+export async function getTrendingRecipes(
+  db: D1Database,
+  userId: string = EDITORS_PICK_USER_ID,
+  now: number = Date.now(),
+): Promise<Array<{
   id: string; userId: string; title: string; sourceUrl: string; imageUrl: string;
   mealTypes: string[]; durationMinutes: number | null;
   ingredients: string[]; steps: string[];
 }>> {
-  const placeholders = CURATED_COMMUNITY_IDS.map(() => '?').join(', ');
   const rows = await db.prepare(
     `SELECT id, user_id, title, source_url, image_url, meal_types, duration_minutes, ingredients, steps
-     FROM recipes WHERE id IN (${placeholders}) AND shared_with_friends = 1`
-  ).bind(...CURATED_COMMUNITY_IDS).all();
-  return (rows.results as Array<Record<string, unknown>>).map((r) => ({
+     FROM recipes
+     WHERE user_id = ?
+       AND is_favorite = 1
+       AND shared_with_friends = 1`
+  ).bind(userId).all();
+  const all = (rows.results as Array<Record<string, unknown>>).filter(isCleanDiscoveryRow);
+  const week = currentWeekIndex(now);
+  // Reproduce the Editor's Picks top-7 for this week so we can exclude them.
+  // Same input + same seed → same ordering, so the two endpoints always agree
+  // on which rows belong to Editor's Picks this week.
+  const editorsIds = new Set(
+    all
+      .map((r) => ({ id: String(r.id), key: fnv1a32(`${String(r.id)}:${week}`) }))
+      .sort((a, b) => a.key - b.key)
+      .slice(0, EDITORS_PICK_WEEKLY_LIMIT)
+      .map((x) => x.id)
+  );
+  const ranked = all
+    .filter((r) => !editorsIds.has(String(r.id)))
+    .map((r) => ({ row: r, key: fnv1a32(`trending:${String(r.id)}:${week}`) }))
+    .sort((a, b) => a.key - b.key)
+    .slice(0, TRENDING_WEEKLY_LIMIT);
+  return ranked.map(({ row: r }) => ({
     id: String(r.id),
     userId: String(r.user_id),
     title: String(r.title),
@@ -1610,40 +1681,98 @@ export async function getTrendingRecipes(db: D1Database): Promise<Array<{
 // Before deploying, verify by running:
 //   npx wrangler d1 execute recipes-db --remote --command="SELECT title FROM recipes WHERE title LIKE '%Stew%' OR title LIKE '%moco%' LIMIT 20"
 // Adjust casing below to match what is actually stored. SQLite IN() is case-sensitive for ASCII.
-const EDITOR_PICK_TITLES = [
-  'Beef and Guiness Stew', 'Loco moco', 'Galbi tang',
-  'Watermelon salad', 'Broccoli cheddar soup', 'Honey lime chicken bowl',
-  'Blueberry cream pancake', 'Banana Bread', 'Swiss croissant bake',
-  'Pear puff pastry', 'Berry yogurt bake',
-];
+// Editor's Picks are curated by Elisa (elisa.widjaja@gmail.com): her own
+// public recipes that she has marked as favorites. The set is updated by
+// hearting/unhearting recipes in her account; no code change needed to
+// adjust the picks.
+const EDITORS_PICK_USER_ID = '8e4dfd5e-bb6a-4890-98cd-d9ac6ce655a2';
+const EDITORS_PICK_WEEKLY_LIMIT = 7;
 
-export async function getEditorsPick(db: D1Database, titles: string[] = EDITOR_PICK_TITLES): Promise<Array<{
+// Title smells common in unedited Instagram/TikTok imports: hashtags,
+// @handles, engagement counts, emoji decorations, sentence-style captions,
+// ALL-CAPS attention grabbers, ellipses. Trending / Editor's Picks shelves
+// filter these so the public surface only shows recipes with clean,
+// presentable noun-phrase titles.
+function isCleanDiscoveryTitle(title: string): boolean {
+  if (!title || title.length > 40) return false;
+  if (/[\p{Extended_Pictographic}]/u.test(title)) return false;  // any emoji
+  if (/…|\.{3}/.test(title)) return false;                       // ellipsis (caption marker)
+  if (/^\s*#\w+/.test(title)) return false;                      // hashtag-leading
+  if (/@\w{3,}/.test(title)) return false;                       // @handle
+  if (/\d+[Kk]?\s+likes?/i.test(title)) return false;            // engagement metrics
+  if (/\d+\s+comments?/i.test(title)) return false;
+  // Caption sentence-starters
+  if (/^\s*(i|i'?m|we|we'?re|this|that|welcome|it'?s|part|how|when|why|so|here'?s|the\s+day)\b/i.test(title)) return false;
+  // ALL-CAPS captions — > 60% of letters uppercase
+  const letters = title.match(/[a-zA-Z]/g) || [];
+  if (letters.length >= 6) {
+    const upper = letters.filter(c => c === c.toUpperCase()).length;
+    if (upper / letters.length > 0.6) return false;
+  }
+  return true;
+}
+
+// Row-level guard before mapping. Requires a thumbnail and structured
+// ingredients/steps so detail pages aren't empty when tapped.
+function isCleanDiscoveryRow(r: Record<string, unknown>): boolean {
+  const title = String(r.title || '');
+  const imageUrl = String(r.image_url || '');
+  const ingredientsRaw = String(r.ingredients || '[]');
+  const stepsRaw = String(r.steps || '[]');
+  if (!isCleanDiscoveryTitle(title)) return false;
+  if (!imageUrl) return false;
+  let ingredients: unknown;
+  let steps: unknown;
+  try { ingredients = JSON.parse(ingredientsRaw); } catch { return false; }
+  try { steps = JSON.parse(stepsRaw); } catch { return false; }
+  if (!Array.isArray(ingredients) || ingredients.length === 0) return false;
+  if (!Array.isArray(steps) || steps.length === 0) return false;
+  return true;
+}
+
+// FNV-1a 32-bit string hash. Deterministic across runtimes, no crypto needed.
+function fnv1a32(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+// Week index for rotation. UTC-anchored weekly buckets so a US/EU/Asia
+// reader switches picks at the same instant. now is parameterized for
+// deterministic tests.
+function currentWeekIndex(now: number = Date.now()): number {
+  return Math.floor(now / (7 * 24 * 60 * 60 * 1000));
+}
+
+export async function getEditorsPick(
+  db: D1Database,
+  userId: string = EDITORS_PICK_USER_ID,
+  now: number = Date.now(),
+): Promise<Array<{
   id: string; userId: string; title: string; sourceUrl: string; imageUrl: string;
   mealTypes: string[]; durationMinutes: number | null;
   ingredients: string[]; steps: string[];
 }>> {
-  const placeholders = titles.map(() => '?').join(', ');
-  // Pick one row per title: prefer rows where duration_minutes IS NOT NULL.
-  // Subquery selects the best rowid per title (non-null duration first, else any).
   const rows = await db.prepare(
-    `SELECT r.id, r.user_id, r.title, r.source_url, r.image_url, r.meal_types, r.duration_minutes, r.ingredients, r.steps
-     FROM recipes r
-     INNER JOIN (
-       SELECT title,
-              COALESCE(MIN(CASE WHEN duration_minutes IS NOT NULL THEN rowid END), MIN(rowid)) AS best_rowid
-       FROM recipes
-       WHERE title IN (${placeholders}) AND shared_with_friends = 1
-       GROUP BY title
-     ) best ON r.rowid = best.best_rowid`
-  ).bind(...titles).all();
-  // Re-sort results to match the original titles order
-  const byTitle = new Map(
-    (rows.results as Array<Record<string, unknown>>).map((r) => [String(r.title).toLowerCase(), r])
-  );
-  const ordered = titles
-    .map(t => byTitle.get(t.toLowerCase()))
-    .filter((r): r is Record<string, unknown> => r != null);
-  return ordered.map((r) => ({
+    `SELECT id, user_id, title, source_url, image_url, meal_types, duration_minutes, ingredients, steps
+     FROM recipes
+     WHERE user_id = ?
+       AND is_favorite = 1
+       AND shared_with_friends = 1`
+  ).bind(userId).all();
+  const all = (rows.results as Array<Record<string, unknown>>).filter(isCleanDiscoveryRow);
+  // Weekly rotation: deterministic shuffle keyed on (recipe id, current
+  // week). Same week → same 7 picks; new week → new set, but always a stable
+  // ordering within the week.
+  const week = currentWeekIndex(now);
+  const ranked = all
+    .map((r) => ({ row: r, key: fnv1a32(`${String(r.id)}:${week}`) }))
+    .sort((a, b) => a.key - b.key)
+    .slice(0, EDITORS_PICK_WEEKLY_LIMIT);
+  return ranked.map(({ row: r }) => ({
     id: String(r.id),
     userId: String(r.user_id),
     title: String(r.title),

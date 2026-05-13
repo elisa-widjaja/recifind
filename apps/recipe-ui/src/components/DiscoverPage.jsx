@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Box, Typography, Stack, Button, Skeleton } from '@mui/material';
+import { Box, Typography, Stack, Skeleton } from '@mui/material';
 import RecipeShelf from './RecipeShelf';
 import RecipeListCard from './RecipeListCard';
 import DiscoverRecipes from './DiscoverRecipes';
@@ -88,7 +88,6 @@ export default function DiscoverPage({
   const [discover, setDiscover] = useState([]);
   const [editorsPick, setEditorsPick] = useState([]);
   const [aiPicks, setAiPicks] = useState([]);
-  const [editorsExpanded, setEditorsExpanded] = useState(false);
   // Per-fetch loaded flags so each section can swap its skeleton for real
   // content as soon as its own fetch resolves — instead of waiting for the
   // slowest of three to gate the whole page.
@@ -151,8 +150,6 @@ export default function DiscoverPage({
   const nonEmbed = discoverUniq.filter(r => !reelIds.has(r.id) && !isEmbeddable(r.sourceUrl));
   const videoRecipes = [...reels, ...otherEmbed, ...nonEmbed].slice(0, 5);
 
-  const visibleEditors = editorsExpanded ? editorsPick : editorsPick.slice(0, 3);
-
   return (
     <Box sx={{ pb: '90px' }}>
       <Typography sx={{
@@ -177,33 +174,17 @@ export default function DiscoverPage({
           </Box>
         )}
 
-        {(!trendingLoaded || trending.length > 0) && (
-          <Box>
-            <SectionLabel>Trending Now</SectionLabel>
-            {trendingLoaded
-              ? <RecipeShelf recipes={trending.slice(0, 5)} onSave={onSaveRecipe} onShare={onShareRecipe} onOpen={onOpenRecipe} cardWidth={180} cardHeight={120} gap="8px" />
-              : <ShelfSkeleton cardWidth={180} cardHeight={120} count={4} />}
-          </Box>
-        )}
-
         {(!editorsLoaded || editorsPick.length > 0) && (
           <Box>
             <SectionLabel>Editor's Picks</SectionLabel>
             {editorsLoaded ? (
-              <>
-                <Stack spacing={1}>
-                  {visibleEditors.map(recipe => (
-                    <RecipeListCard key={recipe.id} recipe={recipe} onSave={onSaveRecipe} onShare={onShareRecipe} onOpen={onOpenRecipe} />
-                  ))}
-                </Stack>
-                {editorsPick.length > 3 && (
-                  <Button size="small" onClick={() => setEditorsExpanded(e => !e)} sx={{ mt: 0.5, fontSize: 11, textTransform: 'none', color: 'text.secondary' }}>
-                    {editorsExpanded ? 'Show less' : `+ ${editorsPick.length - 3} more picks`}
-                  </Button>
-                )}
-              </>
+              <Stack spacing={1}>
+                {editorsPick.map(recipe => (
+                  <RecipeListCard key={recipe.id} recipe={recipe} onSave={onSaveRecipe} onShare={onShareRecipe} onOpen={onOpenRecipe} />
+                ))}
+              </Stack>
             ) : (
-              <ListSkeleton count={3} />
+              <ListSkeleton count={7} />
             )}
           </Box>
         )}

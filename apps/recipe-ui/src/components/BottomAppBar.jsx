@@ -52,8 +52,29 @@ function DiscoverIcon({ active }) {
 }
 // Profile: filled circle with the user's initial. Larger than the other
 // tab icons since this tab has no text label below it (the avatar fills
-// the icon-plus-label vertical slot).
-function ProfileIcon({ initial, avatarUrl }) {
+// the icon-plus-label vertical slot). Signed-out: grey circle with a
+// generic person glyph — tapping the tab opens the auth dialog.
+function ProfileIcon({ initial, avatarUrl, signedIn = true }) {
+  if (!signedIn) {
+    return (
+      <Box
+        sx={(theme) => ({
+          width: 30, height: 30, borderRadius: '50%',
+          bgcolor: theme.palette.mode === 'dark'
+            ? 'rgba(255,255,255,0.14)'
+            : 'rgba(0,0,0,0.10)',
+          color: theme.palette.mode === 'dark'
+            ? 'rgba(255,255,255,0.78)'
+            : 'rgba(0,0,0,0.62)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        })}
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+          <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4zm0 2c-3.3 0-8 1.7-8 5v2h16v-2c0-3.3-4.7-5-8-5z" />
+        </svg>
+      </Box>
+    );
+  }
   // Always full opacity / primary color so the avatar reads as
   // "you" (not as a disabled tab icon) regardless of active state.
   // Render the user's uploaded image when present; fall back to a
@@ -89,7 +110,7 @@ function ProfileIcon({ initial, avatarUrl }) {
 }
 const ICONS = { home: HomeIcon, recipes: RecipesIcon, friends: FriendsIcon, discover: DiscoverIcon, profile: ProfileIcon };
 
-export default function BottomAppBar({ activeTab, onTabChange, pendingFriendCount = 0, profileInitial, profileAvatarUrl }) {
+export default function BottomAppBar({ activeTab, onTabChange, pendingFriendCount = 0, profileInitial, profileAvatarUrl, signedIn = true }) {
   return (
     <Box
       role="navigation"
@@ -154,10 +175,10 @@ export default function BottomAppBar({ activeTab, onTabChange, pendingFriendCoun
                   aria-label={`${pendingFriendCount} pending friend requests`}
                   sx={{ '& .MuiBadge-badge': { fontSize: 9, height: 14, minWidth: 14, padding: '0 4px' } }}
                 >
-                  <Icon active={active} initial={profileInitial} avatarUrl={profileAvatarUrl} />
+                  <Icon active={active} initial={profileInitial} avatarUrl={profileAvatarUrl} signedIn={signedIn} />
                 </Badge>
               ) : (
-                <Icon active={active} initial={profileInitial} avatarUrl={profileAvatarUrl} />
+                <Icon active={active} initial={profileInitial} avatarUrl={profileAvatarUrl} signedIn={signedIn} />
               )}
             </Box>
             {!isProfile && (

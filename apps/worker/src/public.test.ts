@@ -37,38 +37,87 @@ describe('getPublicDiscover', () => {
 });
 
 describe('getEditorsPick', () => {
-  const EDITOR_TITLES = ['Beef and Guiness Stew', 'Honey lime chicken bowl'];
+  const CURATOR_ID = 'curator-user-id';
 
-  it('returns recipes matching editor titles', async () => {
+  it('returns curator\'s favorited public recipes', async () => {
     const mockDb = {
       prepare: vi.fn().mockReturnValue({
         bind: vi.fn().mockReturnThis(),
         all: vi.fn().mockResolvedValue({
           results: [
             {
-              id: 'r1', title: 'Beef and Guiness Stew', source_url: 'https://example.com',
-              image_url: '', meal_types: '["Dinner"]', duration_minutes: 90,
+              id: 'r1', user_id: CURATOR_ID, title: 'Beef and Guiness Stew', source_url: 'https://example.com',
+              image_url: 'https://example.com/stew.jpg', meal_types: '["Dinner"]', duration_minutes: 90,
               ingredients: '["beef","guinness"]', steps: '["Brown beef","Add stout"]',
             },
             {
-              id: 'r2', title: 'Honey lime chicken bowl', source_url: '',
-              image_url: '', meal_types: '["Lunch"]', duration_minutes: 25,
-              ingredients: '[]', steps: '[]',
+              id: 'r2', user_id: CURATOR_ID, title: 'Honey lime chicken bowl', source_url: '',
+              image_url: 'https://example.com/bowl.jpg', meal_types: '["Lunch"]', duration_minutes: 25,
+              ingredients: '["chicken","lime"]', steps: '["Marinate","Bowl it"]',
             },
           ]
         })
       })
     } as unknown as D1Database;
 
-    const result = await getEditorsPick(mockDb, EDITOR_TITLES);
+    const result = await getEditorsPick(mockDb, CURATOR_ID);
     expect(result).toHaveLength(2);
     expect(result.map(r => r.title)).toContain('Beef and Guiness Stew');
-    expect(result[0].ingredients).toEqual(['beef', 'guinness']);
-    expect(result[0].steps).toEqual(['Brown beef', 'Add stout']);
-    expect(result[0].sourceUrl).toBe('https://example.com');
+    expect(result[0].userId).toBe(CURATOR_ID);
+    // Order is week-shuffled, so locate by id instead of by index
+    const stew = result.find(r => r.id === 'r1')!;
+    expect(stew.ingredients).toEqual(['beef', 'guinness']);
+    expect(stew.steps).toEqual(['Brown beef', 'Add stout']);
+    expect(stew.sourceUrl).toBe('https://example.com');
   });
 
-  it('returns empty array when no matching recipes exist', async () => {
+  it('filters out recipes with missing thumbnail, empty content, or caption-style titles', async () => {
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnThis(),
+        all: vi.fn().mockResolvedValue({
+          results: [
+            // Clean — keep
+            {
+              id: 'clean', user_id: CURATOR_ID, title: 'Honey lime chicken bowl', source_url: '',
+              image_url: 'https://example.com/bowl.jpg', meal_types: '[]', duration_minutes: 25,
+              ingredients: '["chicken"]', steps: '["Cook"]',
+            },
+            // No image — drop
+            {
+              id: 'noimg', user_id: CURATOR_ID, title: 'No image recipe', source_url: '',
+              image_url: '', meal_types: '[]', duration_minutes: null,
+              ingredients: '["a"]', steps: '["b"]',
+            },
+            // Empty ingredients — drop
+            {
+              id: 'noing', user_id: CURATOR_ID, title: 'Empty ingredients', source_url: '',
+              image_url: 'https://example.com/x.jpg', meal_types: '[]', duration_minutes: null,
+              ingredients: '[]', steps: '["b"]',
+            },
+            // Caption-style title (#hashtag) — drop
+            {
+              id: 'hash', user_id: CURATOR_ID, title: '#easyrecipe weeknight pasta', source_url: '',
+              image_url: 'https://example.com/x.jpg', meal_types: '[]', duration_minutes: null,
+              ingredients: '["a"]', steps: '["b"]',
+            },
+            // Long caption-style title — drop
+            {
+              id: 'long', user_id: CURATOR_ID, title: 'IT\'S GOT TO BE QUICK and this is a very long caption that goes on and on past 60 chars',
+              source_url: '', image_url: 'https://example.com/x.jpg', meal_types: '[]', duration_minutes: null,
+              ingredients: '["a"]', steps: '["b"]',
+            },
+          ]
+        })
+      })
+    } as unknown as D1Database;
+
+    const result = await getEditorsPick(mockDb, CURATOR_ID);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('clean');
+  });
+
+  it('returns empty array when curator has no favorited public recipes', async () => {
     const mockDb = {
       prepare: vi.fn().mockReturnValue({
         bind: vi.fn().mockReturnThis(),
@@ -76,7 +125,7 @@ describe('getEditorsPick', () => {
       })
     } as unknown as D1Database;
 
-    const result = await getEditorsPick(mockDb, EDITOR_TITLES);
+    const result = await getEditorsPick(mockDb, CURATOR_ID);
     expect(result).toHaveLength(0);
   });
 });
@@ -141,29 +190,50 @@ describe('getAiPicks', () => {
 });
 
 describe('getTrendingRecipes', () => {
-  it('returns ingredients, steps, and sourceUrl', async () => {
+  // Trending excludes the week's Editor's Picks set (top 7), so the mock
+  // needs at least 8 clean rows: 7 will go to Editor's Picks, the rest
+  // (capped at 5) populate Trending.
+  function mockRows(count: number) {
+    return Array.from({ length: count }, (_, i) => ({
+      id: `r${i + 1}`,
+      user_id: 'curator',
+      title: `Recipe ${i + 1}`,
+      source_url: i === 0 ? 'https://www.tiktok.com/@chef/video/123' : '',
+      image_url: 'https://img.example.com/x.jpg',
+      meal_types: '["Dinner"]',
+      duration_minutes: 20,
+      ingredients: '["a","b"]',
+      steps: '["s1","s2"]',
+    }));
+  }
+
+  it('returns ingredients, steps, and sourceUrl shape', async () => {
     const mockDb = {
       prepare: vi.fn().mockReturnValue({
         bind: vi.fn().mockReturnThis(),
-        all: vi.fn().mockResolvedValue({
-          results: [{
-            id: 'r1',
-            title: 'Miso Ramen',
-            source_url: 'https://www.tiktok.com/@chef/video/123',
-            image_url: 'https://img.example.com/ramen.jpg',
-            meal_types: '["Dinner"]',
-            duration_minutes: 20,
-            ingredients: '["noodles","miso paste"]',
-            steps: '["Boil noodles","Add miso"]',
-          }]
-        })
+        all: vi.fn().mockResolvedValue({ results: mockRows(10) })
       })
     } as unknown as D1Database;
 
     const result = await getTrendingRecipes(mockDb);
-    expect(result).toHaveLength(1);
-    expect(result[0].ingredients).toEqual(['noodles', 'miso paste']);
-    expect(result[0].steps).toEqual(['Boil noodles', 'Add miso']);
-    expect(result[0].sourceUrl).toBe('https://www.tiktok.com/@chef/video/123');
+    expect(result.length).toBeGreaterThan(0);
+    expect(result.length).toBeLessThanOrEqual(5);
+    expect(result[0].ingredients).toEqual(['a', 'b']);
+    expect(result[0].steps).toEqual(['s1', 's2']);
+  });
+
+  it('never overlaps with Editor\'s Picks in the same week', async () => {
+    const rows = mockRows(15);
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnThis(),
+        all: vi.fn().mockResolvedValue({ results: rows })
+      })
+    } as unknown as D1Database;
+
+    const editors = await getEditorsPick(mockDb, 'curator');
+    const trending = await getTrendingRecipes(mockDb, 'curator');
+    const editorsIds = new Set(editors.map(r => r.id));
+    for (const t of trending) expect(editorsIds.has(t.id)).toBe(false);
   });
 });

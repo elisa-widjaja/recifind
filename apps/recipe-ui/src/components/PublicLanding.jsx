@@ -1357,14 +1357,6 @@ export default function PublicLanding({ onJoin, onLogin, onOpenRecipe, darkMode,
             </Box>
           )}
 
-          {/* ── Discover New Recipes ── */}
-          {videoRecipes.length > 0 && (
-            <Box>
-              <SectionLabel label="Discover New Recipes" />
-              <DiscoverRecipes recipes={videoRecipes} onOpen={onOpenRecipe} />
-            </Box>
-          )}
-
         </Stack>
       </Box>
 
@@ -1374,7 +1366,10 @@ export default function PublicLanding({ onJoin, onLogin, onOpenRecipe, darkMode,
         aria-hidden={!hasScrolled}
         sx={{
           position: 'fixed',
-          bottom: 'calc(env(safe-area-inset-bottom) + 46px)',
+          // 46px → 66px so the pill clears the BottomAppBar (now always
+          // rendered for logged-out users on web/PWA) when scrolled to the
+          // page bottom.
+          bottom: 'calc(env(safe-area-inset-bottom) + 66px)',
           left: '50%',
           transform: 'translateX(-50%)',
           zIndex: 1200,

@@ -126,12 +126,13 @@ export default function RecipesPage({
   }, [filterDrawerOpen]);
 
   useEffect(() => {
-    if (totalRecipes !== 0 || !accessToken) return;
+    if (totalRecipes !== 0) return;
     let cancelled = false;
     setSuggestionsLoading(true);
-    fetch(`${API_BASE_URL}/recipes/for-you`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
+    // Empty-state suggestions ("Recipes you might like") come from the same
+    // weekly-rotated Editor's Picks pool for everyone — logged-in new users
+    // and logged-out guests alike see the curator's current 7 favorites.
+    fetch(`${API_BASE_URL}/public/editors-pick`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => { if (!cancelled) setSuggestions(d?.recipes || []); })
       .catch(() => { if (!cancelled) setSuggestions([]); })
@@ -306,21 +307,66 @@ export default function RecipesPage({
             You haven&rsquo;t saved any recipes yet
           </Typography>
         ) : (
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography variant="caption" color="text.secondary">
-              {filteredRecipes.length === 1 ? '1 result' : `${filteredRecipes.length} results`}
-            </Typography>
-            <IconButton
-              size="small"
-              aria-label="Filters"
-              onClick={() => setFilterDrawerOpen(true)}
-              sx={{
-                color: (selectedMealType || selectedCuisine || showFavoritesOnly) ? 'primary.main' : 'text.secondary',
-              }}
-            >
-              <SimpleTuneIcon size={20} />
-            </IconButton>
-          </Box>
+          (() => {
+            const hasActiveFilters = Boolean(
+              selectedMealType || selectedCuisine || showFavoritesOnly || normalizedIngredients.length > 0
+            );
+            const clearAllFilters = () => {
+              if (selectedMealType) onMealTypeSelect('');
+              if (selectedCuisine) onCuisineSelect('');
+              if (showFavoritesOnly) onToggleFavoritesOnly();
+              if (normalizedIngredients.length > 0) setIngredientInput('');
+            };
+            return (
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="text.secondary">
+                  {filteredRecipes.length === 1 ? '1 result' : `${filteredRecipes.length} results`}
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {hasActiveFilters && (
+                    <Box
+                      component="button"
+                      onClick={clearAllFilters}
+                      sx={(theme) => ({
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        // Dark-mode primary is #5F60FF which falls just under
+                        // WCAG AA contrast on #121212 at this size. Use
+                        // primary.light (auto-derived brighter shade) so the
+                        // link clears the threshold; light mode keeps the
+                        // standard primary purple.
+                        color: theme.palette.mode === 'dark'
+                          ? theme.palette.primary.light
+                          : theme.palette.primary.main,
+                        textDecoration: 'underline',
+                        textUnderlineOffset: '2px',
+                        WebkitTapHighlightColor: 'transparent',
+                        '&:focus': { outline: 'none' },
+                        '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2, borderRadius: 2 },
+                      })}
+                    >
+                      Clear filters
+                    </Box>
+                  )}
+                  <IconButton
+                    size="small"
+                    aria-label="Filters"
+                    onClick={() => setFilterDrawerOpen(true)}
+                    sx={{
+                      color: hasActiveFilters ? 'primary.main' : 'text.secondary',
+                    }}
+                  >
+                    <SimpleTuneIcon size={20} />
+                  </IconButton>
+                </Box>
+              </Box>
+            );
+          })()
         )}
 
         {normalizedIngredients.length > 0 && (
