@@ -53,6 +53,7 @@ import {
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
+import LanguageIcon from '@mui/icons-material/Language';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -3161,7 +3162,7 @@ function App() {
         if (!sessionStorage.getItem('invite_entry')) {
           setShowInstallBanner(true);
         }
-      }, 90000);
+      }, 15000);
     };
     window.addEventListener('beforeinstallprompt', handler);
     return () => {
@@ -3171,17 +3172,21 @@ function App() {
   }, [onboardingDrawerOpen]);
 
 
-  // Show install banner on iOS as soon as auth check completes (no login required)
+  // Show "See this in app" prompt on iOS Mobile Safari after a 90s dwell.
+  // Skipped inside the Capacitor app (we're already in it), in standalone
+  // PWA mode, when the user has permanently dismissed it, or after they've
+  // chosen "Continue in browser" earlier this session.
   useEffect(() => {
     if (!isAuthChecked) return;
     if (!isIosSafari) return;
     if (isStandalone) return;
     if (isPwaInstalled()) return;
     if (localStorage.getItem('recifriend-install-banner-dismissed')) return;
+    if (sessionStorage.getItem('recifriend-app-prompt-dismissed')) return;
     if (sessionStorage.getItem('pending_invite_token')) return;
     if (sessionStorage.getItem('invite_entry')) return;
     if (onboardingDrawerOpen) return;
-    const timer = setTimeout(() => setShowInstallBanner(true), 90000);
+    const timer = setTimeout(() => setShowInstallBanner(true), 15000);
     return () => clearTimeout(timer);
   }, [isAuthChecked, session, onboardingDrawerOpen]);
 
@@ -3571,8 +3576,8 @@ function App() {
             setSnackbarState({ open: true, message: name ? `You're now connected with ${name}` : "You're now connected!", severity: 'success', duration: 8000, anchorOrigin: { vertical: 'top', horizontal: 'center' } });
           }, 400);
           fetchFriends();
-          if (!isStandalone && !isPwaInstalled() && !localStorage.getItem('recifriend-install-banner-dismissed')) {
-            setTimeout(() => setShowInstallBanner(true), 90000);
+          if (!isStandalone && !isPwaInstalled() && !localStorage.getItem('recifriend-install-banner-dismissed') && !sessionStorage.getItem('recifriend-app-prompt-dismissed')) {
+            setTimeout(() => setShowInstallBanner(true), 15000);
           }
         })
         .catch((err) => {
@@ -3716,8 +3721,8 @@ function App() {
             setSnackbarState({ open: true, message: `You're now connected with ${res.connected.join(', ')}`, severity: 'success', duration: 8000, anchorOrigin: { vertical: 'top', horizontal: 'center' } });
           }, 400);
           fetchFriends();
-          if (!isStandalone && !isPwaInstalled() && !localStorage.getItem('recifriend-install-banner-dismissed')) {
-            setTimeout(() => setShowInstallBanner(true), 90000);
+          if (!isStandalone && !isPwaInstalled() && !localStorage.getItem('recifriend-install-banner-dismissed') && !sessionStorage.getItem('recifriend-app-prompt-dismissed')) {
+            setTimeout(() => setShowInstallBanner(true), 15000);
           }
         }
       })
@@ -7188,90 +7193,168 @@ function App() {
         </Alert>
       </Snackbar>
 
+      {/* "See this in…" prompt — repurposed from the old A2HS dialog.
+          Shown on iOS Mobile Safari (not inside Capacitor, not desktop, not
+          Android) once per session after the 90s timer fires. Open button
+          deep-links into the native ReciFriend app via the recifriend://
+          scheme and falls back to the App Store listing if the app isn't
+          installed. */}
       <Drawer
         anchor="bottom"
-        // A2HS prompt hidden on web. Flip back to the commented expression below
-        // (or set ENABLE_INSTALL_BANNER=true) when we want to re-enable it. The
-        // beforeinstallprompt listener + 90s timers are intentionally left alive
-        // so showInstallBanner state still tracks readiness for instant re-enable.
-        open={false /* showInstallBanner && isMobile && !isAddDialogOpen && !isFriendsDialogOpen */}
-        onClose={() => setShowInstallBanner(false)}
+        open={
+          showInstallBanner
+          && isIos
+          && !Capacitor.isNativePlatform()
+          && !isAddDialogOpen
+          && !isFriendsDialogOpen
+        }
+        onClose={(_, reason) => { if (reason !== 'backdropClick') setShowInstallBanner(false); }}
         PaperProps={{
-          sx: {
-            borderRadius: 0,
-            px: 2,
-            pt: 2,
-            pb: 3,
-            boxShadow: '0 -4px 20px rgba(0,0,0,0.12)',
-          }
+          sx: (theme) => ({
+            borderRadius: '14px 14px 0 0',
+            px: 0,
+            pt: '14px',
+            pb: 'calc(env(safe-area-inset-bottom) + 16px)',
+            boxShadow: '0 -8px 24px rgba(0,0,0,0.18)',
+            ...(theme.palette.mode === 'dark' ? { backgroundImage: 'none', bgcolor: '#1c1c1e' } : null),
+          }),
         }}
       >
-        {/* Header row */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
-          <Box
-            component="img"
-            src="/icon-192.png"
-            alt="ReciFriend"
-            sx={{ width: 44, height: 44, borderRadius: 2, flexShrink: 0 }}
-          />
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
-            <ArrowForwardIcon sx={{ color: 'text.secondary', fontSize: 18 }} />
-            <Typography variant="body1" fontWeight={700}>Add to Home Screen</Typography>
-          </Box>
-          <IconButton
-            size="small"
-            onClick={() => setShowInstallBanner(false)}
+        <Box
+          sx={{
+            position: 'relative',
+            pb: '12px',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+          }}
+        >
+          <Typography
+            sx={{
+              textAlign: 'center',
+              fontSize: 15,
+              fontWeight: 600,
+              color: 'text.primary',
+            }}
           >
-            <CloseIcon fontSize="small" />
+            See this in…
+          </Typography>
+          <IconButton
+            aria-label="Dismiss"
+            onClick={() => {
+              setShowInstallBanner(false);
+              sessionStorage.setItem('recifriend-app-prompt-dismissed', '1');
+            }}
+            sx={{
+              position: 'absolute',
+              top: -6,
+              right: 8,
+              color: 'text.secondary',
+              p: '6px',
+            }}
+          >
+            <CloseIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Box>
 
-        {isIos ? (
-          /* iOS step-by-step */
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-            {[
-              { step: '1', content: <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>Tap the <IosShareOutlinedIcon sx={{ fontSize: 18, color: (theme) => theme.palette.mode === 'dark' ? 'white' : 'primary.main', mx: 0.25 }} /> Share button</Box> },
-              { step: '2', content: 'Tap More and scroll down' },
-              { step: '3', content: 'Tap Add to Home Screen' },
-            ].map(({ step, content }) => (
-              <Box key={step} sx={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
-                  Step {step}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">{content}</Typography>
-              </Box>
-            ))}
-          </Box>
-        ) : (
-          /* Android/Chrome install button */
+        {/* Row 1: ReciFriend app — primary action */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px', px: '16px', py: '14px' }}>
+          <Box
+            component="img"
+            src="/icon-192.png"
+            alt=""
+            sx={{ width: 38, height: 38, borderRadius: '8px', flexShrink: 0 }}
+          />
+          <Typography sx={{ flex: 1, fontSize: 15, fontWeight: 600, color: 'text.primary' }}>
+            ReciFriend app
+          </Typography>
           <Button
-            fullWidth
-            variant="contained"
-            disableElevation
-            onClick={async () => {
-              deferredInstallPrompt.current.prompt();
-              const { outcome } = await deferredInstallPrompt.current.userChoice;
-              if (outcome === 'accepted') {
-                setShowInstallBanner(false);
-                localStorage.setItem('recifriend-install-banner-dismissed', '1');
-              }
+            onClick={() => {
+              // Mark dismissed for the session so the sheet doesn't reappear
+              // mid-redirect. Doesn't set the permanent flag — user explicitly
+              // chose Open, not Don't show again.
+              setShowInstallBanner(false);
+              // Fire the custom scheme. If the app is installed iOS shows a
+              // confirmation alert ("Open in ReciFriend?") — the page stays
+              // visible underneath it, so a short visibility check alone
+              // would race the prompt and send the user to the App Store.
+              // Listen for pagehide/visibilitychange (fires once iOS hands
+              // off to the app) and cancel the fallback if it does.
+              let handedOff = false;
+              const onLeave = () => { handedOff = true; };
+              document.addEventListener('visibilitychange', onLeave, { once: true });
+              window.addEventListener('pagehide', onLeave, { once: true });
+              window.location.href = 'recifriend://recipes';
+              setTimeout(() => {
+                document.removeEventListener('visibilitychange', onLeave);
+                window.removeEventListener('pagehide', onLeave);
+                if (handedOff) return;
+                if (document.visibilityState !== 'visible') return;
+                window.location.href = `https://apps.apple.com/app/id${APP_STORE_ID}`;
+              }, 2500);
+            }}
+            sx={{
+              minWidth: 96,
+              height: 34,
+              px: '14px',
+              fontSize: 14,
+              fontWeight: 700,
+              backgroundColor: 'primary.main',
+              color: '#fff',
+              borderRadius: '999px',
+              textTransform: 'none',
+              boxShadow: 'none',
+              '&:hover': { backgroundColor: 'primary.dark', boxShadow: 'none' },
             }}
           >
-            Install App
+            Open
           </Button>
-        )}
+        </Box>
 
-        <Divider sx={{ mt: 2 }} />
+        <Divider sx={{ mx: '16px' }} />
 
-        {/* Don't show again */}
-        <Box
-          sx={{ mt: 1.5, cursor: 'pointer', textAlign: 'center' }}
-          onClick={() => {
-            setShowInstallBanner(false);
-            localStorage.setItem('recifriend-install-banner-dismissed', '1');
-          }}
-        >
-          <Typography variant="body2" color="text.secondary">Dismiss and don't show again</Typography>
+        {/* Row 2: Browser — dismiss */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px', px: '16px', py: '14px' }}>
+          <Box
+            sx={(theme) => ({
+              width: 38, height: 38, borderRadius: '8px', flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              border: '1px solid',
+              borderColor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.16)' : 'rgba(0,0,0,0.12)',
+              color: 'text.secondary',
+            })}
+          >
+            <LanguageIcon sx={{ fontSize: 22 }} />
+          </Box>
+          <Typography sx={{ flex: 1, fontSize: 15, fontWeight: 600, color: 'text.primary' }}>
+            Browser
+          </Typography>
+          <Button
+            onClick={() => {
+              setShowInstallBanner(false);
+              // Suppress for the rest of this session — they explicitly chose
+              // to stay in the browser. Don't permanently dismiss; they may
+              // want it again on a future visit.
+              sessionStorage.setItem('recifriend-app-prompt-dismissed', '1');
+            }}
+            variant="outlined"
+            sx={(theme) => ({
+              minWidth: 96,
+              height: 34,
+              px: '14px',
+              fontSize: 14,
+              fontWeight: 600,
+              borderRadius: '999px',
+              textTransform: 'none',
+              color: 'text.primary',
+              borderColor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)',
+              '&:hover': {
+                borderColor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.32)',
+                backgroundColor: 'transparent',
+              },
+            })}
+          >
+            Continue
+          </Button>
         </Box>
       </Drawer>
 
