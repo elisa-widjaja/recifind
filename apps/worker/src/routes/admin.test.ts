@@ -101,4 +101,23 @@ describe('writeAuditLog', () => {
     await writeAuditLog(mockDb, { adminEmail: 'a@b.com', action: 'noop' });
     expect(bindMock).toHaveBeenCalledWith('a@b.com', 'noop', null, null, null);
   });
+
+  it('treats explicit null payload identically to undefined', async () => {
+    const bindMock = vi.fn().mockReturnValue({ run: vi.fn().mockResolvedValue({}) });
+    const mockDb = { prepare: vi.fn().mockReturnValue({ bind: bindMock }) } as unknown as D1Database;
+
+    await writeAuditLog(mockDb, { adminEmail: 'a@b', action: 'noop', payload: null });
+    expect(bindMock).toHaveBeenCalledWith('a@b', 'noop', null, null, null);
+  });
+
+  it('does not throw when the underlying INSERT fails (audit gap accepted)', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const runMock = vi.fn().mockRejectedValue(new Error('D1 down'));
+    const mockDb = { prepare: vi.fn().mockReturnValue({ bind: vi.fn().mockReturnValue({ run: runMock }) }) } as unknown as D1Database;
+
+    // Should resolve, not throw.
+    await expect(writeAuditLog(mockDb, { adminEmail: 'a@b', action: 'noop' })).resolves.toBeUndefined();
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
 });
