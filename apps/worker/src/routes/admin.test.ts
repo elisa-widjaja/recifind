@@ -3,6 +3,7 @@ import { isAdminEmail } from './admin';
 import { writeAuditLog } from './admin';
 import { handleAdminMe } from './admin';
 import { buildUsersListQuery } from './admin';
+import { buildSignupsPerDayQuery, buildViralCoefWeeklyQuery } from './admin';
 
 describe('isAdminEmail', () => {
   it('returns true for an email in ADMIN_EMAILS (single value)', () => {
@@ -305,5 +306,21 @@ describe('handleAdminUserDrilldown', () => {
     expect(body.recipes).toHaveLength(1);
     expect(body.invites_sent).toHaveLength(1);
     expect(body.pending_received).toHaveLength(1);
+  });
+});
+
+describe('buildSignupsPerDayQuery', () => {
+  it('groups by date and applies a since-date filter', () => {
+    const { sql, params } = buildSignupsPerDayQuery(90);
+    expect(sql).toMatch(/GROUP BY DATE\(created_at\)/i);
+    expect(sql).toMatch(/created_at >= \?/);
+    expect(params).toHaveLength(1);
+  });
+});
+
+describe('buildViralCoefWeeklyQuery', () => {
+  it('produces SQL with weekly buckets', () => {
+    const { sql } = buildViralCoefWeeklyQuery(90);
+    expect(sql).toMatch(/strftime\('%Y-%W', /i);
   });
 });

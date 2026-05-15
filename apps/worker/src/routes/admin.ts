@@ -414,3 +414,117 @@ export async function handleAdminUserDrilldown(args: {
     pending_received: pendingReceived.results || [],
   });
 }
+
+// ---------------------------------------------------------------------------
+// /admin/metrics/timeseries — dashboard data (signups, viral, activation, loop)
+// ---------------------------------------------------------------------------
+
+export function buildSignupsPerDayQuery(days: number): BuiltQuery {
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  return {
+    sql: `SELECT DATE(created_at) AS day, COUNT(*) AS n
+          FROM profiles WHERE created_at >= ? AND deleted_at IS NULL
+          GROUP BY DATE(created_at) ORDER BY day ASC`,
+    params: [since],
+  };
+}
+
+export function buildViralCoefWeeklyQuery(days: number): BuiltQuery {
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  return {
+    sql: `
+      WITH weekly_signups AS (
+        SELECT strftime('%Y-%W', created_at) AS wk, COUNT(*) AS signups
+        FROM profiles WHERE created_at >= ? AND deleted_at IS NULL
+        GROUP BY wk
+      ),
+      weekly_accepts AS (
+        SELECT strftime('%Y-%W', connected_at) AS wk, COUNT(DISTINCT user_id || '|' || friend_id) / 2 AS accepts
+        FROM friends WHERE connected_at >= ?
+        GROUP BY wk
+      )
+      SELECT s.wk AS week, s.signups, COALESCE(a.accepts, 0) AS accepts,
+             CASE WHEN s.signups > 0 THEN ROUND(1.0 * COALESCE(a.accepts, 0) / s.signups, 3) ELSE 0 END AS viral_coef
+      FROM weekly_signups s LEFT JOIN weekly_accepts a ON a.wk = s.wk
+      ORDER BY s.wk ASC
+    `.trim(),
+    params: [since, since],
+  };
+}
+
+export async function handleAdminMetricsTimeseries(args: {
+  env: { DB: D1Database; SUPABASE_URL: string; SUPABASE_SERVICE_ROLE_KEY?: string };
+  user: { userId: string; email?: string };
+  adminEmails: string | undefined;
+  url: URL;
+}): Promise<Response> {
+  const denied = requireAdmin({ user: args.user, adminEmails: args.adminEmails });
+  if (denied) return denied;
+
+  const days = Math.min(parseInt(args.url.searchParams.get('days') || '90', 10), 365);
+
+  const sQ = buildSignupsPerDayQuery(days);
+  const vQ = buildViralCoefWeeklyQuery(days);
+
+  const [signups, viral, totals, recipeTotals] = await Promise.all([
+    args.env.DB.prepare(sQ.sql).bind(...sQ.params).all(),
+    args.env.DB.prepare(vQ.sql).bind(...vQ.params).all(),
+    args.env.DB.prepare(
+      `SELECT COUNT(*) AS total_users FROM profiles WHERE deleted_at IS NULL`
+    ).first(),
+    args.env.DB.prepare(`SELECT COUNT(*) AS total_recipes FROM recipes`).first(),
+  ]);
+
+  // Activation curve (cohort): per signup-week, % of users in cohort with >=1 recipe
+  const activation = await args.env.DB.prepare(`
+    WITH cohort AS (
+      SELECT p.user_id, strftime('%Y-%W', p.created_at) AS wk
+      FROM profiles p WHERE p.deleted_at IS NULL AND p.created_at >= ?
+    ),
+    has_recipe AS (
+      SELECT DISTINCT user_id FROM recipes
+    )
+    SELECT c.wk AS week, COUNT(c.user_id) AS cohort_size,
+           SUM(CASE WHEN hr.user_id IS NOT NULL THEN 1 ELSE 0 END) AS activated,
+           ROUND(100.0 * SUM(CASE WHEN hr.user_id IS NOT NULL THEN 1 ELSE 0 END) / COUNT(c.user_id), 1) AS pct
+    FROM cohort c LEFT JOIN has_recipe hr ON hr.user_id = c.user_id
+    GROUP BY c.wk ORDER BY c.wk ASC
+  `).bind(new Date(Date.now() - days * 86400000).toISOString()).all();
+
+  // Loop completion: per cohort week, % who sent >=1 invite
+  // (friend_requests_sent has no created_at column; use "ever" as a coarser proxy)
+  const loopCompletion = await args.env.DB.prepare(`
+    WITH cohort AS (
+      SELECT p.user_id, strftime('%Y-%W', p.created_at) AS wk
+      FROM profiles p WHERE p.deleted_at IS NULL AND p.created_at >= ?
+    ),
+    has_invite AS (
+      SELECT DISTINCT from_user_id AS user_id FROM friend_requests_sent
+    )
+    SELECT c.wk AS week, COUNT(c.user_id) AS cohort_size,
+           SUM(CASE WHEN hi.user_id IS NOT NULL THEN 1 ELSE 0 END) AS invited,
+           ROUND(100.0 * SUM(CASE WHEN hi.user_id IS NOT NULL THEN 1 ELSE 0 END) / COUNT(c.user_id), 1) AS pct
+    FROM cohort c LEFT JOIN has_invite hi ON hi.user_id = c.user_id
+    GROUP BY c.wk ORDER BY c.wk ASC
+  `).bind(new Date(Date.now() - days * 86400000).toISOString()).all();
+
+  // Active users count — approximated as (users with >=1 recipe). Full
+  // "AND signed in within 30d" needs Supabase Auth data per-user. The cheap
+  // approximation is fine for the dashboard tile; the user table is precise.
+  const activeApprox = await args.env.DB.prepare(
+    `SELECT COUNT(DISTINCT user_id) AS n FROM recipes`
+  ).first();
+
+  return json(200, {
+    signups_per_day: signups.results || [],
+    viral_coef_weekly: viral.results || [],
+    activation_curve: activation.results || [],
+    loop_completion: loopCompletion.results || [],
+    totals: {
+      total_users: (totals as any)?.total_users ?? 0,
+      active_users_approx: (activeApprox as any)?.n ?? 0,
+      total_recipes: (recipeTotals as any)?.total_recipes ?? 0,
+      latest_viral_coef: (viral.results || []).at(-1) as any,
+    },
+  });
+}
