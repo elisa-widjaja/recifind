@@ -528,7 +528,7 @@ export default {
           if (recipe && recipe.shared_with_friends === 1) {
             const friends = await env.DB.prepare(`SELECT friend_id FROM friends WHERE user_id = ?`).bind(user.userId).all();
             const recipeName = recipe.title || 'a recipe';
-            const profile = await env.DB.prepare(`SELECT display_name FROM profiles WHERE user_id = ?`).bind(user.userId).first() as { display_name?: string } | null;
+            const profile = await env.DB.prepare(`SELECT display_name FROM profiles WHERE user_id = ? AND deleted_at IS NULL`).bind(user.userId).first() as { display_name?: string } | null;
             const cookerName = profile?.display_name || 'Someone';
             // Use the existing addNotification helper — it handles the 50-row trim side-effect
             for (const f of (friends.results as Array<{ friend_id: string }>)) {
@@ -832,6 +832,7 @@ export default {
        FROM nudge_emails n
        JOIN profiles p ON p.user_id = n.user_id
        WHERE n.send_after <= ? AND n.sent = 0 AND p.email_opt_out = 0
+         AND p.deleted_at IS NULL
        LIMIT ?`
     ).bind(now, BATCH_SIZE).all();
 
@@ -2048,7 +2049,7 @@ export async function getFriendsRecentlyShared(db: D1Database, userId: string): 
             p.display_name as sharer_name
      FROM recipe_shares rs
      JOIN recipes r ON r.id = rs.recipe_id
-     LEFT JOIN profiles p ON p.user_id = rs.sharer_id
+     LEFT JOIN profiles p ON p.user_id = rs.sharer_id AND p.deleted_at IS NULL
      WHERE rs.recipient_id = ?
      ORDER BY rs.created_at DESC
      LIMIT 10`
@@ -2199,7 +2200,7 @@ async function handleCreateRecipe(
 
   const [friendRows, profileRow] = await Promise.all([
     env.DB.prepare(`SELECT friend_id FROM friends WHERE user_id = ?`).bind(user.userId).all(),
-    env.DB.prepare(`SELECT display_name FROM profiles WHERE user_id = ?`).bind(user.userId).first() as Promise<{ display_name?: string } | null>,
+    env.DB.prepare(`SELECT display_name FROM profiles WHERE user_id = ? AND deleted_at IS NULL`).bind(user.userId).first() as Promise<{ display_name?: string } | null>,
   ]);
   const saverName = profileRow?.display_name || 'Someone';
   const isPublic = Boolean(recipe.sharedWithFriends);
@@ -2707,7 +2708,7 @@ async function handleImageRequest(
 
 export async function resolveEmailFromUserId(db: D1Database, userId: string): Promise<string | null> {
   const row = await db.prepare(
-    'SELECT email FROM profiles WHERE user_id = ?'
+    'SELECT email FROM profiles WHERE user_id = ? AND deleted_at IS NULL'
   ).bind(userId).first<{ email: string }>();
   return row?.email ?? null;
 }
@@ -2746,6 +2747,7 @@ export async function handleFriendSuggestions(
       AND f2.friend_id != ?
       AND f2.friend_id NOT IN (SELECT friend_id FROM friends WHERE user_id = ?)
       AND f2.friend_id NOT IN (SELECT dismissed_user_id FROM dismissed_suggestions WHERE user_id = ?)
+      AND p.deleted_at IS NULL
     GROUP BY f2.friend_id
     ORDER BY mutualCount DESC
     LIMIT 10
@@ -2766,7 +2768,7 @@ export async function handleFriendSuggestions(
   // --- Pref-match fallback ---
   const alreadySuggested = new Set(fofSuggestions.map(s => s.userId));
   const myProfile = await db.prepare(
-    'SELECT dietary_prefs, meal_type_prefs FROM profiles WHERE user_id = ?'
+    'SELECT dietary_prefs, meal_type_prefs FROM profiles WHERE user_id = ? AND deleted_at IS NULL'
   ).bind(userId).first<{ dietary_prefs: string | null; meal_type_prefs: string | null }>();
 
   const myDietaryPrefs: string[] = myProfile?.dietary_prefs ? JSON.parse(myProfile.dietary_prefs) : [];
@@ -2787,6 +2789,7 @@ export async function handleFriendSuggestions(
     WHERE p.user_id != ?
       AND p.user_id NOT IN (SELECT friend_id FROM friends WHERE user_id = ?)
       AND p.user_id NOT IN (SELECT dismissed_user_id FROM dismissed_suggestions WHERE user_id = ?)
+      AND p.deleted_at IS NULL
       AND (${likeClauses})
     ORDER BY p.display_name ASC
     LIMIT ?
