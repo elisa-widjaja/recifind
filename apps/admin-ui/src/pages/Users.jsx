@@ -60,12 +60,12 @@ export default function Users() {
   }, [search, recipeBucket, activity, signupDays, page]);
 
   const columns = useMemo(() => [
-    { accessorKey: 'email', header: 'Email' },
+    { accessorKey: 'email', header: 'Email', cell: (i) => i.getValue() },
     { accessorKey: 'signed_up_at', header: 'Signed up',
       cell: (i) => new Date(i.getValue()).toLocaleDateString() },
-    { accessorKey: 'recipe_count', header: 'Recipes' },
-    { accessorKey: 'invites_sent', header: 'Sent' },
-    { accessorKey: 'invites_accepted', header: 'Acc' },
+    { accessorKey: 'recipe_count', header: 'Recipes', cell: (i) => i.getValue() },
+    { accessorKey: 'invites_sent', header: 'Sent', cell: (i) => i.getValue() },
+    { accessorKey: 'invites_accepted', header: 'Acc', cell: (i) => i.getValue() },
     { id: 'active', header: '', cell: (i) => i.row.original.is_active ? '●' : '○' },
   ], []);
 
@@ -79,6 +79,10 @@ export default function Users() {
     if (search) params.set('search', search);
     if (recipeBucket) params.set('recipeBucket', recipeBucket);
     if (activity) params.set('activity', activity);
+    if (signupDays) {
+      const after = new Date(Date.now() - Number(signupDays) * 86400000).toISOString();
+      params.set('signupAfter', after);
+    }
     fetchAdmin(`/admin/users?${params.toString()}`).then((all) => {
       const headers = ['email', 'signed_up_at', 'recipe_count', 'invites_sent', 'invites_accepted', 'is_active'];
       const rows = all.users.map((u) => headers.map((h) => JSON.stringify(u[h] ?? '')).join(','));
@@ -127,7 +131,7 @@ export default function Users() {
             <TableRow key={row.id} hover sx={{ cursor: 'pointer' }}
               onClick={() => { window.location.hash = `#/users/${row.original.id}`; }}>
               {row.getVisibleCells().map((c) => (
-                <TableCell key={c.id}>{flexRender(c.column.columnDef.cell ?? c.column.columnDef.accessorKey, c.getContext())}</TableCell>
+                <TableCell key={c.id}>{flexRender(c.column.columnDef.cell, c.getContext())}</TableCell>
               ))}
             </TableRow>
           ))}
