@@ -33,6 +33,7 @@ export interface Env {
   APNS_BUNDLE_ID?: string;
   APNS_HOST?: string;
   // === [/S05] ===
+  ADMIN_EMAILS?: string;
 }
 
 interface Recipe {
@@ -425,6 +426,15 @@ export default {
       const requiresAuth = !isImageRequest && !isPublicParse;
 
       const user = requiresAuth ? await authenticateRequest(request, env) : await authenticateRequestOptional(request, env);
+
+      // Admin routes — gated by ADMIN_EMAILS check inside each handler.
+      if (url.pathname === '/admin/me' && request.method === 'GET') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const { handleAdminMe } = await import('./routes/admin');
+        return await handleAdminMe({ user, adminEmails: env.ADMIN_EMAILS });
+      }
 
       if (url.pathname === '/recipes' && request.method === 'GET') {
         if (!user) {

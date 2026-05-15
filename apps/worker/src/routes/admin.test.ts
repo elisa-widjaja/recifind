@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { isAdminEmail } from './admin';
 import { writeAuditLog } from './admin';
+import { handleAdminMe } from './admin';
 
 describe('isAdminEmail', () => {
   it('returns true for an email in ADMIN_EMAILS (single value)', () => {
@@ -119,5 +120,32 @@ describe('writeAuditLog', () => {
     await expect(writeAuditLog(mockDb, { adminEmail: 'a@b', action: 'noop' })).resolves.toBeUndefined();
     expect(errSpy).toHaveBeenCalled();
     errSpy.mockRestore();
+  });
+});
+
+describe('handleAdminMe', () => {
+  it('returns isAdmin: true and the email when caller is in ADMIN_EMAILS', async () => {
+    const res = await handleAdminMe({
+      user: { userId: 'u-1', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com'
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ email: 'elisa.widjaja@gmail.com', isAdmin: true });
+  });
+
+  it('returns 403 when caller email is not in ADMIN_EMAILS', async () => {
+    const res = await handleAdminMe({
+      user: { userId: 'u-2', email: 'intruder@example.com' },
+      adminEmails: 'elisa.widjaja@gmail.com'
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 403 when ADMIN_EMAILS is unset', async () => {
+    const res = await handleAdminMe({
+      user: { userId: 'u-1', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: undefined
+    });
+    expect(res.status).toBe(403);
   });
 });

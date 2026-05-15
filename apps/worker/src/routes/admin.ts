@@ -35,3 +35,33 @@ export async function writeAuditLog(db: D1Database, entry: AuditLogEntry): Promi
     console.error('[admin] writeAuditLog failed', { entry, err });
   }
 }
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+const json = (status: number, body: unknown) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+  });
+
+export interface AdminCallerCtx {
+  user: { userId: string; email?: string };
+  adminEmails: string | undefined;
+}
+
+export function requireAdmin(ctx: AdminCallerCtx): Response | null {
+  if (!isAdminEmail(ctx.user.email, ctx.adminEmails)) {
+    return json(403, { code: 'FORBIDDEN', message: 'Not an admin' });
+  }
+  return null;
+}
+
+export async function handleAdminMe(ctx: AdminCallerCtx): Promise<Response> {
+  const denied = requireAdmin(ctx);
+  if (denied) return denied;
+  return json(200, { email: ctx.user.email, isAdmin: true });
+}
