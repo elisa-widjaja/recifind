@@ -383,6 +383,14 @@ export default {
         return await handleAdminMe({ user, adminEmails: env.ADMIN_EMAILS });
       }
 
+      if (url.pathname === '/admin/users' && request.method === 'GET') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const { handleAdminUsersList } = await import('./routes/admin');
+        return await handleAdminUsersList({ env, user, adminEmails: env.ADMIN_EMAILS, url });
+      }
+
       if (url.pathname === '/admin/test-nudge-email' && request.method === 'POST') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');

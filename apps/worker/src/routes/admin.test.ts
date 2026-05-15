@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { isAdminEmail } from './admin';
 import { writeAuditLog } from './admin';
 import { handleAdminMe } from './admin';
+import { buildUsersListQuery } from './admin';
 
 describe('isAdminEmail', () => {
   it('returns true for an email in ADMIN_EMAILS (single value)', () => {
@@ -147,5 +148,58 @@ describe('handleAdminMe', () => {
       adminEmails: undefined
     });
     expect(res.status).toBe(403);
+  });
+});
+
+describe('buildUsersListQuery', () => {
+  it('returns SQL containing all expected aggregates', () => {
+    const { sql } = buildUsersListQuery({ limit: 50, offset: 0 });
+    expect(sql).toMatch(/COUNT\(DISTINCT r\.id\)\s+AS\s+recipe_count/i);
+    expect(sql).toMatch(/COUNT\(DISTINCT frs\.to_user_id\)\s+AS\s+invites_sent/i);
+    expect(sql).toMatch(/COUNT\(DISTINCT f\.friend_id\)\s+AS\s+invites_accepted/i);
+  });
+
+  it('always includes deleted_at IS NULL filter', () => {
+    const { sql } = buildUsersListQuery({ limit: 50, offset: 0 });
+    expect(sql).toMatch(/p\.deleted_at IS NULL/);
+  });
+
+  it('returns SQL including soft-deleted when activity=soft_deleted', () => {
+    const { sql } = buildUsersListQuery({ limit: 50, offset: 0, activity: 'soft_deleted' });
+    expect(sql).toMatch(/p\.deleted_at IS NOT NULL/);
+  });
+
+  it('binds the search term as a LIKE param when provided', () => {
+    const { sql, params } = buildUsersListQuery({ limit: 50, offset: 0, search: 'sarah' });
+    expect(sql).toMatch(/email LIKE \?/i);
+    expect(params).toContain('%sarah%');
+  });
+
+  it('applies recipe bucket filter for "0"', () => {
+    const { sql } = buildUsersListQuery({ limit: 50, offset: 0, recipeBucket: '0' });
+    expect(sql).toMatch(/HAVING\s+(\(.*\s)?recipe_count = 0/i);
+  });
+
+  it('applies recipe bucket filter for "10-19"', () => {
+    const { sql } = buildUsersListQuery({ limit: 50, offset: 0, recipeBucket: '10-19' });
+    expect(sql).toMatch(/recipe_count BETWEEN 10 AND 19/i);
+  });
+
+  it('applies signupAfter bound', () => {
+    const { sql, params } = buildUsersListQuery({
+      limit: 50, offset: 0, signupAfter: '2026-01-01'
+    });
+    expect(sql).toMatch(/p\.created_at >= \?/);
+    expect(params).toContain('2026-01-01');
+  });
+
+  it('respects sort=signup_asc', () => {
+    const { sql } = buildUsersListQuery({ limit: 50, offset: 0, sort: 'signup_asc' });
+    expect(sql).toMatch(/ORDER BY p\.created_at ASC/i);
+  });
+
+  it('defaults to signup_desc', () => {
+    const { sql } = buildUsersListQuery({ limit: 50, offset: 0 });
+    expect(sql).toMatch(/ORDER BY p\.created_at DESC/i);
   });
 });

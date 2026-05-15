@@ -141,3 +141,164 @@ export async function handleTestNudgeEmail(args: {
     resendResponse: emailResult.body,
   });
 }
+
+// ---------------------------------------------------------------------------
+// /admin/users — list with filters
+// ---------------------------------------------------------------------------
+
+export interface UsersListParams {
+  limit: number;
+  offset: number;
+  search?: string;
+  recipeBucket?: '0' | '1-9' | '10-19' | '20-49' | '50+';
+  activity?: 'active' | 'inactive' | 'ghost' | 'soft_deleted';
+  signupAfter?: string;
+  signupBefore?: string;
+  sort?: 'signup_desc' | 'signup_asc';
+}
+
+export interface BuiltQuery { sql: string; params: unknown[] }
+
+const RECIPE_BUCKETS: Record<string, string> = {
+  '0': 'recipe_count = 0',
+  '1-9': 'recipe_count BETWEEN 1 AND 9',
+  '10-19': 'recipe_count BETWEEN 10 AND 19',
+  '20-49': 'recipe_count BETWEEN 20 AND 49',
+  '50+': 'recipe_count >= 50',
+};
+
+export function buildUsersListQuery(p: UsersListParams): BuiltQuery {
+  const where: string[] = [];
+  const having: string[] = [];
+  const params: unknown[] = [];
+
+  if (p.activity === 'soft_deleted') {
+    where.push('p.deleted_at IS NOT NULL');
+  } else {
+    where.push('p.deleted_at IS NULL');
+  }
+
+  if (p.search) {
+    where.push('p.email LIKE ?');
+    params.push(`%${p.search}%`);
+  }
+  if (p.signupAfter) {
+    where.push('p.created_at >= ?');
+    params.push(p.signupAfter);
+  }
+  if (p.signupBefore) {
+    where.push('p.created_at <= ?');
+    params.push(p.signupBefore);
+  }
+
+  if (p.recipeBucket && RECIPE_BUCKETS[p.recipeBucket]) {
+    having.push(RECIPE_BUCKETS[p.recipeBucket]);
+  }
+
+  const orderBy = p.sort === 'signup_asc' ? 'p.created_at ASC' : 'p.created_at DESC';
+
+  const sql = `
+    SELECT
+      p.user_id            AS id,
+      p.email              AS email,
+      p.display_name       AS display_name,
+      p.created_at         AS signed_up_at,
+      p.deleted_at         AS deleted_at,
+      COUNT(DISTINCT r.id) AS recipe_count,
+      COUNT(DISTINCT frs.to_user_id) AS invites_sent,
+      COUNT(DISTINCT f.friend_id) AS invites_accepted
+    FROM profiles p
+    LEFT JOIN recipes r ON r.user_id = p.user_id
+    LEFT JOIN friend_requests_sent frs ON frs.from_user_id = p.user_id
+    LEFT JOIN friends f ON f.user_id = p.user_id
+    WHERE ${where.join(' AND ')}
+    GROUP BY p.user_id
+    ${having.length ? `HAVING ${having.join(' AND ')}` : ''}
+    ORDER BY ${orderBy}
+    LIMIT ? OFFSET ?
+  `.trim();
+
+  params.push(p.limit, p.offset);
+  return { sql, params };
+}
+
+export async function handleAdminUsersList(args: {
+  env: { DB: D1Database; SUPABASE_URL: string; SUPABASE_SERVICE_ROLE_KEY?: string };
+  user: { userId: string; email?: string };
+  adminEmails: string | undefined;
+  url: URL;
+}): Promise<Response> {
+  const denied = requireAdmin({ user: args.user, adminEmails: args.adminEmails });
+  if (denied) return denied;
+
+  const limit = Math.min(parseInt(args.url.searchParams.get('limit') || '50', 10), 200);
+  const offset = parseInt(args.url.searchParams.get('offset') || '0', 10);
+
+  const params: UsersListParams = {
+    limit,
+    offset,
+    search: args.url.searchParams.get('search') || undefined,
+    recipeBucket: (args.url.searchParams.get('recipeBucket') as any) || undefined,
+    activity: (args.url.searchParams.get('activity') as any) || undefined,
+    signupAfter: args.url.searchParams.get('signupAfter') || undefined,
+    signupBefore: args.url.searchParams.get('signupBefore') || undefined,
+    sort: (args.url.searchParams.get('sort') as any) || undefined,
+  };
+
+  const { sql, params: bindParams } = buildUsersListQuery(params);
+  const { results } = await args.env.DB.prepare(sql).bind(...bindParams).all();
+
+  const enriched = await enrichWithLastSignIn(results, args.env);
+  const filtered = filterByActivity(enriched, params.activity);
+
+  return json(200, {
+    users: filtered,
+    page: { limit, offset, returned: filtered.length },
+  });
+}
+
+const ACTIVE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const GHOST_WINDOW_MS = 5 * 60 * 1000;
+
+async function enrichWithLastSignIn(rows: any[], env: { SUPABASE_URL: string; SUPABASE_SERVICE_ROLE_KEY?: string }) {
+  if (rows.length === 0) return rows;
+  if (!env.SUPABASE_SERVICE_ROLE_KEY) {
+    return rows.map((r) => ({ ...r, last_sign_in_at: null, is_active: false }));
+  }
+  const enriched = await Promise.all(rows.map(async (r) => {
+    const url = `${env.SUPABASE_URL}/auth/v1/admin/users/${r.id}`;
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+      },
+    });
+    const lastSignInAt = res.ok ? (await res.json() as any).last_sign_in_at : null;
+    const isActive = computeIsActive(r, lastSignInAt);
+    return { ...r, last_sign_in_at: lastSignInAt, is_active: isActive };
+  }));
+  return enriched;
+}
+
+function computeIsActive(row: any, lastSignInAt: string | null): boolean {
+  if (row.deleted_at) return false;
+  if (row.recipe_count < 1) return false;
+  if (!lastSignInAt) return false;
+  const ageMs = Date.now() - new Date(lastSignInAt).getTime();
+  return ageMs <= ACTIVE_WINDOW_MS;
+}
+
+function classifyActivity(row: any, lastSignInAt: string | null): 'active' | 'inactive' | 'ghost' | 'soft_deleted' {
+  if (row.deleted_at) return 'soft_deleted';
+  const signupTime = new Date(row.signed_up_at).getTime();
+  const lastSignInTime = lastSignInAt ? new Date(lastSignInAt).getTime() : signupTime;
+  const cameBack = (lastSignInTime - signupTime) > GHOST_WINDOW_MS;
+  if (row.recipe_count === 0 && !cameBack) return 'ghost';
+  if (computeIsActive(row, lastSignInAt)) return 'active';
+  return 'inactive';
+}
+
+function filterByActivity(rows: any[], activity: UsersListParams['activity']) {
+  if (!activity) return rows;
+  return rows.filter((r) => classifyActivity(r, r.last_sign_in_at) === activity);
+}
