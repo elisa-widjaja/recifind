@@ -41,6 +41,7 @@ SUPABASE_STORAGE_BUCKET = "recipe-previews"
 # - APNS_KEY_ID        (MFH9S45A26)
 # - APNS_TEAM_ID       (7C6PMUN99K)
 # - APNS_BUNDLE_ID     (com.recifriend.app)
+# - ADMIN_EMAILS         (comma-separated list of admin email addresses for /admin/* routes)
 
 [triggers]
 crons = ["0 * * * *"]
