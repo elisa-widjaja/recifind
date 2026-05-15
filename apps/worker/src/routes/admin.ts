@@ -222,6 +222,10 @@ export function buildUsersListQuery(p: UsersListParams): BuiltQuery {
   return { sql, params };
 }
 
+const ALLOWED_ACTIVITY = new Set(['active', 'inactive', 'ghost', 'soft_deleted']);
+const ALLOWED_BUCKET = new Set(['0', '1-9', '10-19', '20-49', '50+']);
+const ALLOWED_SORT = new Set(['signup_desc', 'signup_asc']);
+
 export async function handleAdminUsersList(args: {
   env: { DB: D1Database; SUPABASE_URL: string; SUPABASE_SERVICE_ROLE_KEY?: string };
   user: { userId: string; email?: string };
@@ -231,6 +235,20 @@ export async function handleAdminUsersList(args: {
   const denied = requireAdmin({ user: args.user, adminEmails: args.adminEmails });
   if (denied) return denied;
 
+  const rawActivity = args.url.searchParams.get('activity');
+  const rawBucket = args.url.searchParams.get('recipeBucket');
+  const rawSort = args.url.searchParams.get('sort');
+
+  if (rawActivity && !ALLOWED_ACTIVITY.has(rawActivity)) {
+    return json(400, { code: 'BAD_REQUEST', message: `invalid activity: ${rawActivity}` });
+  }
+  if (rawBucket && !ALLOWED_BUCKET.has(rawBucket)) {
+    return json(400, { code: 'BAD_REQUEST', message: `invalid recipeBucket: ${rawBucket}` });
+  }
+  if (rawSort && !ALLOWED_SORT.has(rawSort)) {
+    return json(400, { code: 'BAD_REQUEST', message: `invalid sort: ${rawSort}` });
+  }
+
   const limit = Math.min(parseInt(args.url.searchParams.get('limit') || '50', 10), 200);
   const offset = parseInt(args.url.searchParams.get('offset') || '0', 10);
 
@@ -238,22 +256,28 @@ export async function handleAdminUsersList(args: {
     limit,
     offset,
     search: args.url.searchParams.get('search') || undefined,
-    recipeBucket: (args.url.searchParams.get('recipeBucket') as any) || undefined,
-    activity: (args.url.searchParams.get('activity') as any) || undefined,
+    recipeBucket: (rawBucket as UsersListParams['recipeBucket']) || undefined,
+    activity: (rawActivity as UsersListParams['activity']) || undefined,
     signupAfter: args.url.searchParams.get('signupAfter') || undefined,
     signupBefore: args.url.searchParams.get('signupBefore') || undefined,
-    sort: (args.url.searchParams.get('sort') as any) || undefined,
+    sort: (rawSort as UsersListParams['sort']) || undefined,
   };
 
   const { sql, params: bindParams } = buildUsersListQuery(params);
   const { results } = await args.env.DB.prepare(sql).bind(...bindParams).all();
+  const preFilterCount = (results || []).length;
 
   const enriched = await enrichWithLastSignIn(results, args.env);
   const filtered = filterByActivity(enriched, params.activity);
 
   return json(200, {
     users: filtered,
-    page: { limit, offset, returned: filtered.length },
+    page: {
+      limit,
+      offset,
+      returned: filtered.length,
+      has_more: preFilterCount === limit, // there could be more rows in D1; client should fetch next page
+    },
   });
 }
 
@@ -267,13 +291,18 @@ async function enrichWithLastSignIn(rows: any[], env: { SUPABASE_URL: string; SU
   }
   const enriched = await Promise.all(rows.map(async (r) => {
     const url = `${env.SUPABASE_URL}/auth/v1/admin/users/${r.id}`;
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-        apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-      },
-    });
-    const lastSignInAt = res.ok ? (await res.json() as any).last_sign_in_at : null;
+    let lastSignInAt: string | null = null;
+    try {
+      const res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+          apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+        },
+      });
+      if (res.ok) lastSignInAt = (await res.json() as any).last_sign_in_at;
+    } catch (err) {
+      console.error('[admin] enrichWithLastSignIn fetch failed', { userId: r.id, err });
+    }
     const isActive = computeIsActive(r, lastSignInAt);
     return { ...r, last_sign_in_at: lastSignInAt, is_active: isActive };
   }));

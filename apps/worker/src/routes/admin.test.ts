@@ -203,3 +203,41 @@ describe('buildUsersListQuery', () => {
     expect(sql).toMatch(/ORDER BY p\.created_at DESC/i);
   });
 });
+
+describe('handleAdminUsersList input validation', () => {
+  it('returns 400 for invalid activity', async () => {
+    const { handleAdminUsersList } = await import('./admin');
+    const url = new URL('http://x/admin/users?activity=garbage');
+    const res = await handleAdminUsersList({
+      env: { DB: {} as any, SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: undefined },
+      user: { userId: 'u', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      url,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 for invalid recipeBucket', async () => {
+    const { handleAdminUsersList } = await import('./admin');
+    const url = new URL('http://x/admin/users?recipeBucket=999');
+    const res = await handleAdminUsersList({
+      env: { DB: {} as any, SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: undefined },
+      user: { userId: 'u', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      url,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 403 before validating params (security: never leak param shape to non-admins)', async () => {
+    const { handleAdminUsersList } = await import('./admin');
+    const url = new URL('http://x/admin/users?activity=garbage');
+    const res = await handleAdminUsersList({
+      env: { DB: {} as any, SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: undefined },
+      user: { userId: 'u', email: 'intruder@x.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      url,
+    });
+    expect(res.status).toBe(403);
+  });
+});
