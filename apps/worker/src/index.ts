@@ -414,6 +414,17 @@ export default {
         });
       }
 
+      const adminDeleteUserMatch = url.pathname.match(/^\/admin\/users\/([^/]+)$/);
+      if (adminDeleteUserMatch && request.method === 'DELETE') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const { handleAdminSoftDelete } = await import('./routes/admin');
+        return await handleAdminSoftDelete({
+          env, user, adminEmails: env.ADMIN_EMAILS, userId: adminDeleteUserMatch[1],
+        });
+      }
+
       const adminResendMatch = url.pathname.match(/^\/admin\/users\/([^/]+)\/resend-invite$/);
       if (adminResendMatch && request.method === 'POST') {
         if (!user) {
@@ -680,7 +691,8 @@ export default {
       }
       if (url.pathname === '/profile' && request.method === 'DELETE') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
-        return await handleDeleteAccount(env, user);
+        // User-initiated "delete my account" — MUST stay a full hard delete.
+        return await handleDeleteAccount(env, user, 'hard');
       }
       if (url.pathname === '/profile/avatar' && request.method === 'POST') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
@@ -1353,8 +1365,20 @@ async function handleDeleteAvatar(env: Env, user: AuthenticatedUser) {
 // avatar), and finally deletes the Supabase auth user so the JWT becomes
 // unusable. Best-effort on each step: a failure in one cleanup branch
 // shouldn't strand the user with a half-deleted account.
-async function handleDeleteAccount(env: Env, user: AuthenticatedUser) {
+async function handleDeleteAccount(
+  env: Env,
+  user: AuthenticatedUser,
+  mode: 'hard' | 'soft' = 'hard',
+) {
   const userId = user.userId;
+
+  if (mode === 'soft') {
+    // Soft delete: leave all other tables intact. Task 3's
+    // `deleted_at IS NULL` filters make the user vanish from feeds/graphs.
+    await env.DB.prepare(`UPDATE profiles SET deleted_at = ? WHERE user_id = ?`)
+      .bind(new Date().toISOString(), userId).run();
+    return new Response(null, { status: 204, headers: withCors() });
+  }
 
   // 1) Collect storage object keys before deleting D1 rows.
   const recipesWithImages = await env.DB.prepare(

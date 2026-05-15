@@ -736,3 +736,25 @@ export async function handleAdminEditUser(args: {
 
   return json(200, { ok: true, display_name: newName });
 }
+
+export async function handleAdminSoftDelete(args: {
+  env: { DB: D1Database };
+  user: { userId: string; email?: string };
+  adminEmails: string | undefined;
+  userId: string;
+}): Promise<Response> {
+  const denied = requireAdmin({ user: args.user, adminEmails: args.adminEmails });
+  if (denied) return denied;
+
+  await args.env.DB.prepare(
+    `UPDATE profiles SET deleted_at = ? WHERE user_id = ?`
+  ).bind(new Date().toISOString(), args.userId).run();
+
+  await writeAuditLog(args.env.DB, {
+    adminEmail: args.user.email!,
+    action: 'soft_delete_user',
+    targetUserId: args.userId,
+  });
+
+  return json(200, { ok: true });
+}

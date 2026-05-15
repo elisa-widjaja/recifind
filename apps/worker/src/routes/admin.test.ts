@@ -606,3 +606,36 @@ describe('handleAdminEditUser', () => {
     expect(res.status).toBe(400);
   });
 });
+
+import { handleAdminSoftDelete } from './admin';
+
+describe('handleAdminSoftDelete', () => {
+  it('returns 403 for non-admin', async () => {
+    const res = await handleAdminSoftDelete({
+      env: { DB: {} as any } as any,
+      user: { userId: 'u', email: 'no@x.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 't',
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('sets deleted_at and audit logs', async () => {
+    const calls: string[] = [];
+    const mockDb = {
+      prepare: vi.fn((sql: string) => {
+        calls.push(sql);
+        return { bind: vi.fn().mockReturnThis(), run: vi.fn().mockResolvedValue({}) };
+      }),
+    } as unknown as D1Database;
+    const res = await handleAdminSoftDelete({
+      env: { DB: mockDb } as any,
+      user: { userId: 'u', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 't',
+    });
+    expect(res.status).toBe(200);
+    expect(calls.some((s) => /UPDATE profiles SET deleted_at/i.test(s))).toBe(true);
+    expect(calls.some((s) => /admin_audit_log/i.test(s))).toBe(true);
+  });
+});
