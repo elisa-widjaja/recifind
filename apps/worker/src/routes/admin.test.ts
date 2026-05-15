@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { isAdminEmail } from './admin';
+import { writeAuditLog } from './admin';
 
 describe('isAdminEmail', () => {
   it('returns true for an email in ADMIN_EMAILS (single value)', () => {
@@ -63,5 +64,41 @@ describe('soft-deleted user filtering (regression)', () => {
     for (const sql of profileQueries) {
       expect(sql).toMatch(/deleted_at IS NULL/i);
     }
+  });
+});
+
+describe('writeAuditLog', () => {
+  it('inserts an admin_audit_log row with all fields', async () => {
+    const runMock = vi.fn().mockResolvedValue({ success: true });
+    const bindMock = vi.fn().mockReturnValue({ run: runMock });
+    const mockDb = { prepare: vi.fn().mockReturnValue({ bind: bindMock }) } as unknown as D1Database;
+
+    await writeAuditLog(mockDb, {
+      adminEmail: 'elisa.widjaja@gmail.com',
+      action: 'hide_recipe',
+      targetUserId: 'user-1',
+      targetRecipeId: 'recipe-2',
+      payload: { reason: 'spam' }
+    });
+
+    expect(mockDb.prepare).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO admin_audit_log')
+    );
+    expect(bindMock).toHaveBeenCalledWith(
+      'elisa.widjaja@gmail.com',
+      'hide_recipe',
+      'user-1',
+      'recipe-2',
+      JSON.stringify({ reason: 'spam' })
+    );
+    expect(runMock).toHaveBeenCalledOnce();
+  });
+
+  it('handles null target_user_id, target_recipe_id, payload', async () => {
+    const bindMock = vi.fn().mockReturnValue({ run: vi.fn().mockResolvedValue({}) });
+    const mockDb = { prepare: vi.fn().mockReturnValue({ bind: bindMock }) } as unknown as D1Database;
+
+    await writeAuditLog(mockDb, { adminEmail: 'a@b.com', action: 'noop' });
+    expect(bindMock).toHaveBeenCalledWith('a@b.com', 'noop', null, null, null);
   });
 });
