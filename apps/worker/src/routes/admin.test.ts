@@ -324,3 +324,56 @@ describe('buildViralCoefWeeklyQuery', () => {
     expect(sql).toMatch(/strftime\('%Y-%W', /i);
   });
 });
+
+import { handleAdminResendInvite } from './admin';
+
+describe('handleAdminResendInvite', () => {
+  it('returns 403 for non-admin', async () => {
+    const res = await handleAdminResendInvite({
+      env: { DB: {} as any } as any,
+      user: { userId: 'u', email: 'no@x.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 't', body: { inviteId: 'inv1' },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 404 if invite does not exist', async () => {
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnThis(),
+        first: vi.fn().mockResolvedValue(null),
+        run: vi.fn().mockResolvedValue({}),
+      }),
+    } as unknown as D1Database;
+    const res = await handleAdminResendInvite({
+      env: { DB: mockDb } as any,
+      user: { userId: 'u', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 't', body: { inviteId: 'missing' },
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('writes an audit log entry on success', async () => {
+    const runMock = vi.fn().mockResolvedValue({});
+    const firstMock = vi.fn().mockResolvedValue({ to_email: 'invitee@x.com' });
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnThis(),
+        first: firstMock, run: runMock,
+      }),
+    } as unknown as D1Database;
+    const emailSends: any[] = [];
+    const res = await handleAdminResendInvite({
+      env: { DB: mockDb, RESEND_API_KEY: 're_test' } as any,
+      user: { userId: 'u', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 't', body: { inviteId: 'inv1' },
+      sendEmail: async (params: any) => { emailSends.push(params); return { ok: true }; },
+    });
+    expect(res.status).toBe(200);
+    expect(emailSends).toHaveLength(1);
+    expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO admin_audit_log'));
+  });
+});

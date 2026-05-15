@@ -402,6 +402,18 @@ export default {
         });
       }
 
+      const adminResendMatch = url.pathname.match(/^\/admin\/users\/([^/]+)\/resend-invite$/);
+      if (adminResendMatch && request.method === 'POST') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const { handleAdminResendInvite } = await import('./routes/admin');
+        const body = await request.json() as { inviteId: string };
+        return await handleAdminResendInvite({
+          env, user, adminEmails: env.ADMIN_EMAILS, userId: adminResendMatch[1], body,
+        });
+      }
+
       if (url.pathname === '/admin/test-nudge-email' && request.method === 'POST') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');

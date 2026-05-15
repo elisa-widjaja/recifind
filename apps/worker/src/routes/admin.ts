@@ -528,3 +528,66 @@ export async function handleAdminMetricsTimeseries(args: {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// /admin/users/:id/resend-invite — re-send a pending friend invite email
+// ---------------------------------------------------------------------------
+
+export interface SendEmailFn {
+  (params: { to: string; subject: string; html: string }): Promise<{ ok: boolean }>;
+}
+
+async function defaultSendEmail(
+  env: { RESEND_API_KEY?: string },
+  params: { to: string; subject: string; html: string }
+) {
+  if (!env.RESEND_API_KEY) return { ok: false };
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: 'ReciFriend <hello@recifriend.com>',
+      to: params.to,
+      subject: params.subject,
+      html: params.html,
+    }),
+  });
+  return { ok: res.ok };
+}
+
+export async function handleAdminResendInvite(args: {
+  env: { DB: D1Database; RESEND_API_KEY?: string };
+  user: { userId: string; email?: string };
+  adminEmails: string | undefined;
+  userId: string;
+  body: { inviteId: string };
+  sendEmail?: SendEmailFn;
+}): Promise<Response> {
+  const denied = requireAdmin({ user: args.user, adminEmails: args.adminEmails });
+  if (denied) return denied;
+
+  const invite = await args.env.DB.prepare(
+    `SELECT to_email FROM friend_requests_sent WHERE from_user_id = ? AND to_user_id = ?`
+  ).bind(args.userId, args.body.inviteId).first() as { to_email?: string } | null;
+
+  if (!invite || !invite.to_email) return json(404, { code: 'NOT_FOUND' });
+
+  const send = args.sendEmail || ((p) => defaultSendEmail(args.env, p));
+  await send({
+    to: invite.to_email,
+    subject: 'You have an invite waiting on ReciFriend',
+    html: `<p>Your friend invited you to ReciFriend. <a href="https://recifriend.com">Open ReciFriend</a></p>`,
+  });
+
+  await writeAuditLog(args.env.DB, {
+    adminEmail: args.user.email!,
+    action: 'resend_invite',
+    targetUserId: args.userId,
+    payload: { inviteId: args.body.inviteId, to_email: invite.to_email },
+  });
+
+  return json(200, { ok: true });
+}
