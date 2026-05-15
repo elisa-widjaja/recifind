@@ -758,3 +758,31 @@ export async function handleAdminSoftDelete(args: {
 
   return json(200, { ok: true });
 }
+
+// ---------------------------------------------------------------------------
+// POST /admin/recipes/:id/hide — soft-hide a recipe from public/friend feeds
+// ---------------------------------------------------------------------------
+
+export async function handleAdminHideRecipe(args: {
+  env: { DB: D1Database };
+  user: { userId: string; email?: string };
+  adminEmails: string | undefined;
+  recipeId: string;
+  body: { reason?: string };
+}): Promise<Response> {
+  const denied = requireAdmin({ user: args.user, adminEmails: args.adminEmails });
+  if (denied) return denied;
+
+  await args.env.DB.prepare(
+    `UPDATE recipes SET hidden_at = ? WHERE id = ?`
+  ).bind(new Date().toISOString(), args.recipeId).run();
+
+  await writeAuditLog(args.env.DB, {
+    adminEmail: args.user.email!,
+    action: 'hide_recipe',
+    targetRecipeId: args.recipeId,
+    payload: args.body.reason ? { reason: args.body.reason } : undefined,
+  });
+
+  return json(200, { ok: true });
+}

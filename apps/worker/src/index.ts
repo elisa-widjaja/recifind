@@ -351,7 +351,7 @@ export default {
           const userId = decodeURIComponent(publicRecipeMatch[1]);
           const recipeId = decodeURIComponent(publicRecipeMatch[2]);
           const row = await env.DB.prepare(
-            `SELECT id, title, source_url, image_url, ingredients, steps FROM recipes WHERE user_id = ? AND id = ?`
+            `SELECT id, title, source_url, image_url, ingredients, steps FROM recipes WHERE user_id = ? AND id = ? AND hidden_at IS NULL`
           ).bind(userId, recipeId).first<Record<string, unknown>>();
           if (!row) return json({ error: 'Not found' }, 404, withCors());
           return json({
@@ -446,6 +446,18 @@ export default {
         const body = await request.json() as { inviteId: string };
         return await handleAdminForceAccept({
           env, user, adminEmails: env.ADMIN_EMAILS, userId: adminForceAcceptMatch[1], body,
+        });
+      }
+
+      const adminHideRecipeMatch = url.pathname.match(/^\/admin\/recipes\/([^/]+)\/hide$/);
+      if (adminHideRecipeMatch && request.method === 'POST') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const { handleAdminHideRecipe } = await import('./routes/admin');
+        const body = await request.json().catch(() => ({}));
+        return await handleAdminHideRecipe({
+          env, user, adminEmails: env.ADMIN_EMAILS, recipeId: adminHideRecipeMatch[1], body,
         });
       }
 
@@ -1480,7 +1492,7 @@ async function handleGetRecipe(request: Request, env: Env, user: AuthenticatedUs
 
       // Load recipe by id (any owner) since recipient has access
       const row = await env.DB.prepare(
-        'SELECT * FROM recipes WHERE id = ?'
+        'SELECT * FROM recipes WHERE id = ? AND hidden_at IS NULL'
       ).bind(recipeId).first();
       if (!row) throw e;
       recipe = rowToRecipe(row as Record<string, unknown>);
@@ -1532,7 +1544,7 @@ async function handleCreateShareLink({ env, user, recipeId }: { env: Env; user: 
 async function handleCreateFriendShareLink(env: Env, friendId: string, recipeId: string) {
   // Only share if the recipe is shared with friends
   const recipe = await env.DB.prepare(
-    'SELECT id FROM recipes WHERE user_id = ? AND id = ? AND shared_with_friends = 1'
+    'SELECT id FROM recipes WHERE user_id = ? AND id = ? AND shared_with_friends = 1 AND hidden_at IS NULL'
   ).bind(friendId, recipeId).first();
   if (!recipe) {
     return json({ error: 'Recipe not found or not shared' }, 404, withCors());
@@ -1666,7 +1678,7 @@ export async function getPublicDiscover(db: D1Database): Promise<DiscoverRecipe[
   if (CURATED_YOUTUBE_SHORTS_IDS.length > 0) {
     const placeholders = CURATED_YOUTUBE_SHORTS_IDS.map(() => '?').join(', ');
     const curatedRows = await db.prepare(
-      `${DISCOVER_SELECT} WHERE id IN (${placeholders}) AND shared_with_friends = 1`
+      `${DISCOVER_SELECT} WHERE id IN (${placeholders}) AND shared_with_friends = 1 AND hidden_at IS NULL`
     ).bind(...CURATED_YOUTUBE_SHORTS_IDS).all();
     curatedShorts = (curatedRows.results as Array<Record<string, unknown>>).map(mapDiscoverRow);
   }
@@ -1677,6 +1689,7 @@ export async function getPublicDiscover(db: D1Database): Promise<DiscoverRecipe[
   const rows = await db.prepare(
     `${DISCOVER_SELECT}
      WHERE shared_with_friends = 1
+       AND hidden_at IS NULL
        AND (source_url LIKE '%tiktok.com%' OR source_url LIKE '%instagram.com%'
             OR source_url LIKE '%youtube.com/shorts%')
      ORDER BY created_at DESC
@@ -1709,7 +1722,8 @@ export async function getTrendingRecipes(
      FROM recipes
      WHERE user_id = ?
        AND is_favorite = 1
-       AND shared_with_friends = 1`
+       AND shared_with_friends = 1
+       AND hidden_at IS NULL`
   ).bind(userId).all();
   const all = (rows.results as Array<Record<string, unknown>>).filter(isCleanDiscoveryRow);
   const week = currentWeekIndex(now);
@@ -1825,7 +1839,8 @@ export async function getEditorsPick(
      FROM recipes
      WHERE user_id = ?
        AND is_favorite = 1
-       AND shared_with_friends = 1`
+       AND shared_with_friends = 1
+       AND hidden_at IS NULL`
   ).bind(userId).all();
   const all = (rows.results as Array<Record<string, unknown>>).filter(isCleanDiscoveryRow);
   // Weekly rotation: deterministic shuffle keyed on (recipe id, current
@@ -1878,7 +1893,7 @@ export async function getAiPicks(
   // Fetch a pool of candidate recipes from D1 so Gemini picks from real titles
   const candidateRows = await db.prepare(
     `SELECT id, user_id, title, image_url, meal_types, duration_minutes, source_url, ingredients, steps
-     FROM recipes WHERE shared_with_friends = 1 ORDER BY RANDOM() LIMIT 40`
+     FROM recipes WHERE shared_with_friends = 1 AND hidden_at IS NULL ORDER BY RANDOM() LIMIT 40`
   ).all();
   // Only include recipes with clean, structured ingredients and steps (not Instagram captions)
   const isCleanList = (items: string[]) =>
@@ -2028,7 +2043,7 @@ export async function getFriendActivity(
   if (recipeIds.length > 0) {
     const placeholders = recipeIds.map(() => '?').join(', ');
     const recipeRows = await db.prepare(
-      `SELECT id, title, image_url, source_url, ingredients, steps FROM recipes WHERE id IN (${placeholders}) AND shared_with_friends = 1`
+      `SELECT id, title, image_url, source_url, ingredients, steps FROM recipes WHERE id IN (${placeholders}) AND shared_with_friends = 1 AND hidden_at IS NULL`
     ).bind(...recipeIds).all();
     for (const r of (recipeRows.results as Array<Record<string, unknown>>)) {
       recipeMap.set(String(r.id), {
@@ -2089,7 +2104,7 @@ export async function getFriendsRecentlySaved(db: D1Database, userId: string): P
       // stay in the saver's own collection and never surface to friends.
       // Mirrors the gate added to handleCreateRecipe's notification fanout
       // so /friends/activity and /friends/recently-saved agree.
-      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at, ingredients, steps FROM recipes WHERE user_id = ? AND shared_with_friends = 1 ORDER BY created_at DESC LIMIT 2`
+      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at, ingredients, steps FROM recipes WHERE user_id = ? AND shared_with_friends = 1 AND hidden_at IS NULL ORDER BY created_at DESC LIMIT 2`
     ).bind(String(friend.friend_id)).all();
     for (const r of (rows.results as Array<Record<string, unknown>>)) {
       items.push({
@@ -2113,7 +2128,7 @@ export async function getFriendsRecentlyShared(db: D1Database, userId: string): 
      FROM recipe_shares rs
      JOIN recipes r ON r.id = rs.recipe_id
      LEFT JOIN profiles p ON p.user_id = rs.sharer_id AND p.deleted_at IS NULL
-     WHERE rs.recipient_id = ?
+     WHERE rs.recipient_id = ? AND r.hidden_at IS NULL
      ORDER BY rs.created_at DESC
      LIMIT 10`
   ).bind(userId).all();
@@ -2152,7 +2167,7 @@ async function handleGetSharedRecipe(request: Request, env: Env, token: string) 
   }
 
   const row = await env.DB.prepare(
-    'SELECT * FROM recipes WHERE user_id = ? AND id = ?'
+    'SELECT * FROM recipes WHERE user_id = ? AND id = ? AND hidden_at IS NULL'
   ).bind(shareLink.user_id, shareLink.recipe_id).first();
   if (!row) {
     return json({ error: 'Recipe not found' }, 404, withCors());
@@ -2731,7 +2746,7 @@ async function handleImageRequest(
   }
   if (!row) {
     row = await env.DB.prepare(
-      'SELECT * FROM recipes WHERE id = ? LIMIT 1'
+      'SELECT * FROM recipes WHERE id = ? AND hidden_at IS NULL LIMIT 1'
     ).bind(recipeId).first();
   }
   if (!row) {
@@ -3410,7 +3425,7 @@ async function handleGetFriendRecipes(request: Request, env: Env, user: Authenti
   if (notModified) return notModified;
 
   const result = await env.DB.prepare(
-    'SELECT * FROM recipes WHERE user_id = ? AND shared_with_friends = 1 ORDER BY created_at DESC'
+    'SELECT * FROM recipes WHERE user_id = ? AND shared_with_friends = 1 AND hidden_at IS NULL ORDER BY created_at DESC'
   ).bind(friendId).all();
 
   const sharedRecipes = (result.results || []).map((row) => {
@@ -3450,7 +3465,7 @@ async function handleGetUserSharedRecipes(request: Request, env: Env, user: Auth
   if (notModified) return notModified;
 
   const result = await env.DB.prepare(
-    'SELECT * FROM recipes WHERE user_id = ? AND shared_with_friends = 1 ORDER BY created_at DESC'
+    'SELECT * FROM recipes WHERE user_id = ? AND shared_with_friends = 1 AND hidden_at IS NULL ORDER BY created_at DESC'
   ).bind(targetId).all();
 
   const sharedRecipes = (result.results || []).map((row) => {
@@ -3989,7 +4004,7 @@ export async function getRecommendedRecipes(
       const likeBinds = validPrefs.flatMap(pref => [`%${pref}%`, `%${pref}%`]);
       const rows = await db.prepare(
         `SELECT id, user_id, title, duration_minutes, meal_types, image_url FROM recipes r
-         WHERE r.user_id != ? AND r.shared_with_friends = 1 AND (${likeClauses})
+         WHERE r.user_id != ? AND r.shared_with_friends = 1 AND r.hidden_at IS NULL AND (${likeClauses})
          ORDER BY RANDOM() LIMIT ?`
       ).bind(userId, ...likeBinds, limit).all();
 
@@ -4060,7 +4075,7 @@ async function getRecipesForUser(
       const rows = await db.prepare(
         `SELECT id, user_id, title, source_url, image_url, meal_types, duration_minutes, ingredients, steps
          FROM recipes r
-         WHERE r.user_id != ? AND r.shared_with_friends = 1 AND (${likeClauses})
+         WHERE r.user_id != ? AND r.shared_with_friends = 1 AND r.hidden_at IS NULL AND (${likeClauses})
          ORDER BY RANDOM() LIMIT ?`
       ).bind(userId, ...likeBinds, limit).all();
 

@@ -639,3 +639,36 @@ describe('handleAdminSoftDelete', () => {
     expect(calls.some((s) => /admin_audit_log/i.test(s))).toBe(true);
   });
 });
+
+import { handleAdminHideRecipe } from './admin';
+
+describe('handleAdminHideRecipe', () => {
+  it('403 for non-admin', async () => {
+    const res = await handleAdminHideRecipe({
+      env: { DB: {} as any } as any,
+      user: { userId: 'u', email: 'no@x.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      recipeId: 'r1', body: {},
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('updates hidden_at and audit logs', async () => {
+    const calls: string[] = [];
+    const mockDb = {
+      prepare: vi.fn((sql: string) => {
+        calls.push(sql);
+        return { bind: vi.fn().mockReturnThis(), run: vi.fn().mockResolvedValue({}) };
+      }),
+    } as unknown as D1Database;
+    const res = await handleAdminHideRecipe({
+      env: { DB: mockDb } as any,
+      user: { userId: 'u', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      recipeId: 'r1', body: { reason: 'nsfw' },
+    });
+    expect(res.status).toBe(200);
+    expect(calls.some((s) => /UPDATE recipes SET hidden_at/i.test(s))).toBe(true);
+    expect(calls.some((s) => /admin_audit_log/i.test(s))).toBe(true);
+  });
+});
