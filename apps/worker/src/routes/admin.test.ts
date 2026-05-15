@@ -376,6 +376,47 @@ describe('handleAdminResendInvite', () => {
     expect(emailSends).toHaveLength(1);
     expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO admin_audit_log'));
   });
+
+  it('looks up invitee email by joining profiles (not a bogus friend_requests_sent.to_email column)', async () => {
+    const captured: string[] = [];
+    const firstMock = vi.fn().mockResolvedValue({ to_email: 'invitee@x.com' });
+    const mockDb = {
+      prepare: vi.fn((sql: string) => {
+        captured.push(sql);
+        return { bind: vi.fn().mockReturnThis(), first: firstMock, run: vi.fn().mockResolvedValue({}) };
+      }),
+    } as unknown as D1Database;
+    const res = await handleAdminResendInvite({
+      env: { DB: mockDb } as any,
+      user: { userId: 'u', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 't', body: { inviteId: 'inv1' },
+      sendEmail: async () => ({ ok: true }),
+    });
+    expect(res.status).toBe(200);
+    const lookupSql = captured.find((s) => /friend_requests_sent/i.test(s));
+    expect(lookupSql).toBeDefined();
+    expect(lookupSql).toMatch(/JOIN profiles/i);
+    expect(lookupSql).not.toMatch(/SELECT\s+to_email\s+FROM\s+friend_requests_sent/i);
+  });
+
+  it('returns 502 and logs resend_invite_failed when the email send fails', async () => {
+    const captured: string[] = [];
+    const mockDb = {
+      prepare: vi.fn((sql: string) => {
+        captured.push(sql);
+        return { bind: vi.fn().mockReturnThis(), first: vi.fn().mockResolvedValue({ to_email: 'x@y.com' }), run: vi.fn().mockResolvedValue({}) };
+      }),
+    } as unknown as D1Database;
+    const res = await handleAdminResendInvite({
+      env: { DB: mockDb } as any,
+      user: { userId: 'u', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 't', body: { inviteId: 'inv1' },
+      sendEmail: async () => ({ ok: false }),
+    });
+    expect(res.status).toBe(502);
+  });
 });
 
 import { handleAdminForceAccept } from './admin';
@@ -420,6 +461,7 @@ describe('handleAdminForceAccept', () => {
         calls.push(sql);
         return { bind: vi.fn().mockReturnThis(), first: firstMock, run: vi.fn().mockResolvedValue({}) };
       }),
+      batch: vi.fn().mockResolvedValue([]),
     } as unknown as D1Database;
 
     const res = await handleAdminForceAccept({
@@ -429,8 +471,29 @@ describe('handleAdminForceAccept', () => {
       userId: 't', body: { inviteId: 'src' },
     });
     expect(res.status).toBe(200);
-    const inserts = calls.filter((s) => /INSERT INTO friends/i.test(s));
+    const inserts = calls.filter((s) => /INSERT OR IGNORE INTO friends/i.test(s));
     expect(inserts.length).toBe(2); // bilateral
     expect(calls.some((s) => /INSERT INTO admin_audit_log/i.test(s))).toBe(true);
+  });
+
+  it('uses INSERT OR IGNORE and batches the writes (idempotent force-accept)', async () => {
+    const calls: string[] = [];
+    const firstMock = vi.fn()
+      .mockResolvedValueOnce({ to_user_id: 't', from_user_id: 'src', from_email: 's@x.com', from_name: 'Src', to_email: 't@x.com' })
+      .mockResolvedValue({ display_name: 'Target' });
+    const mockDb = {
+      prepare: vi.fn((sql: string) => { calls.push(sql); return { bind: vi.fn().mockReturnThis(), first: firstMock, run: vi.fn().mockResolvedValue({}) }; }),
+      batch: vi.fn().mockResolvedValue([]),
+    } as unknown as D1Database;
+    const res = await handleAdminForceAccept({
+      env: { DB: mockDb } as any,
+      user: { userId: 'admin', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 't', body: { inviteId: 'src' },
+    });
+    expect(res.status).toBe(200);
+    expect((mockDb as any).batch).toHaveBeenCalledOnce();
+    const insertSqls = calls.filter((s) => /INSERT OR IGNORE INTO friends/i.test(s));
+    expect(insertSqls.length).toBe(2);
   });
 });

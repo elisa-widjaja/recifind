@@ -570,13 +570,16 @@ export async function handleAdminResendInvite(args: {
   if (denied) return denied;
 
   const invite = await args.env.DB.prepare(
-    `SELECT to_email FROM friend_requests_sent WHERE from_user_id = ? AND to_user_id = ?`
+    `SELECT p.email AS to_email
+     FROM friend_requests_sent frs
+     LEFT JOIN profiles p ON p.user_id = frs.to_user_id
+     WHERE frs.from_user_id = ? AND frs.to_user_id = ?`
   ).bind(args.userId, args.body.inviteId).first() as { to_email?: string } | null;
 
   if (!invite || !invite.to_email) return json(404, { code: 'NOT_FOUND' });
 
   const send = args.sendEmail || ((p) => defaultSendEmail(args.env, p));
-  await send({
+  const sendResult = await send({
     to: invite.to_email,
     subject: 'You have an invite waiting on ReciFriend',
     html: `<p>Your friend invited you to ReciFriend. <a href="https://recifriend.com">Open ReciFriend</a></p>`,
@@ -584,11 +587,12 @@ export async function handleAdminResendInvite(args: {
 
   await writeAuditLog(args.env.DB, {
     adminEmail: args.user.email!,
-    action: 'resend_invite',
+    action: sendResult.ok ? 'resend_invite' : 'resend_invite_failed',
     targetUserId: args.userId,
-    payload: { inviteId: args.body.inviteId, to_email: invite.to_email },
+    payload: { inviteId: args.body.inviteId, to_email: invite.to_email, email_ok: sendResult.ok },
   });
 
+  if (!sendResult.ok) return json(502, { code: 'EMAIL_SEND_FAILED' });
   return json(200, { ok: true });
 }
 
@@ -624,20 +628,21 @@ export async function handleAdminForceAccept(args: {
 
   // Bilateral friend rows + flip the request status.
   // Mirrors the accept logic in apps/worker/src/index.ts (~line 3119).
-  await args.env.DB.prepare(
-    `INSERT INTO friends (user_id, friend_id, friend_email, friend_name, connected_at)
-     VALUES (?, ?, ?, ?, ?)`
-  ).bind(inbound.to_user_id, inbound.from_user_id, inbound.from_email, inbound.from_name, now).run();
-
-  await args.env.DB.prepare(
-    `INSERT INTO friends (user_id, friend_id, friend_email, friend_name, connected_at)
-     VALUES (?, ?, ?, ?, ?)`
-  ).bind(inbound.from_user_id, inbound.to_user_id, inbound.to_email, toProfile?.display_name || '', now).run();
-
-  await args.env.DB.prepare(
-    `UPDATE friend_requests SET status = 'accepted'
-     WHERE to_user_id = ? AND from_user_id = ?`
-  ).bind(args.userId, args.body.inviteId).run();
+  // Deliberate divergence from normal accept (index.ts): UPDATE status instead of DELETE, to preserve the row for the admin audit/drill-down trail. Do not "fix" into a DELETE.
+  await args.env.DB.batch([
+    args.env.DB.prepare(
+      `INSERT OR IGNORE INTO friends (user_id, friend_id, friend_email, friend_name, connected_at)
+       VALUES (?, ?, ?, ?, ?)`
+    ).bind(inbound.to_user_id, inbound.from_user_id, inbound.from_email, inbound.from_name, now),
+    args.env.DB.prepare(
+      `INSERT OR IGNORE INTO friends (user_id, friend_id, friend_email, friend_name, connected_at)
+       VALUES (?, ?, ?, ?, ?)`
+    ).bind(inbound.from_user_id, inbound.to_user_id, inbound.to_email, toProfile?.display_name || '', now),
+    args.env.DB.prepare(
+      `UPDATE friend_requests SET status = 'accepted'
+       WHERE to_user_id = ? AND from_user_id = ?`
+    ).bind(args.userId, args.body.inviteId),
+  ]);
 
   await writeAuditLog(args.env.DB, {
     adminEmail: args.user.email!,
