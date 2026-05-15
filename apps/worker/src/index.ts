@@ -414,6 +414,18 @@ export default {
         });
       }
 
+      const adminForceAcceptMatch = url.pathname.match(/^\/admin\/users\/([^/]+)\/force-accept$/);
+      if (adminForceAcceptMatch && request.method === 'POST') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const { handleAdminForceAccept } = await import('./routes/admin');
+        const body = await request.json() as { inviteId: string };
+        return await handleAdminForceAccept({
+          env, user, adminEmails: env.ADMIN_EMAILS, userId: adminForceAcceptMatch[1], body,
+        });
+      }
+
       if (url.pathname === '/admin/test-nudge-email' && request.method === 'POST') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');

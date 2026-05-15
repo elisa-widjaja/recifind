@@ -377,3 +377,60 @@ describe('handleAdminResendInvite', () => {
     expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO admin_audit_log'));
   });
 });
+
+import { handleAdminForceAccept } from './admin';
+
+describe('handleAdminForceAccept', () => {
+  it('returns 403 for non-admin', async () => {
+    const res = await handleAdminForceAccept({
+      env: { DB: {} as any } as any,
+      user: { userId: 'u', email: 'no@x.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 't', body: { inviteId: 'inv1' },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 404 if friend_request not found', async () => {
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnThis(),
+        first: vi.fn().mockResolvedValue(null),
+      }),
+    } as unknown as D1Database;
+    const res = await handleAdminForceAccept({
+      env: { DB: mockDb } as any,
+      user: { userId: 'u', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 't', body: { inviteId: 'missing' },
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('inserts bilateral friend rows on success and audit logs', async () => {
+    const calls: string[] = [];
+    const firstMock = vi.fn()
+      .mockResolvedValueOnce({
+        to_user_id: 't', from_user_id: 'src',
+        from_email: 's@x.com', from_name: 'Src', to_email: 't@x.com',
+      })
+      .mockResolvedValue({ display_name: 'Target' });
+    const mockDb = {
+      prepare: vi.fn((sql: string) => {
+        calls.push(sql);
+        return { bind: vi.fn().mockReturnThis(), first: firstMock, run: vi.fn().mockResolvedValue({}) };
+      }),
+    } as unknown as D1Database;
+
+    const res = await handleAdminForceAccept({
+      env: { DB: mockDb } as any,
+      user: { userId: 'admin', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 't', body: { inviteId: 'src' },
+    });
+    expect(res.status).toBe(200);
+    const inserts = calls.filter((s) => /INSERT INTO friends/i.test(s));
+    expect(inserts.length).toBe(2); // bilateral
+    expect(calls.some((s) => /INSERT INTO admin_audit_log/i.test(s))).toBe(true);
+  });
+});

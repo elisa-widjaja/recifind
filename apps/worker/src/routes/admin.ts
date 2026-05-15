@@ -591,3 +591,60 @@ export async function handleAdminResendInvite(args: {
 
   return json(200, { ok: true });
 }
+
+// ---------------------------------------------------------------------------
+// POST /admin/users/:id/force-accept
+// ---------------------------------------------------------------------------
+
+export async function handleAdminForceAccept(args: {
+  env: { DB: D1Database };
+  user: { userId: string; email?: string };
+  adminEmails: string | undefined;
+  userId: string;             // the user whose pending invite is being accepted (the to_user_id)
+  body: { inviteId: string }; // the from_user_id of the friend_request
+}): Promise<Response> {
+  const denied = requireAdmin({ user: args.user, adminEmails: args.adminEmails });
+  if (denied) return denied;
+
+  // Look up the inbound pending friend_request: to_user_id = args.userId, from_user_id = inviteId
+  const inbound = await args.env.DB.prepare(
+    `SELECT to_user_id, from_user_id, from_email, from_name, to_email
+     FROM friend_requests
+     WHERE to_user_id = ? AND from_user_id = ? AND status = 'pending'`
+  ).bind(args.userId, args.body.inviteId).first() as any;
+
+  if (!inbound) return json(404, { code: 'NOT_FOUND' });
+
+  // Target user's display name for the reciprocal friend row
+  const toProfile = await args.env.DB.prepare(
+    `SELECT display_name FROM profiles WHERE user_id = ?`
+  ).bind(args.userId).first() as any;
+
+  const now = new Date().toISOString();
+
+  // Bilateral friend rows + flip the request status.
+  // Mirrors the accept logic in apps/worker/src/index.ts (~line 3119).
+  await args.env.DB.prepare(
+    `INSERT INTO friends (user_id, friend_id, friend_email, friend_name, connected_at)
+     VALUES (?, ?, ?, ?, ?)`
+  ).bind(inbound.to_user_id, inbound.from_user_id, inbound.from_email, inbound.from_name, now).run();
+
+  await args.env.DB.prepare(
+    `INSERT INTO friends (user_id, friend_id, friend_email, friend_name, connected_at)
+     VALUES (?, ?, ?, ?, ?)`
+  ).bind(inbound.from_user_id, inbound.to_user_id, inbound.to_email, toProfile?.display_name || '', now).run();
+
+  await args.env.DB.prepare(
+    `UPDATE friend_requests SET status = 'accepted'
+     WHERE to_user_id = ? AND from_user_id = ?`
+  ).bind(args.userId, args.body.inviteId).run();
+
+  await writeAuditLog(args.env.DB, {
+    adminEmail: args.user.email!,
+    action: 'force_accept',
+    targetUserId: args.userId,
+    payload: { inviteId: args.body.inviteId, from_user_id: inbound.from_user_id },
+  });
+
+  return json(200, { ok: true });
+}
