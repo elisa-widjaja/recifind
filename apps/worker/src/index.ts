@@ -337,59 +337,6 @@ export default {
         })();
       }
 
-      // Admin: send test nudge email
-      if (url.pathname === '/admin/test-nudge-email' && request.method === 'POST') {
-        return await (async () => {
-          const authHeader = request.headers.get('Authorization');
-          const apiKey = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
-          if (!env.DEV_API_KEY || apiKey !== env.DEV_API_KEY) {
-            return json({ error: 'Unauthorized' }, 401, withCors());
-          }
-
-          const toEmail = url.searchParams.get('to');
-          if (!toEmail) {
-            return json({ error: 'Missing ?to= query param' }, 400, withCors());
-          }
-
-          let profileUserId = url.searchParams.get('userId') || '';
-          let displayName = 'there';
-
-          if (profileUserId) {
-            // Look up by userId
-            const row = await env.DB.prepare('SELECT display_name FROM profiles WHERE user_id = ?').bind(profileUserId).first();
-            if (row) displayName = row.display_name as string;
-          } else {
-            // Look up by email
-            const row = await env.DB.prepare('SELECT user_id, display_name FROM profiles WHERE email = ? LIMIT 1').bind(toEmail).first();
-            if (row) {
-              profileUserId = row.user_id as string;
-              displayName = row.display_name as string;
-            } else {
-              profileUserId = 'test-user';
-            }
-          }
-
-          const recipes = await getRecommendedRecipes(env.DB, profileUserId);
-          const gifUrl: string | null = null; // Will be set after GIF is uploaded to Supabase
-
-          const secret = env.DEV_API_KEY;
-          if (!secret) throw new HttpError(500, 'Server misconfiguration: missing signing key');
-          const unsubToken = await computeHmac(secret, profileUserId);
-          let html = buildNudgeEmailHtml(displayName, recipes, gifUrl);
-          html = html.replace('__USER_ID__', encodeURIComponent(profileUserId));
-          html = html.replace('__TOKEN__', unsubToken);
-
-          const emailResult = await sendEmailNotification(
-            env,
-            toEmail,
-            `Your recipes are waiting, ${displayName}!`,
-            html
-          );
-
-          return json({ ok: emailResult.ok, sentTo: toEmail, recipesIncluded: recipes.length, resendStatus: emailResult.status, resendResponse: emailResult.body }, 200, withCors());
-        })();
-      }
-
       // Public endpoint to get shared recipe by token (no auth required)
       const shareTokenMatch = url.pathname.match(/^\/public\/share\/([^/]+)$/);
       if (shareTokenMatch && request.method === 'GET') {
@@ -434,6 +381,14 @@ export default {
         }
         const { handleAdminMe } = await import('./routes/admin');
         return await handleAdminMe({ user, adminEmails: env.ADMIN_EMAILS });
+      }
+
+      if (url.pathname === '/admin/test-nudge-email' && request.method === 'POST') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const { handleTestNudgeEmail } = await import('./routes/admin');
+        return await handleTestNudgeEmail({ env, user, adminEmails: env.ADMIN_EMAILS, request });
       }
 
       if (url.pathname === '/recipes' && request.method === 'GET') {
@@ -3850,7 +3805,7 @@ async function addNotification(env: Env, userId: string, notification: Omit<Noti
   ).bind(userId, userId).run();
 }
 
-async function sendEmailNotification(env: Env, to: string, subject: string, html: string): Promise<{ ok: boolean; status?: number; body?: string }> {
+export async function sendEmailNotification(env: Env, to: string, subject: string, html: string): Promise<{ ok: boolean; status?: number; body?: string }> {
   if (!env.RESEND_API_KEY) return { ok: false, body: 'RESEND_API_KEY not set' };
   try {
     const resp = await fetch('https://api.resend.com/emails', {
@@ -3877,7 +3832,7 @@ async function sendEmailNotification(env: Env, to: string, subject: string, html
   }
 }
 
-async function computeHmac(secret: string, data: string): Promise<string> {
+export async function computeHmac(secret: string, data: string): Promise<string> {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
     'raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
@@ -3909,7 +3864,7 @@ async function getOrCreateShareToken(db: D1Database, recipeUserId: string, recip
   return token;
 }
 
-async function getRecommendedRecipes(
+export async function getRecommendedRecipes(
   db: D1Database,
   userId: string,
   limit = 3
@@ -4030,7 +3985,7 @@ async function getRecipesForUser(
   return getEditorsPick(db);
 }
 
-function buildNudgeEmailHtml(
+export function buildNudgeEmailHtml(
   displayName: string,
   recipes: RecommendedRecipe[],
   gifUrl: string | null
