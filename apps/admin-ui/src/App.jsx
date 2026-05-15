@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react';
 import { Box, Button, Typography, CircularProgress } from '@mui/material';
 import { supabase } from './supabaseClient';
 import { fetchAdmin } from './api';
+import SidebarNav from './components/SidebarNav';
+import Dashboard from './pages/Dashboard';
+import Users from './pages/Users';
+import UserDrilldown from './pages/UserDrilldown';
+import AuditLog from './pages/AuditLog';
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -53,10 +58,28 @@ export default function App() {
   }
 
   return (
-    <Box sx={{ p: 4 }}>
-      <Typography variant="h4">ReciFriend Admin</Typography>
-      <Typography>Signed in as {check.email}</Typography>
-      <Button sx={{ mt: 2 }} onClick={signOut}>Sign out</Button>
+    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+      <SidebarNav signOut={signOut} email={check.email} />
+      <Box sx={{ flex: 1, p: 4 }}>
+        <Router />
+      </Box>
     </Box>
   );
+}
+
+function Router() {
+  const [hash, setHash] = useState(window.location.hash || '#/');
+  useEffect(() => {
+    const onHash = () => setHash(window.location.hash || '#/');
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  if (hash.startsWith('#/users/')) {
+    const id = hash.slice('#/users/'.length);
+    return <UserDrilldown id={id} />;
+  }
+  if (hash === '#/users') return <Users />;
+  if (hash === '#/audit-log') return <AuditLog />;
+  return <Dashboard />;
 }
