@@ -699,3 +699,40 @@ export async function handleAdminMagicLink(args: {
 
   return json(200, { url, email: profile.email });
 }
+
+// ---------------------------------------------------------------------------
+// PATCH /admin/users/:id — edit profile (v1: display_name only)
+// ---------------------------------------------------------------------------
+
+export async function handleAdminEditUser(args: {
+  env: { DB: D1Database };
+  user: { userId: string; email?: string };
+  adminEmails: string | undefined;
+  userId: string;
+  body: { display_name?: string };
+}): Promise<Response> {
+  const denied = requireAdmin({ user: args.user, adminEmails: args.adminEmails });
+  if (denied) return denied;
+
+  const newName = (args.body.display_name || '').trim();
+  if (!newName) return json(400, { code: 'BAD_REQUEST', message: 'display_name required' });
+  if (newName.length > 100) return json(400, { code: 'BAD_REQUEST', message: 'display_name too long' });
+
+  const before = await args.env.DB.prepare(
+    `SELECT display_name FROM profiles WHERE user_id = ?`
+  ).bind(args.userId).first() as { display_name?: string } | null;
+  if (!before) return json(404, { code: 'NOT_FOUND' });
+
+  await args.env.DB.prepare(
+    `UPDATE profiles SET display_name = ? WHERE user_id = ?`
+  ).bind(newName, args.userId).run();
+
+  await writeAuditLog(args.env.DB, {
+    adminEmail: args.user.email!,
+    action: 'edit_profile',
+    targetUserId: args.userId,
+    payload: { field: 'display_name', from: before.display_name, to: newName },
+  });
+
+  return json(200, { ok: true, display_name: newName });
+}

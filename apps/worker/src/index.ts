@@ -402,6 +402,18 @@ export default {
         });
       }
 
+      const adminEditUserMatch = url.pathname.match(/^\/admin\/users\/([^/]+)$/);
+      if (adminEditUserMatch && request.method === 'PATCH') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const { handleAdminEditUser } = await import('./routes/admin');
+        const body = await request.json() as { display_name?: string };
+        return await handleAdminEditUser({
+          env, user, adminEmails: env.ADMIN_EMAILS, userId: adminEditUserMatch[1], body,
+        });
+      }
+
       const adminResendMatch = url.pathname.match(/^\/admin\/users\/([^/]+)\/resend-invite$/);
       if (adminResendMatch && request.method === 'POST') {
         if (!user) {

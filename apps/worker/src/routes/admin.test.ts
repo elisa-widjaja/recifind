@@ -558,3 +558,51 @@ describe('handleAdminMagicLink', () => {
     expect(body.url).toContain('magiclink');
   });
 });
+
+import { handleAdminEditUser } from './admin';
+
+describe('handleAdminEditUser', () => {
+  it('returns 403 for non-admin', async () => {
+    const res = await handleAdminEditUser({
+      env: { DB: {} as any } as any,
+      user: { userId: 'u', email: 'no@x.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 't', body: { display_name: 'X' },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('updates display_name and audit logs', async () => {
+    const captured: string[] = [];
+    const mockDb = {
+      prepare: vi.fn((sql: string) => {
+        captured.push(sql);
+        return {
+          bind: vi.fn().mockReturnThis(),
+          first: vi.fn().mockResolvedValue({ display_name: 'OldName' }),
+          run: vi.fn().mockResolvedValue({}),
+        };
+      }),
+    } as unknown as D1Database;
+    const res = await handleAdminEditUser({
+      env: { DB: mockDb } as any,
+      user: { userId: 'u', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 't', body: { display_name: 'NewName' },
+    });
+    expect(res.status).toBe(200);
+    expect(captured.some((s) => /UPDATE profiles SET display_name/i.test(s))).toBe(true);
+    expect(captured.some((s) => /admin_audit_log/i.test(s))).toBe(true);
+  });
+
+  it('returns 400 for empty display_name', async () => {
+    const mockDb = { prepare: vi.fn() } as unknown as D1Database;
+    const res = await handleAdminEditUser({
+      env: { DB: mockDb } as any,
+      user: { userId: 'u', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 't', body: { display_name: '' },
+    });
+    expect(res.status).toBe(400);
+  });
+});
