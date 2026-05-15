@@ -672,3 +672,33 @@ describe('handleAdminHideRecipe', () => {
     expect(calls.some((s) => /admin_audit_log/i.test(s))).toBe(true);
   });
 });
+
+import { handleAdminAuditLog } from './admin';
+
+describe('handleAdminAuditLog', () => {
+  it('returns 403 for non-admin', async () => {
+    const res = await handleAdminAuditLog({
+      env: { DB: {} as any },
+      user: { userId: 'u', email: 'no@x.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      url: new URL('http://x/admin/audit-log'),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('returns paginated entries', async () => {
+    const allMock = vi.fn().mockResolvedValue({ results: [
+      { id: 1, admin_email: 'a@b', action: 'hide_recipe', target_user_id: null, target_recipe_id: 'r1', payload: '{}', created_at: '2026-05-14' },
+    ]});
+    const mockDb = { prepare: vi.fn().mockReturnValue({ bind: vi.fn().mockReturnThis(), all: allMock }) } as unknown as D1Database;
+    const res = await handleAdminAuditLog({
+      env: { DB: mockDb },
+      user: { userId: 'u', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      url: new URL('http://x/admin/audit-log?limit=10&offset=0'),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.entries).toHaveLength(1);
+  });
+});

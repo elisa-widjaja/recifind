@@ -488,6 +488,14 @@ export default {
         return await handleAdminMetricsTimeseries({ env, user, adminEmails: env.ADMIN_EMAILS, url });
       }
 
+      if (url.pathname === '/admin/audit-log' && request.method === 'GET') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const { handleAdminAuditLog } = await import('./routes/admin');
+        return await handleAdminAuditLog({ env, user, adminEmails: env.ADMIN_EMAILS, url });
+      }
+
       if (url.pathname === '/recipes' && request.method === 'GET') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');

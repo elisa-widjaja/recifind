@@ -786,3 +786,35 @@ export async function handleAdminHideRecipe(args: {
 
   return json(200, { ok: true });
 }
+
+// ---------------------------------------------------------------------------
+// GET /admin/audit-log — read-only reverse-chron list of admin mutations
+// ---------------------------------------------------------------------------
+
+export async function handleAdminAuditLog(args: {
+  env: { DB: D1Database };
+  user: { userId: string; email?: string };
+  adminEmails: string | undefined;
+  url: URL;
+}): Promise<Response> {
+  const denied = requireAdmin({ user: args.user, adminEmails: args.adminEmails });
+  if (denied) return denied;
+
+  const limit = Math.min(parseInt(args.url.searchParams.get('limit') || '100', 10), 500);
+  const offset = parseInt(args.url.searchParams.get('offset') || '0', 10);
+  const adminEmail = args.url.searchParams.get('adminEmail') || undefined;
+  const action = args.url.searchParams.get('action') || undefined;
+
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (adminEmail) { where.push('admin_email = ?'); params.push(adminEmail); }
+  if (action) { where.push('action = ?'); params.push(action); }
+  const sql = `SELECT id, admin_email, action, target_user_id, target_recipe_id, payload, created_at
+               FROM admin_audit_log
+               ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+               ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+  params.push(limit, offset);
+
+  const rows = await args.env.DB.prepare(sql).bind(...params).all();
+  return json(200, { entries: rows.results || [], page: { limit, offset } });
+}
