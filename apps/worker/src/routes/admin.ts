@@ -331,3 +331,86 @@ function filterByActivity(rows: any[], activity: UsersListParams['activity']) {
   if (!activity) return rows;
   return rows.filter((r) => classifyActivity(r, r.last_sign_in_at) === activity);
 }
+
+// ---------------------------------------------------------------------------
+// /admin/users/:id — drill-down
+// ---------------------------------------------------------------------------
+
+export async function handleAdminUserDrilldown(args: {
+  env: { DB: D1Database; SUPABASE_URL: string; SUPABASE_SERVICE_ROLE_KEY?: string };
+  user: { userId: string; email?: string };
+  adminEmails: string | undefined;
+  userId: string;
+}): Promise<Response> {
+  const denied = requireAdmin({ user: args.user, adminEmails: args.adminEmails });
+  if (denied) return denied;
+
+  // 1. Profile (admin can view soft-deleted users)
+  const profile = await args.env.DB.prepare(
+    `SELECT user_id, email, display_name, created_at, deleted_at
+     FROM profiles WHERE user_id = ?`
+  ).bind(args.userId).first();
+  if (!profile) return json(404, { code: 'NOT_FOUND' });
+
+  // 2. Recipes
+  const recipes = await args.env.DB.prepare(
+    `SELECT id, title, created_at, hidden_at
+     FROM recipes WHERE user_id = ? ORDER BY created_at DESC`
+  ).bind(args.userId).all();
+
+  // 3. Last 20 cook events
+  const cookEvents = await args.env.DB.prepare(
+    `SELECT recipe_id, created_at
+     FROM cook_events WHERE user_id = ? ORDER BY created_at DESC LIMIT 20`
+  ).bind(args.userId).all();
+
+  // 4. Invites sent: friend_requests_sent + join friends/profile to derive status + email
+  const sent = await args.env.DB.prepare(
+    `SELECT frs.to_user_id, p.email AS to_email, p.deleted_at,
+            CASE WHEN f.user_id IS NOT NULL THEN 'accepted' ELSE 'pending' END AS status,
+            COALESCE(f.connected_at, '') AS accepted_at
+     FROM friend_requests_sent frs
+     LEFT JOIN profiles p ON p.user_id = frs.to_user_id
+     LEFT JOIN friends f ON f.user_id = frs.from_user_id AND f.friend_id = frs.to_user_id
+     WHERE frs.from_user_id = ?
+     ORDER BY accepted_at DESC`
+  ).bind(args.userId).all();
+
+  // 5. Pending invites received
+  const pendingReceived = await args.env.DB.prepare(
+    `SELECT fr.from_user_id, fr.from_email, fr.created_at
+     FROM friend_requests fr
+     WHERE fr.to_user_id = ? AND fr.status = 'pending'
+     ORDER BY fr.created_at DESC`
+  ).bind(args.userId).all();
+
+  // Enrich invitees with recipe count + last_sign_in
+  const invitees = await Promise.all((sent.results || []).map(async (row: any) => {
+    const rc = await args.env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM recipes WHERE user_id = ?`
+    ).bind(row.to_user_id).first() as { c: number };
+    let lastSignInAt: string | null = null;
+    if (args.env.SUPABASE_SERVICE_ROLE_KEY && row.to_user_id) {
+      try {
+        const r = await fetch(`${args.env.SUPABASE_URL}/auth/v1/admin/users/${row.to_user_id}`, {
+          headers: {
+            Authorization: `Bearer ${args.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            apikey: args.env.SUPABASE_SERVICE_ROLE_KEY,
+          },
+        });
+        if (r.ok) lastSignInAt = (await r.json() as any).last_sign_in_at;
+      } catch (err) {
+        console.error('[admin] drilldown invitee enrichment failed', { userId: row.to_user_id, err });
+      }
+    }
+    return { ...row, recipe_count: rc?.c || 0, last_sign_in_at: lastSignInAt };
+  }));
+
+  return json(200, {
+    profile,
+    recipes: recipes.results || [],
+    cook_events: cookEvents.results || [],
+    invites_sent: invitees,
+    pending_received: pendingReceived.results || [],
+  });
+}

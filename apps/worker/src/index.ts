@@ -391,6 +391,17 @@ export default {
         return await handleAdminUsersList({ env, user, adminEmails: env.ADMIN_EMAILS, url });
       }
 
+      const adminUserDrilldownMatch = url.pathname.match(/^\/admin\/users\/([^/]+)$/);
+      if (adminUserDrilldownMatch && request.method === 'GET') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const { handleAdminUserDrilldown } = await import('./routes/admin');
+        return await handleAdminUserDrilldown({
+          env, user, adminEmails: env.ADMIN_EMAILS, userId: adminUserDrilldownMatch[1],
+        });
+      }
+
       if (url.pathname === '/admin/test-nudge-email' && request.method === 'POST') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');

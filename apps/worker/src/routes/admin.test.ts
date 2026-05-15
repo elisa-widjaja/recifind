@@ -241,3 +241,69 @@ describe('handleAdminUsersList input validation', () => {
     expect(res.status).toBe(403);
   });
 });
+
+import { handleAdminUserDrilldown } from './admin';
+
+describe('handleAdminUserDrilldown', () => {
+  it('returns 403 for non-admin', async () => {
+    const res = await handleAdminUserDrilldown({
+      env: { DB: {} as any, SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: undefined },
+      user: { userId: 'u-1', email: 'intruder@example.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 'target-user',
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 404 when user not found', async () => {
+    const firstMock = vi.fn().mockResolvedValue(null);
+    const allMock = vi.fn().mockResolvedValue({ results: [] });
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnThis(),
+        first: firstMock,
+        all: allMock,
+      }),
+    } as unknown as D1Database;
+
+    const res = await handleAdminUserDrilldown({
+      env: { DB: mockDb, SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: undefined },
+      user: { userId: 'u-1', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 'missing-user',
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('returns full payload for an existing user', async () => {
+    const profile = { user_id: 'target', email: 't@x.com', display_name: 'T', created_at: '2026-01-01', deleted_at: null };
+    const recipes = [{ id: 'r1', title: 'Pie', created_at: '2026-02-01', hidden_at: null }];
+    const cookEvents = [{ recipe_id: 'r1', created_at: '2026-02-02' }];
+    const invitesSent = [{ to_user_id: 'inv1', to_email: 'inv@x.com', status: 'accepted', created_at: '2026-01-15' }];
+    const pendingReceived = [{ from_user_id: 'src1', from_email: 's@x.com', created_at: '2026-02-10' }];
+
+    let callIdx = 0;
+    const stubs = [profile, { results: recipes }, { results: cookEvents }, { results: invitesSent }, { results: pendingReceived }];
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnThis(),
+        first: vi.fn().mockImplementation(() => Promise.resolve(stubs[callIdx++])),
+        all: vi.fn().mockImplementation(() => Promise.resolve(stubs[callIdx++])),
+      }),
+    } as unknown as D1Database;
+
+    const res = await handleAdminUserDrilldown({
+      env: { DB: mockDb, SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: undefined },
+      user: { userId: 'u-1', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 'target',
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.profile.email).toBe('t@x.com');
+    expect(body.recipes).toHaveLength(1);
+    expect(body.invites_sent).toHaveLength(1);
+    expect(body.pending_received).toHaveLength(1);
+  });
+});
