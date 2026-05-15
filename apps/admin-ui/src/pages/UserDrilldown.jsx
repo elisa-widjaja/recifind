@@ -134,10 +134,7 @@ export default function UserDrilldown({ id }) {
                 <TableCell>
                   {iv.status}
                   {iv.status === 'pending' && (
-                    <>
-                      <Button size="small" sx={{ ml: 1 }} onClick={() => doResend(iv.to_user_id)}>Resend</Button>
-                      <Button size="small" onClick={() => doForceAccept(iv.to_user_id)}>Force-accept</Button>
-                    </>
+                    <Button size="small" sx={{ ml: 1 }} onClick={() => doResend(iv.to_user_id)}>Resend</Button>
                   )}
                 </TableCell>
                 <TableCell>{iv.recipe_count}</TableCell>
@@ -150,9 +147,12 @@ export default function UserDrilldown({ id }) {
 
       <Section title={`Pending invites received (${data.pending_received.length})`}>
         {data.pending_received.map((pi, i) => (
-          <Typography variant="body2" key={i}>
-            {pi.from_email} — sent {new Date(pi.created_at).toLocaleDateString()}
-          </Typography>
+          <Stack key={i} direction="row" justifyContent="space-between" alignItems="center" sx={{ py: 0.5 }}>
+            <Typography variant="body2">
+              {pi.from_email} — sent {new Date(pi.created_at).toLocaleDateString()}
+            </Typography>
+            <Button size="small" onClick={() => doForceAccept(pi.from_user_id)}>Force-accept</Button>
+          </Stack>
         ))}
       </Section>
 
