@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isAdminEmail } from './admin';
 import { writeAuditLog } from './admin';
 import { handleAdminMe } from './admin';
@@ -495,5 +495,66 @@ describe('handleAdminForceAccept', () => {
     expect((mockDb as any).batch).toHaveBeenCalledOnce();
     const insertSqls = calls.filter((s) => /INSERT OR IGNORE INTO friends/i.test(s));
     expect(insertSqls.length).toBe(2);
+  });
+});
+
+import { handleAdminMagicLink } from './admin';
+
+describe('handleAdminMagicLink', () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it('returns 403 for non-admin', async () => {
+    const res = await handleAdminMagicLink({
+      env: { DB: {} as any, SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: '' } as any,
+      user: { userId: 'u', email: 'no@x.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 't',
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 404 if user not found', async () => {
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnThis(),
+        first: vi.fn().mockResolvedValue(null),
+      }),
+    } as unknown as D1Database;
+    const res = await handleAdminMagicLink({
+      env: { DB: mockDb, SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: '' } as any,
+      user: { userId: 'u', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 'missing',
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('calls Supabase generateLink and returns the URL', async () => {
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnThis(),
+        first: vi.fn().mockResolvedValue({ email: 't@x.com' }),
+        run: vi.fn().mockResolvedValue({}),
+      }),
+    } as unknown as D1Database;
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ properties: { action_link: 'https://example.com/magiclink-abc' } }),
+    }) as any;
+
+    const res = await handleAdminMagicLink({
+      env: { DB: mockDb, SUPABASE_URL: 'https://sb.example.com', SUPABASE_SERVICE_ROLE_KEY: 'srk' } as any,
+      user: { userId: 'u', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 't',
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.url).toContain('magiclink');
   });
 });

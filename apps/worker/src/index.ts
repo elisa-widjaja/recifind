@@ -426,6 +426,17 @@ export default {
         });
       }
 
+      const adminMagicLinkMatch = url.pathname.match(/^\/admin\/users\/([^/]+)\/magic-link$/);
+      if (adminMagicLinkMatch && request.method === 'POST') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const { handleAdminMagicLink } = await import('./routes/admin');
+        return await handleAdminMagicLink({
+          env, user, adminEmails: env.ADMIN_EMAILS, userId: adminMagicLinkMatch[1],
+        });
+      }
+
       if (url.pathname === '/admin/test-nudge-email' && request.method === 'POST') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');

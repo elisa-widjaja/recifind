@@ -653,3 +653,49 @@ export async function handleAdminForceAccept(args: {
 
   return json(200, { ok: true });
 }
+
+// ---------------------------------------------------------------------------
+// POST /admin/users/:id/magic-link — generate a one-time login link
+// ---------------------------------------------------------------------------
+
+export async function handleAdminMagicLink(args: {
+  env: { DB: D1Database; SUPABASE_URL: string; SUPABASE_SERVICE_ROLE_KEY?: string };
+  user: { userId: string; email?: string };
+  adminEmails: string | undefined;
+  userId: string;
+}): Promise<Response> {
+  const denied = requireAdmin({ user: args.user, adminEmails: args.adminEmails });
+  if (denied) return denied;
+
+  const profile = await args.env.DB.prepare(
+    `SELECT email FROM profiles WHERE user_id = ?`
+  ).bind(args.userId).first() as { email?: string } | null;
+  if (!profile?.email) return json(404, { code: 'NOT_FOUND' });
+
+  if (!args.env.SUPABASE_SERVICE_ROLE_KEY) return json(500, { code: 'CONFIG' });
+
+  const res = await fetch(`${args.env.SUPABASE_URL}/auth/v1/admin/generate_link`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${args.env.SUPABASE_SERVICE_ROLE_KEY}`,
+      apikey: args.env.SUPABASE_SERVICE_ROLE_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ type: 'magiclink', email: profile.email }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    return json(500, { code: 'SUPABASE_ERROR', detail: text });
+  }
+  const body = await res.json() as any;
+  const url = body.properties?.action_link || body.action_link;
+
+  await writeAuditLog(args.env.DB, {
+    adminEmail: args.user.email!,
+    action: 'generate_magic_link',
+    targetUserId: args.userId,
+    payload: { email: profile.email },
+  });
+
+  return json(200, { url, email: profile.email });
+}
