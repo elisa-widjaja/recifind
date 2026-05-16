@@ -360,8 +360,8 @@ export async function handleAdminUserDrilldown(args: {
 
   // 3. Last 20 cook events
   const cookEvents = await args.env.DB.prepare(
-    `SELECT recipe_id, created_at
-     FROM cook_events WHERE user_id = ? ORDER BY created_at DESC LIMIT 20`
+    `SELECT recipe_id, cooked_at AS created_at
+     FROM cook_events WHERE user_id = ? ORDER BY cooked_at DESC LIMIT 20`
   ).bind(args.userId).all();
 
   // 4. Invites sent: friend_requests_sent + join friends/profile to derive status + email
