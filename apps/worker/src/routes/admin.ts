@@ -788,6 +788,32 @@ export async function handleAdminHideRecipe(args: {
 }
 
 // ---------------------------------------------------------------------------
+// POST /admin/recipes/:id/unhide — restore a soft-hidden recipe to feeds
+// ---------------------------------------------------------------------------
+
+export async function handleAdminUnhideRecipe(args: {
+  env: { DB: D1Database };
+  user: { userId: string; email?: string };
+  adminEmails: string | undefined;
+  recipeId: string;
+}): Promise<Response> {
+  const denied = requireAdmin({ user: args.user, adminEmails: args.adminEmails });
+  if (denied) return denied;
+
+  await args.env.DB.prepare(
+    `UPDATE recipes SET hidden_at = NULL WHERE id = ?`
+  ).bind(args.recipeId).run();
+
+  await writeAuditLog(args.env.DB, {
+    adminEmail: args.user.email!,
+    action: 'unhide_recipe',
+    targetRecipeId: args.recipeId,
+  });
+
+  return json(200, { ok: true });
+}
+
+// ---------------------------------------------------------------------------
 // GET /admin/audit-log — read-only reverse-chron list of admin mutations
 // ---------------------------------------------------------------------------
 

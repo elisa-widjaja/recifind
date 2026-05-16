@@ -53,6 +53,9 @@ export default function UserDrilldown({ id }) {
   const doHideRecipe = (rid) =>
     post(`/admin/recipes/${rid}/hide`, {}).then(() => { setToast('Recipe hidden'); reload(); })
       .catch((e) => setToast(`Hide failed: ${e.message}`));
+  const doUnhideRecipe = (rid) =>
+    post(`/admin/recipes/${rid}/unhide`, {}).then(() => { setToast('Recipe unhidden'); reload(); })
+      .catch((e) => setToast(`Unhide failed: ${e.message}`));
 
   if (error) return <Typography color="error">{error}</Typography>;
   if (!data) return <CircularProgress />;
@@ -96,9 +99,13 @@ export default function UserDrilldown({ id }) {
                   {new Date(r.created_at).toLocaleDateString()}
                   {r.hidden_at && ' · hidden'}
                 </Typography>
-                {!r.hidden_at && (
+                {!r.hidden_at ? (
                   <Button size="small" onClick={() => setConfirm({ kind: 'hide_recipe', recipeId: r.id, title: r.title })}>
                     Hide
+                  </Button>
+                ) : (
+                  <Button size="small" color="primary" onClick={() => doUnhideRecipe(r.id)}>
+                    Unhide
                   </Button>
                 )}
               </Stack>

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Box, Table, TableHead, TableRow, TableCell, TableBody, TextField, Typography, MenuItem, Select } from '@mui/material';
 import { fetchAdmin } from '../api';
 
-const ACTIONS = ['', 'resend_invite', 'resend_invite_failed', 'force_accept', 'generate_magic_link', 'edit_profile', 'soft_delete_user', 'hide_recipe'];
+const ACTIONS = ['', 'resend_invite', 'resend_invite_failed', 'force_accept', 'generate_magic_link', 'edit_profile', 'soft_delete_user', 'hide_recipe', 'unhide_recipe'];
 
 export default function AuditLog() {
   const [data, setData] = useState({ entries: [] });

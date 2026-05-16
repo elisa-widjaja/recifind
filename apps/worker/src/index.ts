@@ -461,6 +461,17 @@ export default {
         });
       }
 
+      const adminUnhideRecipeMatch = url.pathname.match(/^\/admin\/recipes\/([^/]+)\/unhide$/);
+      if (adminUnhideRecipeMatch && request.method === 'POST') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const { handleAdminUnhideRecipe } = await import('./routes/admin');
+        return await handleAdminUnhideRecipe({
+          env, user, adminEmails: env.ADMIN_EMAILS, recipeId: adminUnhideRecipeMatch[1],
+        });
+      }
+
       const adminMagicLinkMatch = url.pathname.match(/^\/admin\/users\/([^/]+)\/magic-link$/);
       if (adminMagicLinkMatch && request.method === 'POST') {
         if (!user) {
