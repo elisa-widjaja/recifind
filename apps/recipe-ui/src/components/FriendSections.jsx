@@ -695,6 +695,11 @@ export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest, onOpenFr
       aria-label={ariaLabel}
       onKeyDown={isClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); } : undefined}
       sx={{
+        // Fill the strip so the text's flex:1 has slack to consume — keeps
+        // the avatar pinned left and the timestamp/thumbnail pinned right
+        // instead of trailing right after the title.
+        width: '100%',
+        minWidth: 0,
         display: 'flex',
         alignItems: 'center',
         gap: '10px',
