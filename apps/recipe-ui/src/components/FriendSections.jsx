@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { Box, Typography, Stack, Button, Dialog, DialogContent, Skeleton } from '@mui/material';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import CloseIcon from '@mui/icons-material/Close';
+import PauseRoundedIcon from '@mui/icons-material/PauseRounded';
+import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
 import SuggestionsShelf from './SuggestionsShelf';
 import RecipeThumbnail from './RecipeThumbnail';
 
@@ -91,6 +93,7 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
           type: 'friend_saved_recipe',
           friendName: i.friendName,
           friendUserId: i.friendId,
+          avatarUrl: i.avatarUrl ?? null,
           recipe: i.recipe,
           createdAt: i.recipe?.createdAt || i.createdAt || new Date().toISOString(),
           _kind: 'saved',
@@ -100,6 +103,7 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
           type: 'friend_shared_recipe',
           friendName: i.friendName,
           friendUserId: i.friendId,
+          avatarUrl: i.avatarUrl ?? null,
           recipe: i.recipe,
           createdAt: i.recipe?.createdAt || i.createdAt || new Date().toISOString(),
           _kind: 'shared',
@@ -118,9 +122,30 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
         (t === 'friend_saved_recipe' || t === 'friend_saved_your_recipe')
           ? SAVE_TYPE_CANONICAL
           : t;
+      // Exclude friendName from the key — the actor may have renamed since the
+      // notification was baked, causing the explicit and generic variants to
+      // carry different names and miss each other in the dedup check.
+      const saveKey = (i) => `${SAVE_TYPE_CANONICAL}|${i.recipe?.id || i.id}`;
+      // The explicit "saved YOUR recipe" notification is the ego-boost the
+      // owner should always see. When the same save also surfaces as a
+      // generic "saved X" (via /recently-saved), the specific variant must
+      // win regardless of which sorted first by timestamp. Collect the keys
+      // that have an explicit variant, then drop the generic twin.
+      const explicitSavedKeys = new Set(
+        merged
+          .filter((i) => i.type === 'friend_saved_your_recipe')
+          .map(saveKey)
+      );
       const seen = new Set();
       const dedup = merged.filter((item) => {
-        const key = `${item.friendName}|${canonicalType(item.type)}|${item.recipe?.id || item.id}`;
+        if (item.type === 'friend_saved_recipe' && explicitSavedKeys.has(saveKey(item))) {
+          return false; // generic twin — the explicit "saved your recipe" represents it
+        }
+        // Key on the stable friendUserId, not the mutable friendName — a
+        // rename must not split one event into two feed rows. Fall back to
+        // friendName only for legacy items that lack an actor id.
+        const actorKey = item.friendUserId || item.friendName;
+        const key = `${actorKey}|${canonicalType(item.type)}|${item.recipe?.id || item.id}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -153,8 +178,8 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
       ) : (
         unifiedFeed.length > 0 && (
           <Box>
-            <SectionLabel>Friend Activity</SectionLabel>
             <FriendActivityTicker
+              title="Friend Activity"
               items={unifiedFeed}
               onOpenRecipe={onOpenRecipe}
               onOpenFriendRequest={(it) => setRequestDialogItem(it)}
@@ -330,33 +355,105 @@ function FriendActivitySkeleton() {
   );
 }
 
-function FriendActivityTicker({ items, onOpenRecipe, onOpenFriendRequest, onOpenFriendRecipes }) {
+function FriendActivityTicker({ title, items, onOpenRecipe, onOpenFriendRequest, onOpenFriendRecipes }) {
   // Cap the pool the ticker will ever surface. Excess items are dropped.
   const cappedItems = items.slice(0, FA_MAX_ITEMS);
   const [idx, setIdx] = useState(0);
-  const [paused, setPaused] = useState(false);
+  const [expanded, setExpanded] = useState(false);   // "show more" static list
+  const [userPaused, setUserPaused] = useState(false); // explicit pause button
+  const [loopReset, setLoopReset] = useState(false);   // snap-back without animating
   const innerRef = useRef(null);
 
-  // Tick once per FA_HOLD_MS until the bottom-most frame is reached, then
-  // stop. We use a self-scheduling timeout (re-armed on each idx change)
-  // instead of setInterval so the cycle ends naturally when idx hits the
-  // last useful frame.
+  const canScroll = cappedItems.length > FA_VISIBLE;
+  const N = cappedItems.length;
+  // Seamless loop: append clones of the first FA_VISIBLE items. The ticker
+  // scrolls one step at a time from idx 0 up to idx N. At idx N the visible
+  // window shows the cloned first items — pixel-identical to idx 0 — so when
+  // we snap idx back to 0 with transition:none, the jump is invisible and the
+  // scroll reads as one continuous loop instead of an abrupt rewind.
+  const renderList = canScroll
+    ? [...cappedItems, ...cappedItems.slice(0, FA_VISIBLE)]
+    : cappedItems;
+
+  // Self-scheduling tick.
+  //  - idx < N        → animate one step down after a hold (this includes
+  //                      N-1 → N, the smooth scroll into the clone frame).
+  //  - idx === N       → we've landed on the clones; instantly snap to 0 with
+  //                      no transition. Invisible because clones == originals.
   useEffect(() => {
-    if (paused) return;
-    if (cappedItems.length <= FA_VISIBLE) return;
-    const maxIdx = cappedItems.length - FA_VISIBLE;
-    if (idx >= maxIdx) return;
+    if (expanded || userPaused || !canScroll) return;
+    if (idx >= N) {
+      // We've just *started* sliding into the clone frame. Wait the full
+      // slide duration so that animation completes and the window is exactly
+      // the cloned first items (pixel-identical to idx 0) BEFORE snapping.
+      // Resetting immediately here would cut the slide off mid-flight and
+      // jump from a half-scrolled position — the visible "flash".
+      const t = setTimeout(() => {
+        setLoopReset(true);
+        setIdx(0);
+      }, FA_SLIDE_MS);
+      return () => clearTimeout(t);
+    }
     const t = setTimeout(() => {
-      setIdx((i) => Math.min(i + 1, maxIdx));
+      setIdx((i) => i + 1);
     }, FA_HOLD_MS);
     return () => clearTimeout(t);
-  }, [paused, cappedItems.length, idx]);
+  }, [expanded, userPaused, canScroll, N, idx]);
 
-  // When paused (expanded) — render the (capped) full list as a static stack
-  // with a "Show less" link to return to the animated ticker.
-  if (paused) {
+  // Clear the no-transition flag the frame after a loop reset so the next
+  // step animates normally again.
+  useEffect(() => {
+    if (!loopReset) return;
+    const r = requestAnimationFrame(() => setLoopReset(false));
+    return () => cancelAnimationFrame(r);
+  }, [loopReset]);
+
+  const PauseToggle = canScroll ? (
+    <Box
+      component="button"
+      type="button"
+      aria-label={userPaused ? 'Resume activity animation' : 'Pause activity animation'}
+      onClick={() => setUserPaused((p) => !p)}
+      sx={(theme) => ({
+        width: 28, height: 28, borderRadius: '50%',
+        border: 'none', p: 0, m: 0,
+        cursor: 'pointer',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        // Low-contrast circle that blends with the page background in both
+        // themes (same tint scale as the share-drawer close button).
+        bgcolor: theme.palette.mode === 'dark'
+          ? 'rgba(255,255,255,0.08)'
+          : 'rgba(0,0,0,0.06)',
+        color: 'text.secondary', fontFamily: 'inherit',
+        WebkitTapHighlightColor: 'transparent',
+        transition: 'transform 120ms ease, background-color 150ms ease',
+        '&:hover': {
+          bgcolor: theme.palette.mode === 'dark'
+            ? 'rgba(255,255,255,0.12)'
+            : 'rgba(0,0,0,0.10)',
+        },
+        '&:active': { transform: 'scale(0.9)' },
+      })}
+    >
+      {userPaused
+        ? <PlayArrowRoundedIcon sx={{ fontSize: 18 }} />
+        : <PauseRoundedIcon sx={{ fontSize: 18 }} />}
+    </Box>
+  ) : null;
+
+  // Header: title on the left, pause/play toggle on the right, same line.
+  const Header = (
+    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: '10px' }}>
+      <Typography fontWeight={700} fontSize={13} sx={{ color: 'text.primary' }}>{title}</Typography>
+      {PauseToggle}
+    </Box>
+  );
+
+  // Expanded ("show more") — full static stack with a "Show less" link.
+  if (expanded) {
     return (
       <>
+        {Header}
         <Stack spacing={`${FA_GAP}px`}>
           {cappedItems.map((item) => (
             <ActivityStrip key={item.id} item={item} onOpenRecipe={onOpenRecipe} onOpenFriendRequest={onOpenFriendRequest} onOpenFriendRecipes={onOpenFriendRecipes} />
@@ -364,7 +461,7 @@ function FriendActivityTicker({ items, onOpenRecipe, onOpenFriendRequest, onOpen
         </Stack>
         <Typography
           component="button"
-          onClick={() => { setPaused(false); setIdx(0); }}
+          onClick={() => { setExpanded(false); setIdx(0); }}
           sx={{
             background: 'none', border: 'none', p: 0,
             mt: 2.5, cursor: 'pointer',
@@ -379,27 +476,18 @@ function FriendActivityTicker({ items, onOpenRecipe, onOpenFriendRequest, onOpen
     );
   }
 
-  // No looping: just render the capped items in order. The ticker stops
-  // scrolling once the bottom-most frame is reached.
-  const renderList = cappedItems;
   const moreCount = Math.max(0, cappedItems.length - FA_VISIBLE);
 
   return (
     <>
+      {Header}
       <Box
         sx={{
           height: FA_ROW_HEIGHT * FA_VISIBLE + (FA_VISIBLE - 1) * FA_GAP,
           overflow: 'hidden',
           position: 'relative',
-          // Breathing room so strip-card shadows aren't clipped at the
-          // sides; outer mx pulls the container back so cards stay flush
-          // with the rest of the page content.
           px: `${FA_SIDE_PAD}px`,
           mx: `-${FA_SIDE_PAD}px`,
-          // Vertical fade on top + bottom: visually softens the roll-out of
-          // the top card and the roll-in of the new bottom card. As a side
-          // effect, hides the bottom shadow's clip line at the container
-          // edges (the shadow fades through the mask).
           maskImage: 'linear-gradient(to bottom, transparent 0, black 24px, black calc(100% - 24px), transparent 100%)',
           WebkitMaskImage: 'linear-gradient(to bottom, transparent 0, black 24px, black calc(100% - 24px), transparent 100%)',
         }}
@@ -409,7 +497,7 @@ function FriendActivityTicker({ items, onOpenRecipe, onOpenFriendRequest, onOpen
           sx={{
             display: 'flex', flexDirection: 'column', gap: `${FA_GAP}px`,
             transform: `translateY(${-idx * FA_STEP}px)`,
-            transition: `transform ${FA_SLIDE_MS}ms ${FA_SLIDE_EASE}`,
+            transition: loopReset ? 'none' : `transform ${FA_SLIDE_MS}ms ${FA_SLIDE_EASE}`,
             willChange: 'transform',
           }}
         >
@@ -427,7 +515,7 @@ function FriendActivityTicker({ items, onOpenRecipe, onOpenFriendRequest, onOpen
       {moreCount > 0 && (
         <Typography
           component="button"
-          onClick={() => setPaused(true)}
+          onClick={() => setExpanded(true)}
           sx={{
             background: 'none', border: 'none', p: 0,
             mt: 2.5, cursor: 'pointer',
@@ -638,15 +726,29 @@ export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest, onOpenFr
               }
             } : undefined}
             sx={{
+              position: 'relative',
               width: 32, height: 32, borderRadius: '50%', bgcolor: color,
               display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              overflow: 'hidden',
               cursor: avatarTappable ? 'pointer' : 'inherit',
               WebkitTapHighlightColor: 'transparent',
               transition: 'opacity 120ms ease-out',
               '&:active': avatarTappable ? { opacity: 0.7 } : {},
             }}
           >
+            {/* Colored initial is always the backdrop; the photo overlays it
+                and removes itself on load failure so we never show a broken
+                image — the initial shows through. */}
             <Typography sx={{ color: '#fff', fontSize: 13, fontWeight: 700, lineHeight: 1 }}>{initial}</Typography>
+            {item.avatarUrl && (
+              <Box
+                component="img"
+                src={item.avatarUrl}
+                alt=""
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            )}
           </Box>
         );
       })()}
@@ -662,7 +764,7 @@ export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest, onOpenFr
           display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
         }}>
           <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>{friendName}</Box>
-          <Box component="span" sx={{ color: 'text.secondary' }}> {VERB_MAP[item.type]} </Box>
+          <Box component="span" sx={{ color: 'text.secondary' }}> {VERB_MAP[item.type]}{item.type === 'friend_saved_your_recipe' ? ':' : ''} </Box>
           <Box component="span" sx={{ fontWeight: 600, color: 'text.primary' }}>{item.recipe.title}</Box>
         </Typography>
       ) : (

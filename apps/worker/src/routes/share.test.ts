@@ -186,4 +186,51 @@ describe('POST /recipes/:id/share', () => {
     expect(body.code).toBe('NOT_FRIENDS');
     expect(body.non_friend_user_ids).toContain('u-stranger');
   });
+
+  it('inserts a friend_shared_recipe notification for each newly-shared recipient', async () => {
+    const inserts: Array<{ sql: string; args: unknown[] }> = [];
+    const kv = new Map<string, string>();
+    const env = {
+      DB: {
+        prepare: (sql: string) => ({
+          bind: (...args: unknown[]) => ({
+            first: async () => {
+              if (sql.includes('FROM recipes') && sql.includes('id = ?')) {
+                return { user_id: 'other-owner', shared_with_friends: 1, title: 'Miso Ramen' };
+              }
+              if (sql.includes('FROM recipe_shares')) return null;
+              if (sql.includes('FROM friends')) return { user_id: SHARER, friend_id: args[1] };
+              if (sql.includes('FROM profiles')) return { display_name: 'Henny' };
+              if (sql.includes('FROM device_tokens')) return { 1: 1 }; // push-reachable → no email
+              return null;
+            },
+            run: async () => {
+              if (sql.startsWith('INSERT INTO notifications')) inserts.push({ sql, args });
+              return { success: true, meta: { changes: 1 } };
+            },
+            all: async () => ({ results: [] }),
+          }),
+        }),
+      },
+      KV_RATE: {
+        get: async (k: string) => kv.get(k) ?? null,
+        put: async (k: string, v: string) => { kv.set(k, v); },
+      },
+    } as any;
+
+    const res = await handleShareRecipe({
+      env,
+      sharerId: SHARER,
+      recipeId: RECIPE,
+      body: { recipient_user_ids: ['u-friend'] },
+    });
+    expect(res.status).toBe(200);
+    const notif = inserts.find(i => i.args[1] === 'friend_shared_recipe');
+    expect(notif).toBeTruthy();
+    expect(notif!.args[0]).toBe('u-friend');                          // recipient
+    expect(String(notif!.args[2])).toContain('Henny');                // message
+    expect(String(notif!.args[2])).toContain('Miso Ramen');
+    const data = JSON.parse(String(notif!.args[3]));
+    expect(data).toMatchObject({ sharerId: SHARER, recipeId: RECIPE });
+  });
 });

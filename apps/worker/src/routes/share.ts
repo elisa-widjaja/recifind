@@ -103,9 +103,12 @@ export async function handleShareRecipe(args: {
     return json(400, error);
   }
 
-  // 5. INSERT OR IGNORE — UNIQUE constraint handles duplicate shares as no-ops
+  // 5. INSERT OR IGNORE — UNIQUE constraint handles duplicate shares as no-ops.
+  //    Track which recipients were *newly* shared with so notifications /
+  //    emails fire once per share, not again on every re-share no-op.
   let sharedWith = 0;
   let skipped = 0;
+  const newlyShared: string[] = [];
   const createdAt = Date.now();
   for (const rid of ids) {
     const { meta } = await env.DB.prepare(
@@ -115,37 +118,97 @@ export async function handleShareRecipe(args: {
       .run();
     if (meta.changes && meta.changes > 0) {
       sharedWith++;
+      newlyShared.push(rid);
     } else {
       skipped++;
     }
   }
 
-  // 6. Fire push notifications — dynamic import to avoid hard coupling with Story 05
-  //    No-op until Story 05 merges; share rows are already durable.
+  // Sharer name + recipe title — used by push, notification rows, and email.
+  const sharer = await env.DB.prepare(
+    'SELECT display_name FROM profiles WHERE user_id = ?'
+  ).bind(sharerId).first<{ display_name?: string }>();
+  const recipeRow = await env.DB.prepare(
+    'SELECT title FROM recipes WHERE id = ?'
+  ).bind(recipeId).first<{ title?: string }>();
+  const sharerName = sharer?.display_name ?? 'A friend';
+  const recipeTitle = recipeRow?.title ?? 'a recipe';
+  const deepLink = `https://recifriend.com/recipes/${recipeId}`;
+
+  // 6. Push notifications (best-effort, delivered only if the recipient has
+  //    a registered device token).
   try {
     const { sendPushToUser } = await import('../push/apns');
-    const sharer = await env.DB.prepare(
-      'SELECT display_name FROM profiles WHERE user_id = ?'
-    )
-      .bind(sharerId)
-      .first<{ display_name?: string }>();
-    const recipeRow = await env.DB.prepare(
-      'SELECT title FROM recipes WHERE id = ?'
-    )
-      .bind(recipeId)
-      .first<{ title?: string }>();
     await Promise.all(
       ids.map((rid) =>
         sendPushToUser(env as any, rid, {
           title: 'ReciFriend',
-          body: `${sharer?.display_name ?? 'A friend'} just shared ${recipeRow?.title ?? 'a recipe'} with you`,
-          deepLink: `https://recifriend.com/recipes/${recipeId}`,
+          body: `${sharerName} just shared ${recipeTitle} with you`,
+          deepLink,
         })
       )
     );
   } catch (e) {
-    // Story 05 not merged yet — push module unavailable. Share is still durable.
-    console.warn('push module not available yet:', (e as Error).message);
+    console.warn('push module unavailable:', (e as Error).message);
+  }
+
+  // 7. Notification rows — one per newly-shared recipient so the share
+  //    surfaces in the Friend Activity ticker + unread bell. friend_shared_recipe
+  //    is exempt from the public-only filter in getFriendActivity (the
+  //    recipient was explicitly shared with), so private recipes still render.
+  for (const rid of newlyShared) {
+    await env.DB.prepare(
+      'INSERT INTO notifications (user_id, type, message, data, created_at, read) VALUES (?, ?, ?, ?, ?, 0)'
+    ).bind(
+      rid,
+      'friend_shared_recipe',
+      `${sharerName} shared ${recipeTitle} with you`,
+      JSON.stringify({ sharerId, recipeId, friendName: sharerName }),
+      new Date().toISOString(),
+    ).run();
+    await env.DB.prepare(
+      `DELETE FROM notifications WHERE user_id = ? AND id NOT IN (
+        SELECT id FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50
+      )`
+    ).bind(rid, rid).run();
+  }
+
+  // 8. Email — push-gated. Only email recipients who are NOT push-reachable
+  //    (no device_tokens row) and have not opted out. As app adoption grows,
+  //    push covers most users and this volume shrinks toward zero.
+  try {
+    const { sendEmailNotification, computeHmac } = await import('../index');
+    const secret = (env as Record<string, unknown>).DEV_API_KEY as string | undefined;
+    for (const rid of newlyShared) {
+      const hasDevice = await env.DB.prepare(
+        'SELECT 1 FROM device_tokens WHERE user_id = ? LIMIT 1'
+      ).bind(rid).first();
+      if (hasDevice) continue; // reachable by push — skip email
+      const profile = await env.DB.prepare(
+        'SELECT email, email_opt_out FROM profiles WHERE user_id = ? AND deleted_at IS NULL'
+      ).bind(rid).first<{ email?: string; email_opt_out?: number }>();
+      if (!profile?.email) continue;
+      if (Number(profile.email_opt_out) === 1) continue;
+      const unsub = secret
+        ? `https://api.recifriend.com/unsubscribe?userId=${encodeURIComponent(rid)}&token=${await computeHmac(secret, rid)}`
+        : 'https://recifriend.com';
+      const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
+        <p style="font-size:16px;color:#1a1a1a;">${sharerName} shared a recipe with you on ReciFriend:</p>
+        <p style="font-size:20px;font-weight:700;color:#1a1a1a;margin:8px 0 20px;">${recipeTitle}</p>
+        <a href="${deepLink}" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;font-weight:600;padding:12px 24px;border-radius:999px;">View recipe</a>
+        <p style="margin-top:32px;font-size:12px;color:#999;">
+          <a href="${unsub}" style="color:#999;">Unsubscribe</a>
+        </p>
+      </div>`;
+      await sendEmailNotification(
+        env as any,
+        profile.email,
+        `${sharerName} shared ${recipeTitle} with you`,
+        html,
+      );
+    }
+  } catch (e) {
+    console.warn('share email step failed:', (e as Error).message);
   }
 
   const response: ShareRecipeResponse = { shared_with: sharedWith, skipped };

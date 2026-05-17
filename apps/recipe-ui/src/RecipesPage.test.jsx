@@ -71,13 +71,15 @@ describe('RecipesPage filter drawer', () => {
 
   it('shows selectedMealType chip as aria-pressed=true inside the drawer', () => {
     render(<RecipesPage {...baseProps} selectedMealType="dinner" />);
-    fireEvent.click(screen.getByRole('button', { name: /filters/i }));
+    // Anchor the name — when a filter is active a "Clear filters" link also
+    // renders, and /filters/i would match both buttons (ambiguous).
+    fireEvent.click(screen.getByRole('button', { name: /^filters$/i }));
     expect(screen.getByRole('button', { name: /dinner/i })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('renders favorites toggle inside the drawer with active state', () => {
     render(<RecipesPage {...baseProps} showFavoritesOnly />);
-    fireEvent.click(screen.getByRole('button', { name: /filters/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^filters$/i }));
     expect(screen.getByRole('button', { name: /^favorites$/i })).toHaveAttribute('aria-pressed', 'true');
   });
 });

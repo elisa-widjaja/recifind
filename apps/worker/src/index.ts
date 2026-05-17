@@ -1313,6 +1313,16 @@ async function handleUpdateProfile(request: Request, env: Env, user: Authenticat
   values.push(user.userId);
   await env.DB.prepare(`UPDATE profiles SET ${fields.join(', ')} WHERE user_id = ?`).bind(...values).run();
 
+  // friends.friend_name is a denormalized snapshot taken at connection time.
+  // When the user renames, refresh every row where they appear as someone
+  // else's friend so friends lists don't keep showing the old name.
+  if (body.displayName !== undefined) {
+    const newName = String(body.displayName).trim();
+    await env.DB.prepare(
+      'UPDATE friends SET friend_name = ? WHERE friend_id = ?'
+    ).bind(newName, user.userId).run();
+  }
+
   // Return updated fields
   const response: Record<string, any> = {};
   if (body.displayName !== undefined) response.displayName = String(body.displayName).trim();
@@ -1991,6 +2001,7 @@ export async function getAiPicks(
 type FriendRecipeItem = {
   friendName: string;
   friendId: string;
+  avatarUrl?: string | null;
   recipe: {
     id: string;
     title: string;
@@ -2018,6 +2029,7 @@ export async function getFriendActivity(
   // and for friend_request from data.fromUserId. Lets the UI link the
   // avatar to that friend's recipes drawer regardless of activity type.
   friendUserId?: string;
+  avatarUrl?: string | null;
   resolved?: boolean;
   recipe: { id: string; title: string; imageUrl: string | null; sourceUrl: string; ingredients: string[]; steps: string[] } | null;
   createdAt: string;
@@ -2058,11 +2070,17 @@ export async function getFriendActivity(
   // toggle case: notifications fired when a recipe was public get cleanly
   // dropped from the activity feed once the owner makes it private. The
   // filter on parsed.filter(...) below drops the now-empty notification.
-  const recipeMap = new Map<string, { id: string; title: string; imageUrl: string | null; sourceUrl: string; ingredients: string[]; steps: string[] }>();
+  // Fetch by id with only the hidden_at gate. The public/private gate is
+  // applied per-notification-type in the filter below: generic feed items
+  // still require shared_with_friends = 1 (so a public→private toggle drops
+  // them), but "someone saved/shared YOUR recipe" types resolve even when
+  // private — the viewer is the owner / an explicit share recipient and has
+  // a legitimate right to see it.
+  const recipeMap = new Map<string, { id: string; title: string; imageUrl: string | null; sourceUrl: string; ingredients: string[]; steps: string[]; ownerId: string; isPublic: boolean }>();
   if (recipeIds.length > 0) {
     const placeholders = recipeIds.map(() => '?').join(', ');
     const recipeRows = await db.prepare(
-      `SELECT id, title, image_url, source_url, ingredients, steps FROM recipes WHERE id IN (${placeholders}) AND shared_with_friends = 1 AND hidden_at IS NULL`
+      `SELECT id, user_id, shared_with_friends, title, image_url, source_url, ingredients, steps FROM recipes WHERE id IN (${placeholders}) AND hidden_at IS NULL`
     ).bind(...recipeIds).all();
     for (const r of (recipeRows.results as Array<Record<string, unknown>>)) {
       recipeMap.set(String(r.id), {
@@ -2072,31 +2090,92 @@ export async function getFriendActivity(
         sourceUrl: r.source_url ? String(r.source_url) : '',
         ingredients: (() => { try { return JSON.parse(String(r.ingredients || '[]')); } catch { return []; } })(),
         steps: (() => { try { return JSON.parse(String(r.steps || '[]')); } catch { return []; } })(),
+        ownerId: String(r.user_id),
+        isPublic: Number(r.shared_with_friends) === 1,
       });
+    }
+  }
+
+  // Types where the viewer is entitled to see the recipe even if it's
+  // private: they own it (someone saved it) or it was explicitly shared
+  // with them.
+  const OWNER_VISIBLE_TYPES = new Set(['friend_saved_your_recipe', 'friend_shared_recipe']);
+
+  // Resolve actor display names LIVE from profiles. The notification message
+  // and data.friendName are baked at event time, so they go stale when the
+  // actor renames — and the stale-vs-live mismatch makes the explicit
+  // "saved your recipe" and generic "saved X" variants carry different names,
+  // breaking the client-side dedup (duplicate rows, old + new name). Looking
+  // the name up by actor id keeps the feed fresh and lets dedup collapse.
+  // Recipe actors only (saver/sharer/cooker). friend_request renders from
+  // item.message on the client, so it doesn't need a live name lookup —
+  // excluding fromUserId also avoids an extra query for request-only feeds.
+  const actorIds = [...new Set(
+    parsed.flatMap(item => {
+      const d = item.data as Record<string, unknown>;
+      return [d.saverId, d.sharerId, d.cookerId]
+        .filter((v): v is string => typeof v === 'string' && v.length > 0);
+    })
+  )];
+  const actorNameById = new Map<string, string>();
+  const actorAvatarById = new Map<string, string>();
+  if (actorIds.length > 0) {
+    const ph = actorIds.map(() => '?').join(', ');
+    const actorRows = await db.prepare(
+      `SELECT user_id, display_name, avatar_url FROM profiles WHERE user_id IN (${ph}) AND deleted_at IS NULL`
+    ).bind(...actorIds).all();
+    for (const r of (actorRows.results as Array<Record<string, unknown>>)) {
+      if (r.display_name) actorNameById.set(String(r.user_id), String(r.display_name));
+      if (r.avatar_url) actorAvatarById.set(String(r.user_id), String(r.avatar_url));
     }
   }
 
   return parsed
     .filter(item => {
-      // Drop notifications that reference a deleted recipe — they'd render as
-      // untappable items in the activity feed. friend_request items have no
-      // recipeId and pass through unaffected.
+      // friend_request items have no recipeId and pass through unaffected.
       const recipeId = (item.data as Record<string, unknown>).recipeId as string | undefined;
-      return !recipeId || recipeMap.has(recipeId);
+      if (!recipeId) return true;
+      const rec = recipeMap.get(recipeId);
+      // Drop notifications referencing a deleted/hidden recipe.
+      if (!rec) return false;
+      // Public recipes always pass. Private recipes only pass for the
+      // owner-visible types above (keeps the public→private drop intact for
+      // generic feed items like friend_saved_recipe / friend_cooked_recipe).
+      if (rec.isPublic) return true;
+      return OWNER_VISIBLE_TYPES.has(item.type);
     })
     .map(item => {
       const d = item.data as Record<string, unknown>;
       const recipeId = d.recipeId as string | undefined;
-      const friendName: string | null =
-        (d.friendName as string | undefined) ?? item.message.split(' ')[0] ?? null;
       const fromUserId = typeof d.fromUserId === 'string' ? d.fromUserId : undefined;
       const saverId = typeof d.saverId === 'string' ? d.saverId : undefined;
       const sharerId = typeof d.sharerId === 'string' ? d.sharerId : undefined;
       const cookerId = typeof d.cookerId === 'string' ? d.cookerId : undefined;
+      // Live name by recipe-actor id first; fall back to the baked name,
+      // then the first word of the baked message (friend_request path).
+      const actorId = saverId ?? sharerId ?? cookerId;
+      const friendName: string | null =
+        (actorId ? actorNameById.get(actorId) : undefined)
+        ?? (d.friendName as string | undefined)
+        ?? item.message.split(' ')[0]
+        ?? null;
       const friendUserId = fromUserId ?? saverId ?? sharerId ?? cookerId;
+      const avatarUrl = actorId ? (actorAvatarById.get(actorId) ?? null) : null;
       const resolved = item.type === 'friend_request' && fromUserId
         ? !pendingFromUserIds.has(fromUserId)
         : undefined;
+      const rec = recipeId ? recipeMap.get(recipeId) : undefined;
+      // Project to the public recipe shape — strip internal ownerId/isPublic.
+      const recipe = rec
+        ? {
+            id: rec.id,
+            title: rec.title,
+            imageUrl: rec.imageUrl,
+            sourceUrl: rec.sourceUrl,
+            ingredients: rec.ingredients,
+            steps: rec.steps,
+          }
+        : null;
       return {
         id: item.id,
         type: item.type,
@@ -2104,8 +2183,9 @@ export async function getFriendActivity(
         friendName,
         ...(fromUserId ? { fromUserId } : {}),
         ...(friendUserId ? { friendUserId } : {}),
+        ...(avatarUrl ? { avatarUrl } : {}),
         ...(resolved !== undefined ? { resolved } : {}),
-        recipe: recipeId ? (recipeMap.get(recipeId) ?? null) : null,
+        recipe,
         createdAt: item.createdAt,
         read: item.read,
       };
@@ -2113,8 +2193,17 @@ export async function getFriendActivity(
 }
 
 export async function getFriendsRecentlySaved(db: D1Database, userId: string): Promise<FriendRecipeItem[]> {
+  // JOIN profiles so friendName is the current display_name, not the
+  // connection-time snapshot. A stale snapshot here makes the same save
+  // surface under an old name via /recently-saved while /activity carries
+  // the live name — the two then miss each other in the client dedup.
   const friends = await db.prepare(
-    `SELECT friend_id, friend_name FROM friends WHERE user_id = ?`
+    `SELECT f.friend_id,
+            COALESCE(p.display_name, f.friend_name) AS friend_name,
+            p.avatar_url AS avatar_url
+     FROM friends f
+     LEFT JOIN profiles p ON p.user_id = f.friend_id AND p.deleted_at IS NULL
+     WHERE f.user_id = ?`
   ).bind(userId).all();
   const items: FriendRecipeItem[] = [];
   for (const friend of (friends.results as Array<Record<string, unknown>>)) {
@@ -2129,6 +2218,7 @@ export async function getFriendsRecentlySaved(db: D1Database, userId: string): P
       items.push({
         friendName: String(friend.friend_name),
         friendId: String(friend.friend_id),
+        avatarUrl: friend.avatar_url ? String(friend.avatar_url) : null,
         recipe: { id: String(r.id), userId: String(friend.friend_id), title: String(r.title), sourceUrl: r.source_url ? String(r.source_url) : null, imageUrl: r.image_url ? String(r.image_url) : null, mealTypes: JSON.parse(String(r.meal_types || '[]')), durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null, createdAt: String(r.created_at), ingredients: JSON.parse(String(r.ingredients || '[]')), steps: JSON.parse(String(r.steps || '[]')) }
       });
     }
@@ -2143,7 +2233,7 @@ export async function getFriendsRecentlyShared(db: D1Database, userId: string): 
     `SELECT r.id, r.user_id, r.title, r.source_url, r.image_url, r.meal_types,
             r.duration_minutes, r.created_at, r.ingredients, r.steps,
             rs.created_at as shared_at, rs.sharer_id,
-            p.display_name as sharer_name
+            p.display_name as sharer_name, p.avatar_url as sharer_avatar
      FROM recipe_shares rs
      JOIN recipes r ON r.id = rs.recipe_id
      LEFT JOIN profiles p ON p.user_id = rs.sharer_id AND p.deleted_at IS NULL
@@ -2155,6 +2245,7 @@ export async function getFriendsRecentlyShared(db: D1Database, userId: string): 
   return (rows.results as Array<Record<string, unknown>>).map((r) => ({
     friendName: r.sharer_name ? String(r.sharer_name) : 'A friend',
     friendId: String(r.sharer_id),
+    avatarUrl: r.sharer_avatar ? String(r.sharer_avatar) : null,
     recipe: {
       id: String(r.id),
       userId: String(r.user_id),
@@ -2815,8 +2906,8 @@ export async function handleFriendSuggestions(
   userId: string
 ): Promise<{
   suggestions: Array<
-    | { userId: string; name: string; kind: 'fof'; mutualCount: number; requestSent: boolean }
-    | { userId: string; name: string; kind: 'pref'; sharedPref: string; requestSent: boolean }
+    | { userId: string; name: string; avatarUrl: string | null; kind: 'fof'; mutualCount: number; requestSent: boolean }
+    | { userId: string; name: string; avatarUrl: string | null; kind: 'pref'; sharedPref: string; requestSent: boolean }
   >;
 }> {
   // Pre-load this user's pending sent-request set so we can surface a
@@ -2836,6 +2927,7 @@ export async function handleFriendSuggestions(
     SELECT
       f2.friend_id                  AS userId,
       p.display_name                AS name,
+      p.avatar_url                  AS avatarUrl,
       COUNT(DISTINCT f1.friend_id)  AS mutualCount
     FROM friends f1
     JOIN friends f2 ON f2.user_id = f1.friend_id
@@ -2848,11 +2940,12 @@ export async function handleFriendSuggestions(
     GROUP BY f2.friend_id
     ORDER BY mutualCount DESC
     LIMIT 10
-  `).bind(userId, userId, userId, userId).all<{ userId: string; name: string; mutualCount: number }>();
+  `).bind(userId, userId, userId, userId).all<{ userId: string; name: string; avatarUrl: string | null; mutualCount: number }>();
 
   const fofSuggestions = (fofRows.results || []).map(row => ({
     userId: row.userId,
     name: row.name,
+    avatarUrl: row.avatarUrl ?? null,
     kind: 'fof' as const,
     mutualCount: row.mutualCount,
     requestSent: sentToIds.has(row.userId),
@@ -2881,7 +2974,7 @@ export async function handleFriendSuggestions(
   const likeBinds = allMyPrefs.flatMap(pref => [`%${pref}%`, `%${pref}%`]);
 
   const prefRows = await db.prepare(`
-    SELECT p.user_id AS userId, p.display_name AS name, p.dietary_prefs, p.meal_type_prefs
+    SELECT p.user_id AS userId, p.display_name AS name, p.avatar_url AS avatarUrl, p.dietary_prefs, p.meal_type_prefs
     FROM profiles p
     WHERE p.user_id != ?
       AND p.user_id NOT IN (SELECT friend_id FROM friends WHERE user_id = ?)
@@ -2893,6 +2986,7 @@ export async function handleFriendSuggestions(
   `).bind(userId, userId, userId, ...likeBinds, remaining).all<{
     userId: string;
     name: string;
+    avatarUrl: string | null;
     dietary_prefs: string | null;
     meal_type_prefs: string | null;
   }>();
@@ -2907,6 +3001,7 @@ export async function handleFriendSuggestions(
       return {
         userId: row.userId,
         name: row.name,
+        avatarUrl: row.avatarUrl ?? null,
         kind: 'pref' as const,
         sharedPref,
         requestSent: sentToIds.has(row.userId),
@@ -3279,14 +3374,22 @@ async function handleCancelSentFriendRequest(env: Env, user: AuthenticatedUser, 
 }
 
 async function handleListFriends(env: Env, user: AuthenticatedUser) {
+  // JOIN profiles so friendName always reflects the current display_name,
+  // not the snapshot baked at connection time (which goes stale after renames).
   const result = await env.DB.prepare(
-    'SELECT * FROM friends WHERE user_id = ? LIMIT 100'
+    `SELECT f.friend_id, f.friend_email, f.connected_at,
+            COALESCE(p.display_name, f.friend_name) AS friend_name,
+            p.avatar_url AS avatar_url
+     FROM friends f
+     LEFT JOIN profiles p ON p.user_id = f.friend_id AND p.deleted_at IS NULL
+     WHERE f.user_id = ? LIMIT 100`
   ).bind(user.userId).all();
 
   const friends = (result.results || []).map((row) => ({
     friendId: row.friend_id as string,
     friendEmail: row.friend_email as string,
     friendName: row.friend_name as string,
+    avatarUrl: (row.avatar_url as string | null) ?? null,
     connectedAt: row.connected_at as string,
   }));
 

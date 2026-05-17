@@ -334,7 +334,7 @@ export default function RecipesPage({
                         cursor: 'pointer',
                         fontFamily: 'inherit',
                         fontSize: 12,
-                        fontWeight: 600,
+                        fontWeight: 400,
                         // Dark-mode primary is #5F60FF which falls just under
                         // WCAG AA contrast on #121212 at this size. Use
                         // primary.light (auto-derived brighter shade) so the

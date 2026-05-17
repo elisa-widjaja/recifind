@@ -213,6 +213,7 @@ final class ShareFormViewModel: ObservableObject {
 struct ShareFormView: View {
     @ObservedObject var viewModel: ShareFormViewModel
     @FocusState private var titleFocused: Bool
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         NavigationView {
@@ -352,6 +353,12 @@ struct ShareFormView: View {
             // bottom of the thumbnail height. Spacer pushes them apart so the
             // saved-state confirmation always lines up with the thumbnail's
             // bottom edge regardless of title length.
+            // maxWidth:.infinity makes this column fill the row so the
+            // trailing clear (✕) button lands on the card's right inner edge.
+            // That inner edge is the card's .padding(12), so the ✕-to-right-
+            // edge gap equals the thumbnail-to-left-edge gap (both 12pt). The
+            // dropped trailing Spacer previously absorbed that slack and left
+            // the ✕ floating at content width instead.
             VStack(alignment: .leading, spacing: 0) {
                 titleField
                 Spacer(minLength: 0)
@@ -367,9 +374,7 @@ struct ShareFormView: View {
                     .transition(.opacity)
                 }
             }
-            .frame(height: 72, alignment: .topLeading)
-
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, minHeight: 72, maxHeight: 72, alignment: .topLeading)
         }
         .padding(12)
         .background(
@@ -384,19 +389,47 @@ struct ShareFormView: View {
         // Show "Loading recipe…" while parseRecipe is in flight so the title row
         // doesn't look like a blank empty field during the cold-launch wait.
         let placeholderText = viewModel.isLoadingPreview ? "Loading recipe…" : "Title"
-        if #available(iOS 16.0, *) {
-            TextField(placeholderText, text: $viewModel.title, axis: .vertical)
-                .font(.system(size: 16, weight: .semibold))
-                .lineLimit(2, reservesSpace: false)
-                .focused($titleFocused)
-                .disabled(viewModel.isSaving || viewModel.isSaved)
-        } else {
-            TextField(placeholderText, text: $viewModel.title)
-                .font(.system(size: 16, weight: .semibold))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .focused($titleFocused)
-                .disabled(viewModel.isSaving || viewModel.isSaved)
+        // Clear (X) button pinned to the right of the title row so the user can
+        // wipe the auto-filled caption in one tap. Hidden while empty / saving /
+        // saved. alignment:.top keeps it level with the first line when the
+        // title wraps to two lines.
+        HStack(alignment: .top, spacing: 8) {
+            Group {
+                if #available(iOS 16.0, *) {
+                    TextField(placeholderText, text: $viewModel.title, axis: .vertical)
+                        .font(.system(size: 15, weight: .semibold))
+                        .lineLimit(2, reservesSpace: false)
+                        .focused($titleFocused)
+                        .disabled(viewModel.isSaving || viewModel.isSaved)
+                } else {
+                    TextField(placeholderText, text: $viewModel.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .focused($titleFocused)
+                        .disabled(viewModel.isSaving || viewModel.isSaved)
+                }
+            }
+
+            if !viewModel.title.isEmpty && !viewModel.isSaving && !viewModel.isSaved {
+                Button {
+                    viewModel.title = ""
+                    titleFocused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 16))
+                        // The .fill circle takes the foreground color; the X is
+                        // knocked out so the card shows through it. In dark mode
+                        // .secondary makes the circle pop against the dark card —
+                        // step down to .tertiaryLabel so it blends closer to the
+                        // card background. Light mode keeps .secondary.
+                        .foregroundColor(colorScheme == .dark
+                            ? Color(.tertiaryLabel)
+                            : .secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear title")
+            }
         }
     }
 

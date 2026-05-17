@@ -16,14 +16,15 @@ describe('getFriendActivity', () => {
       },
     ];
     const recipeRows = [
-      { id: 'recipe-1', title: 'Spicy Thai Noodles', image_url: 'https://example.com/img.jpg', source_url: '', ingredients: '["noodles","chili"]', steps: '["boil","mix"]' },
+      { id: 'recipe-1', user_id: 'owner-1', shared_with_friends: 1, title: 'Spicy Thai Noodles', image_url: 'https://example.com/img.jpg', source_url: '', ingredients: '["noodles","chili"]', steps: '["boil","mix"]' },
     ];
 
     const mockDb = {
       prepare: vi.fn()
         .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: notificationRows }) })
         .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [] }) }) // pending_requests (empty — no pending, so non-friend_request unaffected)
-        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: recipeRows }) }),
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: recipeRows }) })
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [{ user_id: 'cook-1', display_name: 'Sarah' }] }) }), // actor profiles (live name)
     } as unknown as D1Database;
 
     const result = await getFriendActivity(mockDb, 'user-123');
@@ -47,14 +48,15 @@ describe('getFriendActivity', () => {
       },
     ];
     const recipeRows = [
-      { id: 'recipe-2', title: 'Margherita Pizza', image_url: '' },
+      { id: 'recipe-2', user_id: 'owner-2', shared_with_friends: 1, title: 'Margherita Pizza', image_url: '' },
     ];
 
     const mockDb = {
       prepare: vi.fn()
         .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: notificationRows }) })
         .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [] }) }) // pending_requests
-        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: recipeRows }) }),
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: recipeRows }) })
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [] }) }), // actor profiles (none — forces message fallback)
     } as unknown as D1Database;
 
     const result = await getFriendActivity(mockDb, 'user-123');
@@ -159,7 +161,7 @@ describe('getFriendActivity', () => {
     ];
     // Only recipe-alive comes back from the batch fetch — recipe-deleted is gone.
     const recipeRows = [
-      { id: 'recipe-alive', title: 'Pasta Carbonara', image_url: '', source_url: '', ingredients: '[]', steps: '[]' },
+      { id: 'recipe-alive', user_id: 'owner-a', shared_with_friends: 1, title: 'Pasta Carbonara', image_url: '', source_url: '', ingredients: '[]', steps: '[]' },
     ];
 
     const mockDb = {
@@ -173,6 +175,46 @@ describe('getFriendActivity', () => {
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe(10);
     expect(result[0].recipe?.id).toBe('recipe-alive');
+  });
+
+  it('keeps friend_saved_your_recipe for a PRIVATE recipe but drops generic types', async () => {
+    const notificationRows = [
+      {
+        id: 20,
+        type: 'friend_saved_your_recipe',
+        message: 'Henny saved your recipe Secret Stew',
+        data: JSON.stringify({ saverId: 'saver-1', recipeId: 'recipe-private', friendName: 'Henny' }),
+        created_at: '2026-05-17T12:00:00Z',
+        read: 0,
+      },
+      {
+        id: 21,
+        type: 'friend_saved_recipe',
+        message: 'Henny saved Secret Stew',
+        data: JSON.stringify({ saverId: 'saver-1', recipeId: 'recipe-private', friendName: 'Henny' }),
+        created_at: '2026-05-17T11:00:00Z',
+        read: 0,
+      },
+    ];
+    // Recipe is private (shared_with_friends = 0).
+    const recipeRows = [
+      { id: 'recipe-private', user_id: 'user-123', shared_with_friends: 0, title: 'Secret Stew', image_url: '', source_url: '', ingredients: '[]', steps: '[]' },
+    ];
+
+    const mockDb = {
+      prepare: vi.fn()
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: notificationRows }) })
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [] }) })
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: recipeRows }) })
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [{ user_id: 'saver-1', display_name: 'Henny' }] }) }), // actor profiles
+    } as unknown as D1Database;
+
+    const result = await getFriendActivity(mockDb, 'user-123');
+    // Only the owner-visible "saved your recipe" survives; the generic
+    // friend_saved_recipe is dropped because the recipe is private.
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(20);
+    expect(result[0].recipe?.title).toBe('Secret Stew');
   });
 
   it('omits fromUserId when notification data blob does not have it', async () => {
@@ -190,12 +232,43 @@ describe('getFriendActivity', () => {
     const mockDb = {
       prepare: vi.fn()
         .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: notificationRows }) })
-        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [] }) }),
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [] }) })
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [] }) }), // actor profiles (no recipeId → no recipe query; actor query still runs)
     } as unknown as D1Database;
 
     const result = await getFriendActivity(mockDb, 'user-123');
     expect(result[0].fromUserId).toBeUndefined();
     expect(result[0].resolved).toBeUndefined(); // only set for friend_request type
+  });
+
+  it('uses the live profile name for the actor, overriding a stale baked name', async () => {
+    const notificationRows = [
+      {
+        id: 30,
+        type: 'friend_saved_your_recipe',
+        // Baked name is the OLD display name at save time.
+        message: 'eWid saved your recipe Miso Ramen',
+        data: JSON.stringify({ saverId: 'saver-9', recipeId: 'recipe-9', friendName: 'eWid' }),
+        created_at: '2026-05-17T12:00:00Z',
+        read: 0,
+      },
+    ];
+    const recipeRows = [
+      { id: 'recipe-9', user_id: 'user-123', shared_with_friends: 1, title: 'Miso Ramen', image_url: '', source_url: '', ingredients: '[]', steps: '[]' },
+    ];
+    const mockDb = {
+      prepare: vi.fn()
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: notificationRows }) })
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [] }) })
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: recipeRows }) })
+        // Profile has since been renamed to "Elisa".
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [{ user_id: 'saver-9', display_name: 'Elisa' }] }) }),
+    } as unknown as D1Database;
+
+    const result = await getFriendActivity(mockDb, 'user-123');
+    expect(result).toHaveLength(1);
+    // Live name wins over the stale baked "eWid".
+    expect(result[0].friendName).toBe('Elisa');
   });
 });
 

@@ -1630,7 +1630,6 @@ function App() {
   const [userProfile, setUserProfile] = useState(null);
   const [isEditNameOpen, setIsEditNameOpen] = useState(false);
   const [editNameValue, setEditNameValue] = useState('');
-  const [isDrawerEditingName, setIsDrawerEditingName] = useState(false);
 
   // Theme preference: 'system' (follow OS), 'light', or 'dark'.
   // Migration: previously stored binary at 'recifriend-dark-mode' — fold those
@@ -2152,7 +2151,6 @@ function App() {
         return next;
       });
       setIsEditNameOpen(false);
-      setIsDrawerEditingName(false);
       setSnackbarState({ open: true, message: 'Display name updated.', severity: 'success' });
     } catch (error) {
       setSnackbarState({ open: true, message: 'Failed to update name.', severity: 'error' });
@@ -2502,6 +2500,7 @@ function App() {
     setSelectedFriend({
       friendId: suggestion.userId,
       friendName: suggestion.name,
+      avatarUrl: suggestion.avatarUrl ?? null,
       isSuggestion: true,
       fromHomeFeed,
     });
@@ -5448,7 +5447,7 @@ function App() {
                 onThemeChange={updateThemePref}
                 onEditName={() => {
                   setEditNameValue(userProfile?.displayName || '');
-                  setIsDrawerEditingName(true);
+                  setIsEditNameOpen(true);
                 }}
                 onPickAvatar={async (file) => {
                   if (!accessToken || !file) return;
@@ -6263,6 +6262,12 @@ function App() {
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
         {activeRecipe && (
+          <MenuItem onClick={() => { setRecipeMenuAnchor(null); openShareSheet(activeRecipe); }}>
+            <ListItemIcon><IosShareOutlinedIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Share</ListItemText>
+          </MenuItem>
+        )}
+        {activeRecipe && (
           <MenuItem onClick={() => { setRecipeMenuAnchor(null); toggleFavorite(activeRecipe.id); }}>
             <ListItemIcon>
               {favorites.has(activeRecipe.id)
@@ -6721,19 +6726,24 @@ function App() {
               for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
               const color = palette[Math.abs(h) % palette.length];
               const initial = name.charAt(0).toUpperCase();
-              return avatarSrc ? (
-                <Box
-                  component="img"
-                  src={avatarSrc}
-                  alt=""
-                  sx={{ width: 38, height: 38, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
-                />
-              ) : (
+              return (
                 <Box sx={{
+                  position: 'relative', overflow: 'hidden',
                   width: 38, height: 38, borderRadius: '50%', bgcolor: color,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                 }}>
+                  {/* Colored initial backdrop; photo overlays and removes
+                      itself on load failure so a broken URL falls back here. */}
                   <Typography sx={{ color: '#fff', fontSize: 16, fontWeight: 700, lineHeight: 1 }}>{initial}</Typography>
+                  {avatarSrc && (
+                    <Box
+                      component="img"
+                      src={avatarSrc}
+                      alt=""
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  )}
                 </Box>
               );
             })()}
@@ -7020,7 +7030,10 @@ function App() {
                   sx={{ pl: 0 }}
                 >
                   <ListItemAvatar>
-                    <Avatar sx={{ bgcolor: getAvatarColor(friend.friendId) }}>
+                    <Avatar
+                      src={friend.avatarUrl || undefined}
+                      sx={{ bgcolor: getAvatarColor(friend.friendId) }}
+                    >
                       {(friend.friendName || friend.friendEmail || '?')[0].toUpperCase()}
                     </Avatar>
                   </ListItemAvatar>
@@ -7178,6 +7191,11 @@ function App() {
           // gesture inside the dialog would call preventDefault and freeze the
           // dialog's own scroll.
           && !activeRecipeView
+          // Same freeze applies to the share-with-friends/connections drawer
+          // and the friend picker — both body-lock scroll, so PTR would
+          // preventDefault every downward drag and freeze their lists.
+          && !shareSheetState
+          && !pickerOpen
         }
         onRefresh={handlePullRefresh}
       />

@@ -196,18 +196,52 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, onTapCard
           }}
         >
           {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton
+            <Box
               key={i}
-              variant="rectangular"
-              animation="wave"
               sx={{
                 minWidth: v.cardSize,
                 maxWidth: v.cardSize,
                 height: v.cardHeight,
+                bgcolor: dark ? 'transparent' : 'background.paper',
+                border: '1px solid',
+                borderColor: dark ? 'rgba(255,255,255,0.08)' : 'divider',
                 borderRadius: v.cardRadius,
+                p: v.cardPadding,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                boxShadow: dark ? 'none' : '0 1px 3px rgba(0,0,0,0.06)',
                 flexShrink: 0,
               }}
-            />
+            >
+              {/* Mirror the real card: circular avatar, name line, two-line
+                  reason, pill button — so the layout doesn't jump on load. */}
+              <Skeleton
+                variant="circular"
+                animation="wave"
+                sx={{ width: v.avatarSize, height: v.avatarSize, flexShrink: 0 }}
+              />
+              <Skeleton
+                variant="text"
+                animation="wave"
+                sx={{ width: '70%', fontSize: v.nameFont, mt: v.nameMt }}
+              />
+              <Skeleton
+                variant="text"
+                animation="wave"
+                sx={{ width: '90%', fontSize: v.reasonFont, mt: v.reasonMt }}
+              />
+              <Skeleton
+                variant="text"
+                animation="wave"
+                sx={{ width: '60%', fontSize: v.reasonFont }}
+              />
+              <Skeleton
+                variant="rounded"
+                animation="wave"
+                sx={{ width: v.buttonWidth, height: 26, borderRadius: '999px', mt: 'auto', flexShrink: 0 }}
+              />
+            </Box>
           ))}
         </Box>
       </Box>
@@ -315,6 +349,7 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, onTapCard
               </IconButton>
               <Box
                 sx={{
+                  position: 'relative',
                   width: v.avatarSize,
                   height: v.avatarSize,
                   borderRadius: '50%',
@@ -326,9 +361,22 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, onTapCard
                   fontWeight: 700,
                   color: '#fff',
                   flexShrink: 0,
+                  overflow: 'hidden',
                 }}
               >
+                {/* Gradient initial is the backdrop; the photo overlays it and
+                    hides itself if it fails to load, falling back to the
+                    initial instead of a broken-image icon. */}
                 {initialOf(s.name)}
+                {s.avatarUrl && (
+                  <Box
+                    component="img"
+                    src={s.avatarUrl}
+                    alt=""
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                )}
               </Box>
               <Typography
                 sx={{

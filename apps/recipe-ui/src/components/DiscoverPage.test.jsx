@@ -25,12 +25,13 @@ describe('DiscoverPage', () => {
 
   const noop = () => {};
 
-  it('renders all four section headers', async () => {
+  it('renders the retained section headers (Trending Now removed)', async () => {
     render(<DiscoverPage onOpenRecipe={noop} onSaveRecipe={noop} onShareRecipe={noop} />);
-    await waitFor(() => expect(screen.getByText(/trending now/i)).toBeInTheDocument());
-    expect(screen.getByText(/watch & cook/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/watch & cook/i)).toBeInTheDocument());
     expect(screen.getByText(/editor's picks/i)).toBeInTheDocument();
     expect(screen.getByText(/trending in health & nutrition/i)).toBeInTheDocument();
+    // "Trending Now" shelf was removed from the Discover tab.
+    expect(screen.queryByText(/^trending now$/i)).not.toBeInTheDocument();
   });
 
   it('fetches all four discovery endpoints on mount', async () => {
