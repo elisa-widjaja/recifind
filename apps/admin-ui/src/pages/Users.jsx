@@ -64,8 +64,8 @@ export default function Users() {
     { accessorKey: 'signed_up_at', header: 'Signed up',
       cell: (i) => new Date(i.getValue()).toLocaleDateString() },
     { accessorKey: 'recipe_count', header: 'Recipes', cell: (i) => i.getValue() },
-    { accessorKey: 'invites_sent', header: 'Sent', cell: (i) => i.getValue() },
     { accessorKey: 'invites_accepted', header: 'Friends', cell: (i) => i.getValue() },
+    { accessorKey: 'invites_sent', header: 'Sent', cell: (i) => i.getValue() },
     {
       id: 'active',
       header: 'Active',
