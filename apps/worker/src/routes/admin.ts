@@ -366,17 +366,28 @@ export async function handleAdminUserDrilldown(args: {
      WHERE ce.user_id = ? ORDER BY ce.cooked_at DESC LIMIT 20`
   ).bind(args.userId).all();
 
-  // 4. Invites sent: friend_requests_sent + join friends/profile to derive status + email
-  const sent = await args.env.DB.prepare(
-    `SELECT frs.to_user_id, p.email AS to_email, p.deleted_at,
-            CASE WHEN f.user_id IS NOT NULL THEN 'accepted' ELSE 'pending' END AS status,
-            COALESCE(f.connected_at, '') AS accepted_at
-     FROM friend_requests_sent frs
-     LEFT JOIN profiles p ON p.user_id = frs.to_user_id
-     LEFT JOIN friends f ON f.user_id = frs.from_user_id AND f.friend_id = frs.to_user_id
-     WHERE frs.from_user_id = ?
-     ORDER BY accepted_at DESC`
+  // 4. Invite conversions: real model is the reusable invite LINK. Each successful
+  // claim writes a row to open_invite_used. friend_requests_sent is dormant (0 rows).
+  const conversions = await args.env.DB.prepare(
+    `SELECT
+       oiu.accepter_user_id AS invitee_user_id,
+       COALESCE(f.friend_email, p.email) AS invitee_email,
+       COALESCE(f.friend_name, p.display_name) AS invitee_name,
+       oiu.accepted_at AS accepted_at,
+       p.deleted_at AS invitee_deleted_at,
+       CASE WHEN f.user_id IS NOT NULL THEN 'accepted' ELSE 'accepted_disconnected' END AS status,
+       (SELECT COUNT(*) FROM recipes r WHERE r.user_id = oiu.accepter_user_id) AS invitee_recipe_count
+     FROM open_invite_used oiu
+     LEFT JOIN friends f ON f.user_id = oiu.inviter_user_id AND f.friend_id = oiu.accepter_user_id
+     LEFT JOIN profiles p ON p.user_id = oiu.accepter_user_id
+     WHERE oiu.inviter_user_id = ?
+     ORDER BY oiu.accepted_at DESC`
   ).bind(args.userId).all();
+
+  // 4b. The user's active reusable invite link (for the summary header)
+  const inviteLinkRow = await args.env.DB.prepare(
+    `SELECT token, created_at FROM open_invites WHERE inviter_user_id = ? LIMIT 1`
+  ).bind(args.userId).first();
 
   // 5. Pending invites received
   const pendingReceived = await args.env.DB.prepare(
@@ -386,15 +397,12 @@ export async function handleAdminUserDrilldown(args: {
      ORDER BY fr.created_at DESC`
   ).bind(args.userId).all();
 
-  // Enrich invitees with recipe count + last_sign_in
-  const invitees = await Promise.all((sent.results || []).map(async (row: any) => {
-    const rc = await args.env.DB.prepare(
-      `SELECT COUNT(*) AS c FROM recipes WHERE user_id = ?`
-    ).bind(row.to_user_id).first() as { c: number };
+  // Enrich conversions with last_sign_in (recipe count already comes from SQL)
+  const enrichedConversions = await Promise.all((conversions.results || []).map(async (row: any) => {
     let lastSignInAt: string | null = null;
-    if (args.env.SUPABASE_SERVICE_ROLE_KEY && row.to_user_id) {
+    if (args.env.SUPABASE_SERVICE_ROLE_KEY && row.invitee_user_id) {
       try {
-        const r = await fetch(`${args.env.SUPABASE_URL}/auth/v1/admin/users/${row.to_user_id}`, {
+        const r = await fetch(`${args.env.SUPABASE_URL}/auth/v1/admin/users/${row.invitee_user_id}`, {
           headers: {
             Authorization: `Bearer ${args.env.SUPABASE_SERVICE_ROLE_KEY}`,
             apikey: args.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -402,17 +410,18 @@ export async function handleAdminUserDrilldown(args: {
         });
         if (r.ok) lastSignInAt = (await r.json() as any).last_sign_in_at;
       } catch (err) {
-        console.error('[admin] drilldown invitee enrichment failed', { userId: row.to_user_id, err });
+        console.error('[admin] drilldown invitee enrichment failed', { userId: row.invitee_user_id, err });
       }
     }
-    return { ...row, recipe_count: rc?.c || 0, last_sign_in_at: lastSignInAt };
+    return { ...row, last_sign_in_at: lastSignInAt };
   }));
 
   return json(200, {
     profile,
     recipes: recipes.results || [],
     cook_events: cookEvents.results || [],
-    invites_sent: invitees,
+    invite_conversions: enrichedConversions,
+    invite_link: inviteLinkRow ? { token: inviteLinkRow.token, created_at: inviteLinkRow.created_at } : null,
     pending_received: pendingReceived.results || [],
   });
 }

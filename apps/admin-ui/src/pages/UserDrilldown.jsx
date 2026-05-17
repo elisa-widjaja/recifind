@@ -94,7 +94,12 @@ export default function UserDrilldown({ id }) {
 
       <Divider sx={{ my: 3 }} />
 
-      <Section title={`Invites sent (${data.invites_sent.length})`}>
+      <Section title="Invite conversions">
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          {data.invite_link
+            ? `Invite link active · ${data.invite_conversions.length} conversion${data.invite_conversions.length === 1 ? '' : 's'} · link created ${new Date(data.invite_link.created_at).toLocaleDateString()}`
+            : 'No invite link generated'}
+        </Typography>
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -105,16 +110,22 @@ export default function UserDrilldown({ id }) {
             </TableRow>
           </TableHead>
           <TableBody>
-            {data.invites_sent.map((iv) => (
-              <TableRow key={iv.to_user_id}>
-                <TableCell>{iv.to_email || iv.to_user_id}</TableCell>
+            {data.invite_conversions.map((iv, i) => (
+              <TableRow key={iv.invitee_user_id || i}>
                 <TableCell>
-                  {iv.status}
-                  {iv.status === 'pending' && (
-                    <Button size="small" sx={{ ml: 1 }} onClick={() => doResend(iv.to_user_id)}>Resend</Button>
+                  {iv.invitee_email || iv.invitee_name || '(email unavailable)'}
+                  {iv.invitee_deleted_at && (
+                    <Typography component="span" variant="caption" color="text.secondary"> · deleted</Typography>
                   )}
                 </TableCell>
-                <TableCell>{iv.recipe_count}</TableCell>
+                <TableCell>
+                  {iv.status === 'accepted_disconnected' ? (
+                    <Typography component="span" variant="body2" color="text.secondary">accepted · disconnected</Typography>
+                  ) : (
+                    iv.status
+                  )}
+                </TableCell>
+                <TableCell>{iv.invitee_recipe_count}</TableCell>
                 <TableCell>{iv.last_sign_in_at ? new Date(iv.last_sign_in_at).toLocaleDateString() : '—'}</TableCell>
               </TableRow>
             ))}

@@ -280,11 +280,13 @@ describe('handleAdminUserDrilldown', () => {
     const profile = { user_id: 'target', email: 't@x.com', display_name: 'T', created_at: '2026-01-01', deleted_at: null };
     const recipes = [{ id: 'r1', title: 'Pie', created_at: '2026-02-01', hidden_at: null }];
     const cookEvents = [{ recipe_id: 'r1', created_at: '2026-02-02' }];
-    const invitesSent = [{ to_user_id: 'inv1', to_email: 'inv@x.com', status: 'accepted', created_at: '2026-01-15' }];
+    const conversions = [{ invitee_user_id: 'inv1', invitee_email: 'inv@x.com', invitee_name: 'Inv', accepted_at: '2026-01-15', invitee_deleted_at: null, status: 'accepted', invitee_recipe_count: 2 }];
+    const inviteLink = { token: 'tok-abc', created_at: '2026-01-10' };
     const pendingReceived = [{ from_user_id: 'src1', from_email: 's@x.com', created_at: '2026-02-10' }];
 
     let callIdx = 0;
-    const stubs = [profile, { results: recipes }, { results: cookEvents }, { results: invitesSent }, { results: pendingReceived }];
+    // New call order: profile.first, recipes.all, cook_events.all, conversions.all, inviteLink.first, pending_received.all
+    const stubs = [profile, { results: recipes }, { results: cookEvents }, { results: conversions }, inviteLink, { results: pendingReceived }];
     const mockDb = {
       prepare: vi.fn().mockReturnValue({
         bind: vi.fn().mockReturnThis(),
@@ -304,7 +306,9 @@ describe('handleAdminUserDrilldown', () => {
     const body = await res.json();
     expect(body.profile.email).toBe('t@x.com');
     expect(body.recipes).toHaveLength(1);
-    expect(body.invites_sent).toHaveLength(1);
+    expect(Array.isArray(body.invite_conversions)).toBe(true);
+    expect(body.invite_conversions).toHaveLength(1);
+    expect(body.invite_link).toEqual({ token: 'tok-abc', created_at: '2026-01-10' });
     expect(body.pending_received).toHaveLength(1);
   });
 
@@ -315,7 +319,8 @@ describe('handleAdminUserDrilldown', () => {
       { user_id: 'target', email: 't@x.com', display_name: 'T', created_at: '2026-01-01', deleted_at: null }, // profile .first()
       { results: [] }, // recipes .all()
       { results: [] }, // cook_events .all()
-      { results: [] }, // sent .all()
+      { results: [] }, // conversions .all()
+      { token: 'tok', created_at: '2026-02-01' }, // invite link .first()
       { results: [] }, // pending received .all()
     ];
     const mockDb = {
@@ -349,7 +354,8 @@ describe('handleAdminUserDrilldown', () => {
       { user_id: 'target', email: 't@x.com', display_name: 'T', created_at: '2026-01-01', deleted_at: null }, // profile .first()
       { results: [] }, // recipes .all()
       { results: [] }, // cook_events .all()
-      { results: [] }, // sent .all()
+      { results: [] }, // conversions .all()
+      { token: 'tok', created_at: '2026-02-01' }, // invite link .first()
       { results: [] }, // pending received .all()
     ];
     const mockDb = {
@@ -374,6 +380,40 @@ describe('handleAdminUserDrilldown', () => {
     expect(cookSql).toMatch(/LEFT JOIN recipes/i);
     expect(cookSql).toMatch(/r\.id\s*=\s*ce\.recipe_id\s+AND\s+r\.user_id\s*=\s*ce\.user_id/i);
     expect(cookSql).toMatch(/r\.title AS recipe_title/i);
+  });
+
+  it('invite conversions query reads open_invite_used joined to friends/profiles (not dormant friend_requests_sent)', async () => {
+    const captured: string[] = [];
+    let i = 0;
+    const stubs = [
+      { user_id:'t', email:'t@x.com', display_name:'T', created_at:'2026-01-01', deleted_at:null }, // profile .first
+      { results: [] }, // recipes .all
+      { results: [] }, // cook_events .all
+      { results: [] }, // conversions .all
+      { token:'tok', created_at:'2026-02-01' }, // invite link .first
+      { results: [] }, // pending_received .all
+    ];
+    const mockDb = { prepare: vi.fn((sql:string)=>{ captured.push(sql); return {
+      bind: vi.fn().mockReturnThis(),
+      first: vi.fn().mockImplementation(()=>Promise.resolve(stubs[i++])),
+      all: vi.fn().mockImplementation(()=>Promise.resolve(stubs[i++])),
+    };}) } as unknown as D1Database;
+    const res = await handleAdminUserDrilldown({
+      env:{ DB:mockDb, SUPABASE_URL:'', SUPABASE_SERVICE_ROLE_KEY:undefined },
+      user:{ userId:'u', email:'elisa.widjaja@gmail.com' },
+      adminEmails:'elisa.widjaja@gmail.com', userId:'t',
+    });
+    expect(res.status).toBe(200);
+    const convSql = captured.find(s => /FROM open_invite_used/i.test(s));
+    expect(convSql).toBeDefined();
+    expect(convSql).toMatch(/LEFT JOIN friends/i);
+    expect(convSql).toMatch(/LEFT JOIN profiles/i);
+    expect(convSql).toMatch(/accepted_disconnected/i);
+    expect(captured.some(s => /FROM open_invites WHERE inviter_user_id/i.test(s))).toBe(true);
+    expect(captured.some(s => /FROM friend_requests_sent/i.test(s))).toBe(false); // dormant table no longer used
+    const body = await res.json();
+    expect(Array.isArray(body.invite_conversions)).toBe(true);
+    expect(body.invite_link).toEqual({ token:'tok', created_at:'2026-02-01' });
   });
 });
 
