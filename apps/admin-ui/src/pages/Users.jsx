@@ -74,7 +74,7 @@ export default function Users() {
           component="span"
           title={i.row.original.is_active ? 'Active (≥1 recipe & signed in within 30d)' : 'Inactive'}
           sx={{
-            color: i.row.original.is_active ? 'success.main' : 'text.disabled',
+            color: i.row.original.is_active ? 'success.light' : 'text.disabled',
             fontSize: 16,
             lineHeight: 1,
           }}
