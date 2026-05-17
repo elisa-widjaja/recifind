@@ -8,6 +8,7 @@ import {
   Typography,
 } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
+import CloseIcon from '@mui/icons-material/Close';
 import { getAvatarColor } from '../lib/avatarColor';
 
 function FriendRow({ friend, selected, onToggle }) {
@@ -115,9 +116,30 @@ export function FriendPicker({ open, friends, onClose, onSend, darkMode = false 
         },
       }}
     >
-      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pt: 1.5, pb: 1, flexShrink: 0 }}>
-        <Box sx={{ width: 40, height: 4, borderRadius: 2, bgcolor: darkMode ? 'rgba(255,255,255,0.3)' : 'grey.300', mb: 1.5 }} />
-        <Typography variant="h6" sx={{ fontWeight: 600 }}>Share with Connections</Typography>
+      {/* Header: iOS X-close on top-LEFT, centered title — matches ShareSheet
+          ("Share with") so the two share drawers read consistently. */}
+      <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', px: '24px', pt: '26px', pb: '16px', flexShrink: 0 }}>
+        <Box sx={{ position: 'absolute', left: '16px', top: '20px' }}>
+          <Box
+            component="button"
+            aria-label="Close"
+            onClick={() => onClose()}
+            sx={(theme) => ({
+              width: 36, height: 36, borderRadius: '50%',
+              bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)',
+              color: '#8a8a8a',
+              border: 'none', cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              WebkitTapHighlightColor: 'transparent',
+              transition: 'background-color 150ms ease, transform 150ms ease',
+              '&:hover': { bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.1)' },
+              '&:active': { transform: 'scale(0.92)' },
+            })}
+          >
+            <CloseIcon sx={{ fontSize: 18 }} />
+          </Box>
+        </Box>
+        <Typography sx={{ fontWeight: 700, fontSize: 16 }}>Your Connections</Typography>
       </Box>
       <Box sx={{ width: '100%', maxWidth: 600, mx: 'auto', display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1 }}>
         <Box sx={{ overflowY: 'auto', px: 1, pb: 1, flex: 1 }}>
