@@ -9,6 +9,11 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import ConfirmModal from '../components/ConfirmModal';
 import { fetchAdmin } from '../api';
 
+const truncateTitle = (s) => {
+  const t = s || '';
+  return t.length > 35 ? t.slice(0, 35) + '…' : t;
+};
+
 export default function UserDrilldown({ id }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -89,47 +94,6 @@ export default function UserDrilldown({ id }) {
 
       <Divider sx={{ my: 3 }} />
 
-      <Stack direction="row" spacing={4} alignItems="flex-start">
-        <Section title={`Recipes (${data.recipes.length})`} sx={{ flex: 1 }}>
-          {data.recipes.slice(0, 50).map((r) => (
-            <Stack key={r.id} direction="row" justifyContent="space-between" alignItems="center" sx={{ py: 0.5 }}>
-              <Typography variant="body2" noWrap sx={{ minWidth: 0, flex: 1, mr: 1 }} title={r.title}>{r.title}</Typography>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Typography variant="caption" color="text.secondary">
-                  {new Date(r.created_at).toLocaleDateString()}
-                  {r.hidden_at && ' · hidden'}
-                </Typography>
-                {!r.hidden_at ? (
-                  <Button size="small" onClick={() => setConfirm({ kind: 'hide_recipe', recipeId: r.id, title: r.title })}>
-                    Hide
-                  </Button>
-                ) : (
-                  <Button size="small" color="primary" onClick={() => doUnhideRecipe(r.id)}>
-                    Unhide
-                  </Button>
-                )}
-              </Stack>
-            </Stack>
-          ))}
-        </Section>
-
-        <Section title={`Cook events (last ${data.cook_events.length})`} sx={{ flex: 1 }}>
-          {data.cook_events.map((e, i) => (
-            <Stack key={i} direction="row" spacing={1} sx={{ py: 0.25, minWidth: 0 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-                {new Date(e.created_at).toLocaleString()}
-              </Typography>
-              <Typography variant="body2" noWrap sx={{ minWidth: 0, flex: 1 }}
-                title={e.recipe_title || e.recipe_id}>
-                {e.recipe_title || '(deleted recipe)'}
-              </Typography>
-            </Stack>
-          ))}
-        </Section>
-      </Stack>
-
-      <Divider sx={{ my: 3 }} />
-
       <Section title={`Invites sent (${data.invites_sent.length})`}>
         <Table size="small">
           <TableHead>
@@ -165,6 +129,45 @@ export default function UserDrilldown({ id }) {
               {pi.from_email} — sent {new Date(pi.created_at).toLocaleDateString()}
             </Typography>
             <Button size="small" onClick={() => doForceAccept(pi.from_user_id)}>Force-accept</Button>
+          </Stack>
+        ))}
+      </Section>
+
+      <Divider sx={{ my: 3 }} />
+
+      <Section title={`Recipes (${data.recipes.length})`}>
+        {data.recipes.slice(0, 50).map((r) => (
+          <Stack key={r.id} direction="row" justifyContent="space-between" alignItems="center" sx={{ py: 0.5 }}>
+            <Typography variant="body2" noWrap sx={{ minWidth: 0, flex: 1, mr: 1 }} title={r.title}>{truncateTitle(r.title)}</Typography>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography variant="caption" color="text.secondary">
+                {new Date(r.created_at).toLocaleDateString()}
+                {r.hidden_at && ' · hidden'}
+              </Typography>
+              {!r.hidden_at ? (
+                <Button size="small" onClick={() => setConfirm({ kind: 'hide_recipe', recipeId: r.id, title: r.title })}>
+                  Hide
+                </Button>
+              ) : (
+                <Button size="small" color="primary" onClick={() => doUnhideRecipe(r.id)}>
+                  Unhide
+                </Button>
+              )}
+            </Stack>
+          </Stack>
+        ))}
+      </Section>
+
+      <Section title={`Cook events (last ${data.cook_events.length})`}>
+        {data.cook_events.map((e, i) => (
+          <Stack key={i} direction="row" spacing={1} sx={{ py: 0.25, minWidth: 0 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+              {new Date(e.created_at).toLocaleString()}
+            </Typography>
+            <Typography variant="body2" noWrap sx={{ minWidth: 0, flex: 1 }}
+              title={e.recipe_title || e.recipe_id}>
+              {e.recipe_title ? truncateTitle(e.recipe_title) : '(deleted recipe)'}
+            </Typography>
           </Stack>
         ))}
       </Section>
