@@ -159,17 +159,26 @@ export default function UserDrilldown({ id }) {
       </Section>
 
       <Section title={`Cook events (last ${data.cook_events.length})`}>
-        {data.cook_events.map((e, i) => (
-          <Stack key={i} direction="row" spacing={1} sx={{ py: 0.25, minWidth: 0 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-              {new Date(e.created_at).toLocaleString()}
-            </Typography>
-            <Typography variant="body2" noWrap sx={{ minWidth: 0, flex: 1 }}
-              title={e.recipe_title || e.recipe_id}>
-              {e.recipe_title ? truncateTitle(e.recipe_title) : '(deleted recipe)'}
-            </Typography>
-          </Stack>
-        ))}
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Recipe</TableCell>
+              <TableCell>Date</TableCell>
+              <TableCell>Time</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {data.cook_events.map((e, i) => (
+              <TableRow key={i}>
+                <TableCell title={e.recipe_title || e.recipe_id}>
+                  {e.recipe_title ? truncateTitle(e.recipe_title) : '(deleted recipe)'}
+                </TableCell>
+                <TableCell>{new Date(e.created_at).toLocaleDateString()}</TableCell>
+                <TableCell>{new Date(e.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </Section>
 
       <ConfirmModal
