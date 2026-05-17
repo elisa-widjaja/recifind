@@ -66,7 +66,23 @@ export default function Users() {
     { accessorKey: 'recipe_count', header: 'Recipes', cell: (i) => i.getValue() },
     { accessorKey: 'invites_sent', header: 'Sent', cell: (i) => i.getValue() },
     { accessorKey: 'invites_accepted', header: 'Acc', cell: (i) => i.getValue() },
-    { id: 'active', header: '', cell: (i) => i.row.original.is_active ? '●' : '○' },
+    {
+      id: 'active',
+      header: 'Active',
+      cell: (i) => (
+        <Box
+          component="span"
+          title={i.row.original.is_active ? 'Active (≥1 recipe & signed in within 30d)' : 'Inactive'}
+          sx={{
+            color: i.row.original.is_active ? 'success.main' : 'text.disabled',
+            fontSize: 16,
+            lineHeight: 1,
+          }}
+        >
+          {i.row.original.is_active ? '●' : '○'}
+        </Box>
+      ),
+    },
   ], []);
 
   const table = useReactTable({
