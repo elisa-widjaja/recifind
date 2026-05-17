@@ -341,6 +341,40 @@ describe('handleAdminUserDrilldown', () => {
     expect(cookSql).toMatch(/cooked_at/i);
     expect(cookSql).not.toMatch(/SELECT\s+recipe_id,\s*created_at\s+FROM cook_events/i);
   });
+
+  it('cook events query LEFT JOINs recipes on id AND user_id to resolve title (no fan-out)', async () => {
+    const captured: string[] = [];
+    let callIdx = 0;
+    const stubs = [
+      { user_id: 'target', email: 't@x.com', display_name: 'T', created_at: '2026-01-01', deleted_at: null }, // profile .first()
+      { results: [] }, // recipes .all()
+      { results: [] }, // cook_events .all()
+      { results: [] }, // sent .all()
+      { results: [] }, // pending received .all()
+    ];
+    const mockDb = {
+      prepare: vi.fn((sql: string) => {
+        captured.push(sql);
+        return {
+          bind: vi.fn().mockReturnThis(),
+          first: vi.fn().mockImplementation(() => Promise.resolve(stubs[callIdx++])),
+          all: vi.fn().mockImplementation(() => Promise.resolve(stubs[callIdx++])),
+        };
+      }),
+    } as unknown as D1Database;
+    const res = await handleAdminUserDrilldown({
+      env: { DB: mockDb, SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: undefined },
+      user: { userId: 'u', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 'target',
+    });
+    expect(res.status).toBe(200);
+    const cookSql = captured.find((s) => /FROM cook_events/i.test(s));
+    expect(cookSql).toBeDefined();
+    expect(cookSql).toMatch(/LEFT JOIN recipes/i);
+    expect(cookSql).toMatch(/r\.id\s*=\s*ce\.recipe_id\s+AND\s+r\.user_id\s*=\s*ce\.user_id/i);
+    expect(cookSql).toMatch(/r\.title AS recipe_title/i);
+  });
 });
 
 describe('buildSignupsPerDayQuery', () => {

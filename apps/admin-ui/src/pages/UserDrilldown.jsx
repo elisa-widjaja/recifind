@@ -93,7 +93,7 @@ export default function UserDrilldown({ id }) {
         <Section title={`Recipes (${data.recipes.length})`} sx={{ flex: 1 }}>
           {data.recipes.slice(0, 50).map((r) => (
             <Stack key={r.id} direction="row" justifyContent="space-between" alignItems="center" sx={{ py: 0.5 }}>
-              <Typography variant="body2">{r.title}</Typography>
+              <Typography variant="body2" noWrap sx={{ minWidth: 0, flex: 1, mr: 1 }} title={r.title}>{r.title}</Typography>
               <Stack direction="row" spacing={1} alignItems="center">
                 <Typography variant="caption" color="text.secondary">
                   {new Date(r.created_at).toLocaleDateString()}
@@ -115,9 +115,15 @@ export default function UserDrilldown({ id }) {
 
         <Section title={`Cook events (last ${data.cook_events.length})`} sx={{ flex: 1 }}>
           {data.cook_events.map((e, i) => (
-            <Typography variant="body2" key={i}>
-              {new Date(e.created_at).toLocaleString()} — {e.recipe_id}
-            </Typography>
+            <Stack key={i} direction="row" spacing={1} sx={{ py: 0.25, minWidth: 0 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+                {new Date(e.created_at).toLocaleString()}
+              </Typography>
+              <Typography variant="body2" noWrap sx={{ minWidth: 0, flex: 1 }}
+                title={e.recipe_title || e.recipe_id}>
+                {e.recipe_title || '(deleted recipe)'}
+              </Typography>
+            </Stack>
           ))}
         </Section>
       </Stack>
