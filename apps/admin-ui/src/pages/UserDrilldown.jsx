@@ -136,26 +136,32 @@ export default function UserDrilldown({ id }) {
       <Divider sx={{ my: 3 }} />
 
       <Section title={`Recipes (${data.recipes.length})`}>
-        {data.recipes.slice(0, 50).map((r) => (
-          <Stack key={r.id} direction="row" justifyContent="space-between" alignItems="center" sx={{ py: 0.5 }}>
-            <Typography variant="body2" noWrap sx={{ minWidth: 0, flex: 1, mr: 1 }} title={r.title}>{truncateTitle(r.title)}</Typography>
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Typography variant="caption" color="text.secondary">
-                {new Date(r.created_at).toLocaleDateString()}
-                {r.hidden_at && ' · hidden'}
-              </Typography>
-              {!r.hidden_at ? (
-                <Button size="small" onClick={() => setConfirm({ kind: 'hide_recipe', recipeId: r.id, title: r.title })}>
-                  Hide
-                </Button>
-              ) : (
-                <Button size="small" color="primary" onClick={() => doUnhideRecipe(r.id)}>
-                  Unhide
-                </Button>
-              )}
-            </Stack>
-          </Stack>
-        ))}
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Recipe</TableCell>
+              <TableCell>Date</TableCell>
+              <TableCell></TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {data.recipes.slice(0, 50).map((r) => (
+              <TableRow key={r.id}>
+                <TableCell title={r.title}>
+                  {truncateTitle(r.title)}{r.hidden_at && ' · hidden'}
+                </TableCell>
+                <TableCell>{new Date(r.created_at).toLocaleDateString()}</TableCell>
+                <TableCell align="right">
+                  {!r.hidden_at ? (
+                    <Button size="small" onClick={() => setConfirm({ kind: 'hide_recipe', recipeId: r.id, title: r.title })}>Hide</Button>
+                  ) : (
+                    <Button size="small" color="primary" onClick={() => doUnhideRecipe(r.id)}>Unhide</Button>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </Section>
 
       <Section title={`Cook events (last ${data.cook_events.length})`}>
