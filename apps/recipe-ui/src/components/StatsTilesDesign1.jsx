@@ -25,7 +25,15 @@ function useAnimatedNumber(target, duration = 700) {
     }
     const from = displayRef.current;
     const to = target;
-    if (from === to) return undefined;
+    if (from === to) {
+      // No animation needed, but `display` can still be stale here — e.g.
+      // friendCount goes null → 0 (0 friends): the ref was 0 the whole time
+      // while `display` got set to null during the null phase, so without
+      // this the "0" never renders until a remount.
+      displayRef.current = target;
+      setDisplay(target);
+      return undefined;
+    }
 
     const start = performance.now();
     const tick = (now) => {

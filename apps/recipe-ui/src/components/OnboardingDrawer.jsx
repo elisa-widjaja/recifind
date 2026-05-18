@@ -7,7 +7,7 @@ import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos';
 
 // First-time onboarding hosted in a single bottom-sheet drawer with five
 // internal screens: Welcome → Dietary → Cooking-for → Cuisines → Checklist.
-// iOS-style X close button on the LEFT, drag-grabber at the top.
+// iOS-style X close button on the LEFT (no drag-grabber).
 
 const DIETARY_PREFS = ['🥦 Vegetarian', '🌱 Vegan', '🌾 Gluten-free', '🥛 Dairy-free', '💪 High protein', '🐟 Pescatarian', '🥩 Meat lover', '✅ None / all good'];
 const COOKING_FOR = [
@@ -152,8 +152,6 @@ export default function OnboardingDrawer({
         }),
       }}
     >
-      {/* Drag grabber */}
-      <Box sx={{ width: 38, height: 4, bgcolor: 'divider', borderRadius: 2, mx: 'auto', mt: '8px', mb: '4px', flexShrink: 0 }} />
 
       {/* Header row: X (left), Back + Next circle buttons (right) */}
       <Box sx={{ px: '24px', pt: '8px', pb: '20px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

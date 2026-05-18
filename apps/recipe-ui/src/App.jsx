@@ -1176,6 +1176,9 @@ function App() {
   // and re-reads the now-set onboarding_checklist_collapsed sessionStorage
   // flag (its useState initial only runs once at mount).
   const [checklistKey, setChecklistKey] = useState(0);
+  // Bumped by pull-to-refresh on the Discover tab; remounts DiscoverPage so
+  // its public feeds refetch (DiscoverPage fetches on mount only).
+  const [discoverRefreshKey, setDiscoverRefreshKey] = useState(0);
   const [currentView, setCurrentView] = useState(() => {
     const saved = sessionStorage.getItem('currentView');
     const VALID_VIEWS = ['home', 'recipes', 'friend-requests', 'friends', 'discover', 'profile'];
@@ -3166,6 +3169,14 @@ function App() {
   // foreground/login so the user gets a real refresh on the home + recipes
   // views, not just a recipes list re-sync.
   const handlePullRefresh = useCallback(async () => {
+    // Discover is a public tab — refresh it regardless of auth by remounting
+    // DiscoverPage (it fetches its feeds on mount). Brief await so the PTR
+    // spinner doesn't snap back before DiscoverPage swaps to its skeletons.
+    if (currentView === 'discover') {
+      setDiscoverRefreshKey((k) => k + 1);
+      await new Promise((r) => setTimeout(r, 500));
+      return;
+    }
     if (!session?.user?.id) return;
     await Promise.allSettled([
       syncRecipesFromApi({ forceUpdate: true }),
@@ -3173,7 +3184,7 @@ function App() {
       fetchFriendRequests(),
       fetchNotifications(),
     ]);
-  }, [session?.user?.id, syncRecipesFromApi, fetchProfile, fetchFriendRequests, fetchNotifications]);
+  }, [currentView, session?.user?.id, syncRecipesFromApi, fetchProfile, fetchFriendRequests, fetchNotifications]);
 
   useEffect(() => {
     setVisibleCount(RESULTS_PAGE_SIZE);
@@ -5438,6 +5449,7 @@ function App() {
             )}
             {currentView === 'discover' && (
               <DiscoverPage
+                key={discoverRefreshKey}
                 accessToken={accessToken}
                 cookingFor={userProfile?.cookingFor ?? null}
                 cuisinePrefs={userProfile?.cuisinePrefs ?? null}
@@ -7207,8 +7219,12 @@ function App() {
       <PullToRefresh
         enabled={
           (Capacitor.isNativePlatform() || (typeof window !== 'undefined' && 'ontouchstart' in window))
-          && !!session
-          && (currentView === 'home' || currentView === 'recipes')
+          // home/recipes need a session (they refresh user data); Discover
+          // is a public tab so PTR there works logged-out too.
+          && (
+            (!!session && (currentView === 'home' || currentView === 'recipes'))
+            || currentView === 'discover'
+          )
           && !isAddDialogOpen
           && !isFriendsDialogOpen
           // Recipe-detail dialog body-locks window scroll, so PTR's window-level
@@ -7221,6 +7237,10 @@ function App() {
           // preventDefault every downward drag and freeze their lists.
           && !shareSheetState
           && !pickerOpen
+          // The onboarding drawer (Welcome → prefs → checklist screens) also
+          // body-locks scroll — PTR would preventDefault every downward drag
+          // and freeze the drawer's own scroll.
+          && !onboardingDrawerOpen
         }
         onRefresh={handlePullRefresh}
       />

@@ -30,7 +30,11 @@ export default function TrendingHealthCarouselB({ picks = [], onOpen, onSave, on
           display: 'flex',
           gap: '8px',
           overflowX: 'auto',
+          // Symmetric pl/pr so the last card ends with the same 16px gutter
+          // as the first — it lands fully visible instead of flush to (or
+          // clipped by) the screen edge.
           pl: 2,
+          pr: 2,
           pb: 1,
           scrollbarWidth: 'none',
           '&::-webkit-scrollbar': { display: 'none' },
@@ -42,14 +46,6 @@ export default function TrendingHealthCarouselB({ picks = [], onOpen, onSave, on
           <AiPickCard key={pick.topic} pick={pick} onOpen={onOpen} onSave={onSave} onShare={onShare} />
         ))}
       </Box>
-      {/* Right-edge gradient */}
-      <Box
-        sx={{
-          position: 'absolute', top: 0, right: 0, bottom: 8, width: 48,
-          pointerEvents: 'none',
-          background: theme => `linear-gradient(to right, transparent, ${theme.palette.background.default})`,
-        }}
-      />
     </Box>
   );
 }
