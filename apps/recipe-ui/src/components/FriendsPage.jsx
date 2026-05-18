@@ -193,6 +193,7 @@ function PendingList({ pendingRequests, sentRequests, sentInvites, onAccept, onD
             key={`incoming-${r.fromUserId || r.id}`}
             seed={r.fromUserId || String(r.id)}
             name={name}
+            avatarUrl={r.avatarUrl}
             sub="wants to connect"
             isLast={isLast}
             actions={
@@ -228,6 +229,7 @@ function PendingList({ pendingRequests, sentRequests, sentInvites, onAccept, onD
             key={`sent-${r.toUserId || r.id}`}
             seed={r.toUserId || String(r.id)}
             name={name}
+            avatarUrl={r.avatarUrl}
             sub="awaiting response"
             isLast={isLast}
             actions={
@@ -348,14 +350,14 @@ function CircleActionButton({ ariaLabel, onClick, children, variant }) {
   );
 }
 
-function PendingRow({ seed, name, sub, isLast, actions }) {
+function PendingRow({ seed, name, sub, isLast, actions, avatarUrl }) {
   return (
     <Box sx={{
       display: 'flex', alignItems: 'center', gap: 1.5,
       py: 1.5, px: 0,
       borderBottom: isLast ? 0 : 1, borderColor: 'divider',
     }}>
-      <Avatar sx={{ bgcolor: avatarColor(seed), width: 40, height: 40, fontSize: 16, fontWeight: 700 }}>
+      <Avatar src={avatarUrl || undefined} sx={{ bgcolor: avatarColor(seed), width: 40, height: 40, fontSize: 16, fontWeight: 700 }}>
         {(name || '?').charAt(0).toUpperCase()}
       </Avatar>
       <Box sx={{ flex: 1, minWidth: 0 }}>

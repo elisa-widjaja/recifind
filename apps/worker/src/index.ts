@@ -2107,13 +2107,14 @@ export async function getFriendActivity(
   // "saved your recipe" and generic "saved X" variants carry different names,
   // breaking the client-side dedup (duplicate rows, old + new name). Looking
   // the name up by actor id keeps the feed fresh and lets dedup collapse.
-  // Recipe actors only (saver/sharer/cooker). friend_request renders from
-  // item.message on the client, so it doesn't need a live name lookup —
-  // excluding fromUserId also avoids an extra query for request-only feeds.
+  // Recipe actors (saver/sharer/cooker) plus the friend_request sender
+  // (fromUserId) — the latter so the activity feed can show the requester's
+  // avatar. friend_request still renders its NAME from item.message (the
+  // dedup keys depend on that), so we only use fromUserId for the avatar.
   const actorIds = [...new Set(
     parsed.flatMap(item => {
       const d = item.data as Record<string, unknown>;
-      return [d.saverId, d.sharerId, d.cookerId]
+      return [d.saverId, d.sharerId, d.cookerId, d.fromUserId]
         .filter((v): v is string => typeof v === 'string' && v.length > 0);
     })
   )];
@@ -2160,7 +2161,9 @@ export async function getFriendActivity(
         ?? item.message.split(' ')[0]
         ?? null;
       const friendUserId = fromUserId ?? saverId ?? sharerId ?? cookerId;
-      const avatarUrl = actorId ? (actorAvatarById.get(actorId) ?? null) : null;
+      // Avatar by friendUserId so friend_request (fromUserId) resolves too,
+      // not just recipe actors.
+      const avatarUrl = friendUserId ? (actorAvatarById.get(friendUserId) ?? null) : null;
       const resolved = item.type === 'friend_request' && fromUserId
         ? !pendingFromUserIds.has(fromUserId)
         : undefined;
@@ -3135,7 +3138,12 @@ async function handleSendFriendRequest(request: Request, env: Env, user: Authent
 
 async function handleListFriendRequests(env: Env, user: AuthenticatedUser) {
   const result = await env.DB.prepare(
-    'SELECT * FROM friend_requests WHERE to_user_id = ? AND status = ? LIMIT 100'
+    `SELECT fr.from_user_id, fr.from_email, fr.from_name, fr.to_user_id,
+            fr.to_email, fr.status, fr.created_at,
+            p.avatar_url AS avatar_url
+     FROM friend_requests fr
+     LEFT JOIN profiles p ON p.user_id = fr.from_user_id AND p.deleted_at IS NULL
+     WHERE fr.to_user_id = ? AND fr.status = ? LIMIT 100`
   ).bind(user.userId, 'pending').all();
 
   const requests = (result.results || []).map((row) => ({
@@ -3145,6 +3153,7 @@ async function handleListFriendRequests(env: Env, user: AuthenticatedUser) {
     toUserId: row.to_user_id as string,
     toEmail: row.to_email as string,
     status: row.status as string,
+    avatarUrl: (row.avatar_url as string | null) ?? null,
     createdAt: row.created_at as string,
   }));
 
@@ -3153,15 +3162,18 @@ async function handleListFriendRequests(env: Env, user: AuthenticatedUser) {
 
 async function handleListSentFriendRequests(env: Env, user: AuthenticatedUser) {
   const result = await env.DB.prepare(
-    `SELECT fr.to_user_id, fr.to_email, fr.created_at
+    `SELECT fr.to_user_id, fr.to_email, fr.created_at,
+            p.avatar_url AS avatar_url
      FROM friend_requests_sent frs
      JOIN friend_requests fr ON fr.to_user_id = frs.to_user_id AND fr.from_user_id = frs.from_user_id
+     LEFT JOIN profiles p ON p.user_id = fr.to_user_id AND p.deleted_at IS NULL
      WHERE frs.from_user_id = ? LIMIT 100`
   ).bind(user.userId).all();
 
   const sent = (result.results || []).map((row) => ({
     toUserId: row.to_user_id as string,
     toEmail: row.to_email as string,
+    avatarUrl: (row.avatar_url as string | null) ?? null,
     createdAt: row.created_at as string,
   }));
 
