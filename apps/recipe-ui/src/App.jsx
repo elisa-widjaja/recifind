@@ -1287,17 +1287,14 @@ function App() {
   const [ingredientInputKeyCount, setIngredientInputKeyCount] = useState(0);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isSharedRecipeView, setIsSharedRecipeView] = useState(false);
-  const [savedSharedRecipeIds, setSavedSharedRecipeIds] = useState(() => {
-    try { return new Set(JSON.parse(localStorage.getItem('saved_shared_recipe_ids') || '[]')); }
-    catch { return new Set(); }
-  });
   // A friend's / public recipe counts as "already in my collection" when I
   // own a recipe with the same normalized source_url, or it's literally my
-  // own recipe (same id — e.g. activity feed "X saved your recipe"), or I
-  // just saved it this session. Single source of truth so the green
-  // "Saved ✓" state is consistent on friend-drawer cards and the shared-
-  // recipe detail Save button. Recipes with no source_url can only match by
-  // id (no false positives across unrelated manual recipes).
+  // own recipe (same id — e.g. activity feed "X saved your recipe").
+  // Derived purely from the live `recipes` collection so the green
+  // "Saved ✓" state is consistent across friend-drawer cards and the
+  // shared-recipe detail button, and reverts the instant the saved copy is
+  // deleted. Recipes with no source_url can only match by id (no false
+  // positives across unrelated manual recipes).
   const ownedSourceUrls = useMemo(() => {
     const set = new Set();
     for (const r of recipes) {
@@ -1308,11 +1305,10 @@ function App() {
   }, [recipes]);
   const isRecipeAlreadySaved = useCallback((recipe) => {
     if (!recipe) return false;
-    if (recipe.id && savedSharedRecipeIds.has(recipe.id)) return true;
     if (recipe.id && recipes.some((r) => r.id === recipe.id)) return true;
     const u = normalizeUrlForLookup(recipe.sourceUrl);
     return !!u && ownedSourceUrls.has(u);
-  }, [recipes, ownedSourceUrls, savedSharedRecipeIds]);
+  }, [recipes, ownedSourceUrls]);
   const [sharedRecipeOwnerId, setSharedRecipeOwnerId] = useState(null);
   const [oembedAuthor, setOembedAuthor] = useState(null);
   const oembedCacheRef = useRef(new Map());
@@ -2313,16 +2309,6 @@ function App() {
         const updated = [saved, ...prev.filter((r) => r.id !== saved.id)];
         saveRecipesToCache(updated, session?.user?.id || null, serverVersionRef.current);
         return updated;
-      });
-      // Track the *source* recipe's id too so opening its detail right after
-      // saving from the card shows "Saved ✓" even when it has no source_url
-      // to match on (source_url match covers the reopened-later case).
-      setSavedSharedRecipeIds((prev) => {
-        if (!recipe.id || prev.has(recipe.id)) return prev;
-        const next = new Set(prev);
-        next.add(recipe.id);
-        try { localStorage.setItem('saved_shared_recipe_ids', JSON.stringify([...next])); } catch {}
-        return next;
       });
       setSnackbarState({ open: true, message: `"${recipe.title}" saved to your collection!`, severity: 'success' });
     } catch {
@@ -3707,12 +3693,6 @@ function App() {
                 saveRecipesToCache(updated, userId, serverVersionRef.current);
                 return updated;
               });
-              setSavedSharedRecipeIds((prev) => {
-                const next = new Set(prev);
-                next.add(recipe.id);
-                try { localStorage.setItem('saved_shared_recipe_ids', JSON.stringify([...next])); } catch {}
-                return next;
-              });
               setIsAuthDialogOpen(false);
               setAuthDialogReason(null);
               setSnackbarState({
@@ -4305,13 +4285,6 @@ function App() {
         const userId = session?.user?.id || null;
         saveRecipesToCache(updated, userId, serverVersionRef.current);
         return updated;
-      });
-
-      setSavedSharedRecipeIds((prev) => {
-        const next = new Set(prev);
-        next.add(activeRecipe.id);
-        try { localStorage.setItem('saved_shared_recipe_ids', JSON.stringify([...next])); } catch {}
-        return next;
       });
     } catch (error) {
       console.error('Error saving shared recipe:', error);
