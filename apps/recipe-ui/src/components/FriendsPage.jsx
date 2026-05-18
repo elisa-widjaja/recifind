@@ -193,6 +193,8 @@ function PendingList({ pendingRequests, sentRequests, sentInvites, onAccept, onD
             key={`incoming-${r.fromUserId || r.id}`}
             seed={r.fromUserId || String(r.id)}
             name={name}
+            /* Privacy: don't expose the requester's email before you've
+               accepted them — name + avatar + status is enough to decide. */
             avatarUrl={r.avatarUrl}
             sub="wants to connect"
             isLast={isLast}
@@ -229,6 +231,7 @@ function PendingList({ pendingRequests, sentRequests, sentInvites, onAccept, onD
             key={`sent-${r.toUserId || r.id}`}
             seed={r.toUserId || String(r.id)}
             name={name}
+            email={r.toEmail}
             avatarUrl={r.avatarUrl}
             sub="awaiting response"
             isLast={isLast}
@@ -350,7 +353,11 @@ function CircleActionButton({ ariaLabel, onClick, children, variant }) {
   );
 }
 
-function PendingRow({ seed, name, sub, isLast, actions, avatarUrl }) {
+function PendingRow({ seed, name, sub, isLast, actions, avatarUrl, email }) {
+  // Show the email only when it adds info (i.e. differs from the display
+  // name shown on line 1). Status sub always renders beneath it.
+  const showEmail = email && email !== name;
+  const lineSx = { fontSize: 12, color: 'text.secondary', mt: 0.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
   return (
     <Box sx={{
       display: 'flex', alignItems: 'center', gap: 1.5,
@@ -364,9 +371,8 @@ function PendingRow({ seed, name, sub, isLast, actions, avatarUrl }) {
         <Typography sx={{ fontSize: 15, fontWeight: 600, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {name}
         </Typography>
-        <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.25 }}>
-          {sub}
-        </Typography>
+        {showEmail && <Typography sx={lineSx}>{email}</Typography>}
+        {sub && <Typography sx={lineSx}>{sub}</Typography>}
       </Box>
       <Box sx={{ display: 'flex', gap: 1.5, flexShrink: 0 }}>
         {actions}

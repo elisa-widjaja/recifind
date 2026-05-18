@@ -3138,8 +3138,9 @@ async function handleSendFriendRequest(request: Request, env: Env, user: Authent
 
 async function handleListFriendRequests(env: Env, user: AuthenticatedUser) {
   const result = await env.DB.prepare(
-    `SELECT fr.from_user_id, fr.from_email, fr.from_name, fr.to_user_id,
+    `SELECT fr.from_user_id, fr.from_email, fr.to_user_id,
             fr.to_email, fr.status, fr.created_at,
+            COALESCE(p.display_name, fr.from_name) AS from_name,
             p.avatar_url AS avatar_url
      FROM friend_requests fr
      LEFT JOIN profiles p ON p.user_id = fr.from_user_id AND p.deleted_at IS NULL
@@ -3163,6 +3164,7 @@ async function handleListFriendRequests(env: Env, user: AuthenticatedUser) {
 async function handleListSentFriendRequests(env: Env, user: AuthenticatedUser) {
   const result = await env.DB.prepare(
     `SELECT fr.to_user_id, fr.to_email, fr.created_at,
+            p.display_name AS to_name,
             p.avatar_url AS avatar_url
      FROM friend_requests_sent frs
      JOIN friend_requests fr ON fr.to_user_id = frs.to_user_id AND fr.from_user_id = frs.from_user_id
@@ -3173,6 +3175,7 @@ async function handleListSentFriendRequests(env: Env, user: AuthenticatedUser) {
   const sent = (result.results || []).map((row) => ({
     toUserId: row.to_user_id as string,
     toEmail: row.to_email as string,
+    toName: (row.to_name as string | null) ?? null,
     avatarUrl: (row.avatar_url as string | null) ?? null,
     createdAt: row.created_at as string,
   }));
