@@ -1,5 +1,6 @@
 import { Box, Card, CardActionArea, IconButton, Typography } from '@mui/material';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import IosShareOutlinedIcon from '@mui/icons-material/IosShareOutlined';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import { formatDuration } from '../utils/videoEmbed';
@@ -15,9 +16,11 @@ import RecipeThumbnail from './RecipeThumbnail';
  *   onShare     — (recipe, e) => void, called when share icon tapped
  *   thumbnail   — optional ReactNode replacing the default img/emoji thumbnail
  *   saveIcon    — optional ReactNode replacing the default BookmarkBorderIcon
+ *   saved       — when true, show a green check instead of the save icon and
+ *                 make the save control a no-op (recipe already in collection)
  *   cardSx      — optional extra sx merged onto the Card
  */
-export default function RecipeListCard({ recipe, onOpen, onSave, onShare, thumbnail, saveIcon, cardSx }) {
+export default function RecipeListCard({ recipe, onOpen, onSave, onShare, thumbnail, saveIcon, saved, cardSx }) {
   return (
     <Card
       elevation={0}
@@ -70,11 +73,18 @@ export default function RecipeListCard({ recipe, onOpen, onSave, onShare, thumbn
               size="small"
               onMouseDown={(e) => e.stopPropagation()}
               onTouchStart={(e) => e.stopPropagation()}
-              onClick={(e) => { e.stopPropagation(); e.preventDefault(); onSave?.(recipe, e); }}
-              aria-label="Save recipe"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                if (saved) return; // already in collection — no-op
+                onSave?.(recipe, e);
+              }}
+              aria-label={saved ? 'Saved to your collection' : 'Save recipe'}
               sx={{ p: 0.5, mr: '9px' }}
             >
-              {saveIcon ?? <BookmarkBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />}
+              {saved
+                ? <CheckCircleOutlineIcon sx={{ fontSize: 18, color: '#4caf50' }} />
+                : (saveIcon ?? <BookmarkBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />)}
             </IconButton>
             <IconButton
               size="small"

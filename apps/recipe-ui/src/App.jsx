@@ -1291,6 +1291,28 @@ function App() {
     try { return new Set(JSON.parse(localStorage.getItem('saved_shared_recipe_ids') || '[]')); }
     catch { return new Set(); }
   });
+  // A friend's / public recipe counts as "already in my collection" when I
+  // own a recipe with the same normalized source_url, or it's literally my
+  // own recipe (same id — e.g. activity feed "X saved your recipe"), or I
+  // just saved it this session. Single source of truth so the green
+  // "Saved ✓" state is consistent on friend-drawer cards and the shared-
+  // recipe detail Save button. Recipes with no source_url can only match by
+  // id (no false positives across unrelated manual recipes).
+  const ownedSourceUrls = useMemo(() => {
+    const set = new Set();
+    for (const r of recipes) {
+      const u = normalizeUrlForLookup(r.sourceUrl);
+      if (u) set.add(u);
+    }
+    return set;
+  }, [recipes]);
+  const isRecipeAlreadySaved = useCallback((recipe) => {
+    if (!recipe) return false;
+    if (recipe.id && savedSharedRecipeIds.has(recipe.id)) return true;
+    if (recipe.id && recipes.some((r) => r.id === recipe.id)) return true;
+    const u = normalizeUrlForLookup(recipe.sourceUrl);
+    return !!u && ownedSourceUrls.has(u);
+  }, [recipes, ownedSourceUrls, savedSharedRecipeIds]);
   const [sharedRecipeOwnerId, setSharedRecipeOwnerId] = useState(null);
   const [oembedAuthor, setOembedAuthor] = useState(null);
   const oembedCacheRef = useRef(new Map());
@@ -2291,6 +2313,16 @@ function App() {
         const updated = [saved, ...prev.filter((r) => r.id !== saved.id)];
         saveRecipesToCache(updated, session?.user?.id || null, serverVersionRef.current);
         return updated;
+      });
+      // Track the *source* recipe's id too so opening its detail right after
+      // saving from the card shows "Saved ✓" even when it has no source_url
+      // to match on (source_url match covers the reopened-later case).
+      setSavedSharedRecipeIds((prev) => {
+        if (!recipe.id || prev.has(recipe.id)) return prev;
+        const next = new Set(prev);
+        next.add(recipe.id);
+        try { localStorage.setItem('saved_shared_recipe_ids', JSON.stringify([...next])); } catch {}
+        return next;
       });
       setSnackbarState({ open: true, message: `"${recipe.title}" saved to your collection!`, severity: 'success' });
     } catch {
@@ -6134,15 +6166,28 @@ function App() {
                     Share
                   </Button>
                   {/* === [/S04] === */}
-                  <Button
-                    variant={savedSharedRecipeIds.has(activeRecipe?.id) ? 'outlined' : 'contained'}
-                    color="primary"
-                    onClick={savedSharedRecipeIds.has(activeRecipe?.id) ? undefined : handleSaveSharedRecipe}
-                    startIcon={savedSharedRecipeIds.has(activeRecipe?.id) ? <CheckIcon /> : <BookmarkBorderIcon />}
-                    sx={{ flex: 1, ...(savedSharedRecipeIds.has(activeRecipe?.id) ? { pointerEvents: 'none', border: '1px solid #4caf50', color: '#4caf50' } : {}) }}
-                  >
-                    {savedSharedRecipeIds.has(activeRecipe?.id) ? 'Saved' : 'Save'}
-                  </Button>
+                  {(() => {
+                    const sharedSaved = isRecipeAlreadySaved(activeRecipe);
+                    return (
+                      <Button
+                        variant={sharedSaved ? 'outlined' : 'contained'}
+                        color="primary"
+                        onClick={sharedSaved ? undefined : handleSaveSharedRecipe}
+                        startIcon={sharedSaved ? <CheckIcon /> : <BookmarkBorderIcon />}
+                        sx={{ flex: 1, ...(sharedSaved ? {
+                          pointerEvents: 'none',
+                          color: '#4caf50',
+                          // Scope to .MuiButton-outlined so this beats the
+                          // variant's primary border-color on the light
+                          // palette — keeps the outline matching the
+                          // checkmark in both themes.
+                          '&.MuiButton-outlined': { borderColor: '#4caf50' },
+                        } : {}) }}
+                      >
+                        {sharedSaved ? 'Saved' : 'Save'}
+                      </Button>
+                    );
+                  })()}
                 </>
               ) : !session && !isEditMode ? (
                 <>
@@ -6864,6 +6909,7 @@ function App() {
                         setActiveRecipeDraft(null);
                       }}
                       onSave={() => handleSavePublicRecipe(recipe)}
+                      saved={isRecipeAlreadySaved(recipe)}
                       onShare={(r, e) => openShareSheet(r, e)}
                       cardSx={darkMode ? { backgroundColor: 'transparent' } : {}}
                     />
