@@ -3502,6 +3502,17 @@ function App() {
 
     if (activeRecipe) return;
 
+    // Recipient opened a shared link on web — once the recipe detail is
+    // showing, surface the "See this in ReciFriend" app/browser drawer.
+    // Respects the same opt-out gates as the timed prompt and waits a beat
+    // so the recipe paints before the sheet slides up.
+    const popShareAppPrompt = () => {
+      if (isStandalone || isPwaInstalled()) return;
+      if (localStorage.getItem('recifriend-install-banner-dismissed')) return;
+      if (sessionStorage.getItem('recifriend-app-prompt-dismissed')) return;
+      setTimeout(() => setShowInstallBanner(true), 1000);
+    };
+
     // Handle share token URLs (preferred method for shared recipes)
     if (shareToken) {
       const fetchSharedRecipe = async () => {
@@ -3517,6 +3528,7 @@ function App() {
             setSharedRecipeOwnerId(null);
             setActiveRecipe(recipe);
             setActiveRecipeDraft(null);
+            popShareAppPrompt();
           }
         } catch (error) {
           console.error('Error fetching shared recipe:', error);
@@ -3557,6 +3569,7 @@ function App() {
             setSharedRecipeOwnerId(sharedUserId);
             setActiveRecipe(recipe);
             setActiveRecipeDraft(null);
+            popShareAppPrompt();
           }
         } catch (error) {
           console.error('Error fetching shared recipe:', error);
@@ -7271,6 +7284,7 @@ function App() {
           && !isFriendsDialogOpen
         }
         onClose={(_, reason) => { if (reason !== 'backdropClick') setShowInstallBanner(false); }}
+        sx={{ zIndex: (t) => t.zIndex.modal + 10 }}
         PaperProps={{
           sx: (theme) => ({
             borderRadius: '14px 14px 0 0',
