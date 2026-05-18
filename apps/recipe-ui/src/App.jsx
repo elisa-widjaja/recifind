@@ -1159,9 +1159,6 @@ function App() {
     } catch { return new Set(); }
   });
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
-  // Bumped by OnboardingChecklist's onDismiss; forces the home-render IIFE to
-  // re-evaluate localStorage and hide the checklist after a permanent dismiss.
-  const [onboardingTick, setOnboardingTick] = useState(0);
   const [avatarUploading, setAvatarUploading] = useState(false);
   // First-time onboarding hosted in a single right-slide drawer (preferences
   // + checklist screens). Replaces the legacy OnboardingFlow Dialog and the
@@ -2480,13 +2477,11 @@ function App() {
     await markOnboardingSeen();
   };
 
-  // OnboardingDrawer X close BEFORE the checklist screen — early exit. We
-  // still mark onboarding seen (don't keep nagging on every launch), but
-  // ALSO set a one-shot session flag so the OnboardingChecklist on home
-  // renders expanded for this session. Next launch (sessionStorage gone)
-  // it falls back to the default collapsed state.
+  // OnboardingDrawer X close BEFORE the checklist screen — early exit. Mark
+  // onboarding seen (don't keep nagging on every launch). The home
+  // OnboardingChecklist auto-expands on its own while the user is under
+  // 2/3 steps, so no session flag is needed here anymore.
   const handleOnboardingClose = async () => {
-    try { sessionStorage.setItem('onboarding_checklist_force_expanded', '1'); } catch { /* swallow */ }
     setOnboardingDrawerOpen(false);
     setCurrentView('home');
     setChecklistKey((k) => k + 1);
@@ -2494,10 +2489,9 @@ function App() {
   };
 
   // OnboardingDrawer "Don't show this again" link on the welcome screen —
-  // same handling as an early X dismiss: mark seen, but expand the
-  // checklist on home for this session so the user still sees the steps.
+  // same handling as an early X dismiss: just mark seen. The home checklist
+  // auto-expands while under 2/3 steps, so the user still sees the steps.
   const handleOnboardingSkipForever = async () => {
-    try { sessionStorage.setItem('onboarding_checklist_force_expanded', '1'); } catch { /* swallow */ }
     setOnboardingDrawerOpen(false);
     setCurrentView('home');
     setChecklistKey((k) => k + 1);
@@ -5274,18 +5268,14 @@ function App() {
                     userId && localStorage.getItem(`onboarding_shared_${userId}`)
                   );
                   const allDoneFlag = userId ? `onboarding_complete_${userId}` : null;
-                  const dismissedFlag = userId ? `onboarding_dismissed_${userId}` : null;
                   const allDoneCached = Boolean(allDoneFlag && localStorage.getItem(allDoneFlag));
-                  const dismissedCached = Boolean(dismissedFlag && localStorage.getItem(dismissedFlag));
                   const allDoneNow = hasRecipe && hasInvitedFriend && hasSharedRecipe;
                   if (allDoneNow && allDoneFlag && !allDoneCached) {
                     localStorage.setItem(allDoneFlag, '1');
                   }
-                  // `onboardingTick` is referenced here so React re-runs the
-                  // IIFE on dismiss (otherwise the localStorage write below
-                  // wouldn't trigger a re-render). The value itself is unused.
-                  void onboardingTick;
-                  if (allDoneCached || allDoneNow || dismissedCached) return null;
+                  // No manual dismiss — the module self-removes only when all
+                  // 3 steps are complete.
+                  if (allDoneCached || allDoneNow) return null;
                   // Wrapper Box adds 10px of padding-top above the checklist.
                   // Combined with the parent Stack's 12px margin between
                   // children, the total visible gap from greeting bottom to
@@ -5298,10 +5288,6 @@ function App() {
                         hasRecipe={hasRecipe}
                         hasInvitedFriend={hasInvitedFriend}
                         hasSharedRecipe={hasSharedRecipe}
-                        onDismiss={() => {
-                          if (dismissedFlag) localStorage.setItem(dismissedFlag, '1');
-                          setOnboardingTick((n) => n + 1);
-                        }}
                       />
                     </Box>
                   );

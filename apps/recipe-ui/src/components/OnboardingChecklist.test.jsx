@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import OnboardingChecklist from './OnboardingChecklist';
 
@@ -37,31 +37,28 @@ describe('OnboardingChecklist', () => {
     expect(inlinePctWidths.length).toBe(0);
   });
 
-  it('starts collapsed and expands on header toggle', () => {
+  it('starts EXPANDED when fewer than 2 steps are done (new user)', () => {
     render(<OnboardingChecklist hasRecipe={false} hasInvitedFriend={false} hasSharedRecipe={false} />);
-    const toggle = screen.getByRole('button', { name: /expand checklist/i });
-    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: /collapse checklist/i }))
+      .toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('starts COLLAPSED once 2 of 3 steps are done', () => {
+    render(<OnboardingChecklist hasRecipe hasInvitedFriend hasSharedRecipe={false} />);
+    expect(screen.getByRole('button', { name: /expand checklist/i }))
+      .toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('the user can collapse it for the session', () => {
+    render(<OnboardingChecklist hasRecipe={false} hasInvitedFriend={false} hasSharedRecipe={false} />);
+    const toggle = screen.getByRole('button', { name: /collapse checklist/i });
     fireEvent.click(toggle);
-    expect(screen.getByRole('button', { name: /collapse checklist/i })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: /expand checklist/i }))
+      .toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('renders a dismiss button only when onDismiss is provided (after expanding)', () => {
-    // Dismiss link lives inside the expanded body, so expand first to assert.
-    const noDismiss = render(<OnboardingChecklist hasRecipe={false} hasInvitedFriend={false} hasSharedRecipe={false} />);
-    fireEvent.click(screen.getByRole('button', { name: /expand checklist/i }));
-    expect(screen.queryByRole('button', { name: /dismiss checklist/i })).not.toBeInTheDocument();
-    noDismiss.unmount();
-
-    render(<OnboardingChecklist hasRecipe={false} hasInvitedFriend={false} hasSharedRecipe={false} onDismiss={() => {}} />);
-    fireEvent.click(screen.getByRole('button', { name: /expand checklist/i }));
-    expect(screen.getByRole('button', { name: /dismiss checklist/i })).toBeInTheDocument();
-  });
-
-  it('calls onDismiss when the dismiss button is tapped', () => {
-    const onDismiss = vi.fn();
-    render(<OnboardingChecklist hasRecipe={false} hasInvitedFriend={false} hasSharedRecipe={false} onDismiss={onDismiss} />);
-    fireEvent.click(screen.getByRole('button', { name: /expand checklist/i }));
-    fireEvent.click(screen.getByRole('button', { name: /dismiss checklist/i }));
-    expect(onDismiss).toHaveBeenCalled();
+  it('has no dismiss control (self-removes only at 3/3)', () => {
+    render(<OnboardingChecklist hasRecipe={false} hasInvitedFriend={false} hasSharedRecipe={false} />);
+    expect(screen.queryByRole('button', { name: /dismiss/i })).not.toBeInTheDocument();
   });
 });

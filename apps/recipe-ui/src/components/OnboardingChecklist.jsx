@@ -9,17 +9,19 @@ const STEPS = [
   { key: 'share',  label: 'Share a recipe with a friend' },
 ];
 
-export default function OnboardingChecklist({ hasRecipe, hasInvitedFriend, hasSharedRecipe, onDismiss }) {
+export default function OnboardingChecklist({ hasRecipe, hasInvitedFriend, hasSharedRecipe }) {
   const status = { recipe: !!hasRecipe, invite: !!hasInvitedFriend, share: !!hasSharedRecipe };
   const done = STEPS.filter((s) => status[s.key]).length;
-  // Default collapsed. Override (expanded for this session) only when the
-  // user dismissed OnboardingDrawer early — we want them to see the steps
-  // they missed. Flag lives in sessionStorage so it self-clears on next
-  // launch.
-  const [expanded, setExpanded] = useState(() => {
-    try { return sessionStorage.getItem('onboarding_checklist_force_expanded') === '1'; }
-    catch { return false; }
-  });
+  // Expanded by default until the user has completed 2 of 3 steps; collapsed
+  // once they've done 2. `manualExpanded` stays null until the user toggles —
+  // while null, `expanded` is derived from the LIVE step count every render,
+  // so it stays correct even though hasRecipe/hasInvitedFriend load
+  // asynchronously (a useState initializer would freeze the wrong value
+  // captured before that data settled). Once the user toggles, their choice
+  // holds for the session and resets next session on remount. There is no
+  // manual dismiss; the module self-removes at 3/3 (return null below).
+  const [manualExpanded, setManualExpanded] = useState(null);
+  const expanded = manualExpanded === null ? done < 2 : manualExpanded;
 
   if (done === STEPS.length) return null;
 
@@ -50,7 +52,7 @@ export default function OnboardingChecklist({ hasRecipe, hasInvitedFriend, hasSh
         component="button"
         aria-label={expanded ? 'Collapse checklist' : 'Expand checklist'}
         aria-expanded={expanded}
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => setManualExpanded(!expanded)}
         sx={{
           width: '100%', display: 'flex', alignItems: 'center', gap: 1.25,
           border: 'none', bgcolor: 'transparent', cursor: 'pointer',
@@ -103,26 +105,6 @@ export default function OnboardingChecklist({ hasRecipe, hasInvitedFriend, hasSh
               </Box>
             );
           })}
-          {onDismiss && (
-            <Box
-              component="button"
-              aria-label="Dismiss checklist"
-              onClick={onDismiss}
-              sx={{
-                mt: 1, p: 0,
-                border: 'none', bgcolor: 'transparent', cursor: 'pointer',
-                fontFamily: 'inherit', textAlign: 'left',
-                fontSize: 13, fontWeight: 500,
-                color: 'text.secondary',
-                textDecoration: 'underline',
-                textUnderlineOffset: '3px',
-                alignSelf: 'flex-start',
-                '&:hover': { color: 'text.primary' },
-              }}
-            >
-              Dismiss
-            </Box>
-          )}
         </Box>
       </Collapse>
     </Box>
