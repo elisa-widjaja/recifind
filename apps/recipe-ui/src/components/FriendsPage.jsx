@@ -146,7 +146,7 @@ function ConnectionsList({ friends, onTapFriend, onRemoveFriend }) {
               WebkitTapHighlightColor: 'transparent',
             }}
           >
-            <Avatar sx={{ bgcolor: avatarColor(f.friendId), width: 40, height: 40, fontSize: 16, fontWeight: 700 }}>
+            <Avatar src={f.avatarUrl || undefined} sx={{ bgcolor: avatarColor(f.friendId), width: 40, height: 40, fontSize: 16, fontWeight: 700 }}>
               {name.charAt(0).toUpperCase()}
             </Avatar>
             <Typography sx={{ flex: 1, fontSize: 15, fontWeight: 500 }}>{name}</Typography>
