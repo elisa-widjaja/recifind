@@ -31,8 +31,17 @@ export async function onRequest(context) {
   const { request, next, env } = context;
   const url = new URL(request.url);
   const shareToken = url.searchParams.get('share');
-  const recipeId = url.searchParams.get('recipe');
   const userId = url.searchParams.get('user');
+  // Recipe id from the legacy `?recipe=` query OR the new `/recipes/{id}`
+  // path form (Universal Links). Keep both so already-shared old links and
+  // new links both produce the SMS/iMessage rich preview.
+  let recipeId = url.searchParams.get('recipe');
+  if (!recipeId) {
+    const m = url.pathname.match(/^\/recipes\/([^/?#]+)\/?$/);
+    if (m) {
+      try { recipeId = decodeURIComponent(m[1]); } catch { recipeId = m[1]; }
+    }
+  }
   const userAgent = request.headers.get('User-Agent') || '';
 
   // Only intercept for bots
@@ -68,7 +77,16 @@ export async function onRequest(context) {
     const description = recipe.ingredients?.length
       ? escapeHtml(`Ingredients: ${recipe.ingredients.slice(0, 5).join(', ')}${recipe.ingredients.length > 5 ? '...' : ''}`)
       : 'View this recipe on ReciFriend';
-    const imageUrl = recipe.imageUrl || '';
+    // og:image MUST be absolute — iMessage/SMS (and most scrapers) won't
+    // fetch a relative path, so ~half the recipes (those with
+    // `/images/recipes/*.jpg` instead of a full Supabase URL) silently
+    // showed no thumbnail. Resolve against the request origin.
+    const rawImage = recipe.imageUrl || '';
+    let imageUrl = '';
+    if (rawImage) {
+      try { imageUrl = new URL(rawImage, url.origin).toString(); }
+      catch { imageUrl = ''; }
+    }
     const pageUrl = url.toString();
 
     const html = `<!DOCTYPE html>

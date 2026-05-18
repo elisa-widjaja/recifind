@@ -25,11 +25,18 @@ describe('deep link dispatcher', () => {
     expect(onAddRecipe).toHaveBeenCalledWith('https://tiktok.com/abc', undefined);
   });
 
-  it('routes /recipes/:id to onRecipeDetail with id', async () => {
+  it('routes /recipes/:id to onRecipeDetail with id (no owner)', async () => {
     const onRecipeDetail = vi.fn();
     const dispatch = createDispatcher({ ...noopHandlers(), onRecipeDetail });
     await dispatch('https://recifriend.com/recipes/abc-123');
-    expect(onRecipeDetail).toHaveBeenCalledWith('abc-123');
+    expect(onRecipeDetail).toHaveBeenCalledWith('abc-123', undefined);
+  });
+
+  it('routes /recipes/:id?user= to onRecipeDetail with id + ownerId', async () => {
+    const onRecipeDetail = vi.fn();
+    const dispatch = createDispatcher({ ...noopHandlers(), onRecipeDetail });
+    await dispatch('https://recifriend.com/recipes/abc-123?user=owner-9');
+    expect(onRecipeDetail).toHaveBeenCalledWith('abc-123', 'owner-9');
   });
 
   it('routes /recipes (no id) to onRecipesList', async () => {

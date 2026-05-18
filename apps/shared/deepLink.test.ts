@@ -32,6 +32,16 @@ describe('parseDeepLink — /recipes/:id', () => {
       kind: 'recipe_detail', recipe_id: 'abc123',
     });
   });
+  it('captures ?user= owner so shared links resolve a non-owned recipe', () => {
+    expect(parseDeepLink('https://recifriend.com/recipes/abc123?user=owner-9')).toEqual({
+      kind: 'recipe_detail', recipe_id: 'abc123', owner_id: 'owner-9',
+    });
+  });
+  it('omits owner_id when there is no ?user=', () => {
+    expect(parseDeepLink('https://recifriend.com/recipes/abc123')).toEqual({
+      kind: 'recipe_detail', recipe_id: 'abc123',
+    });
+  });
   it('accepts valid recipe id via www subdomain', () => {
     expect(parseDeepLink('https://www.recifriend.com/recipes/abc123')).toEqual({
       kind: 'recipe_detail', recipe_id: 'abc123',

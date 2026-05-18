@@ -146,6 +146,24 @@ const DEV_API_TOKEN = import.meta.env.VITE_RECIPES_API_TOKEN || '';
 // the dev tunnel only runs Vite (no middleware), so previews fail there.
 const SHARE_PUBLIC_URL = 'https://recifriend.com';
 
+// Canonical shareable recipe link, used by every share surface so the
+// experience is consistent.
+//
+// QUERY form (`/?recipe={id}&user={owner}`, path `/`) on purpose: AASA only
+// claims `/recipes/*`, so path `/` is NOT a Universal Link → iOS opens these
+// in Safari and the web cold-load resolves them. The path form
+// (`/recipes/{id}?user=`) would be intercepted by TestFlight bundle 17,
+// whose old deep-link code can't resolve a non-owned shared recipe (lands
+// on home). Everything else (OG middleware, web cold-load, deepLink
+// owner_id, dispatcher) already handles BOTH forms — when iOS build 18
+// ships, flip this back to the `/recipes/{id}?user=` path form to get true
+// in-app deep-linking.
+function buildRecipeShareUrl(recipeId, ownerId) {
+  if (!recipeId) return SHARE_PUBLIC_URL;
+  const base = `${SHARE_PUBLIC_URL}?recipe=${encodeURIComponent(recipeId)}`;
+  return ownerId ? `${base}&user=${encodeURIComponent(ownerId)}` : base;
+}
+
 // Log version on load to bust cache
 console.log('ReciFriend v2024.12.02.1');
 
@@ -1932,9 +1950,32 @@ function App() {
           sessionStorage.setItem('pending_accept_friend', acceptId);
         }
       },
-      onRecipeDetail: (recipeId) => {
-        const recipe = recipesRef.current.find((r) => r.id === recipeId);
-        if (recipe) handleOpenRecipeDetailsRef.current?.(recipe);
+      onRecipeDetail: (recipeId, ownerId) => {
+        const local = recipesRef.current.find((r) => r.id === recipeId);
+        if (local) { handleOpenRecipeDetailsRef.current?.(local); return; }
+        // Not in my collection — a shared link to someone else's recipe.
+        // Fetch it the same way the web cold-load does and open it as a
+        // shared-recipe view (Save/Share layout).
+        if (!ownerId || !API_BASE_URL) return;
+        (async () => {
+          try {
+            const res = await fetch(`${API_BASE_URL}/public/recipe/${encodeURIComponent(ownerId)}/${encodeURIComponent(recipeId)}`);
+            if (!res.ok) {
+              setSnackbarState({ open: true, message: 'Recipe not found or no longer available', severity: 'error' });
+              return;
+            }
+            const recipe = await res.json();
+            if (recipe && recipe.title) {
+              setIsSharedRecipeView(true);
+              setSharedRecipeOwnerId(ownerId);
+              setActiveRecipe(recipe);
+              setActiveRecipeDraft(null);
+            }
+          } catch (err) {
+            console.error('Error fetching shared recipe (deep link):', err);
+            setSnackbarState({ open: true, message: 'Failed to load shared recipe', severity: 'error' });
+          }
+        })();
       },
       onRecipesList: () => {
         // If a recipe detail is already open (user was browsing a recipe
@@ -2320,9 +2361,7 @@ function App() {
     const anchorPosition = event?.currentTarget
       ? { top: event.currentTarget.getBoundingClientRect().bottom, left: event.currentTarget.getBoundingClientRect().left }
       : { top: window.innerHeight / 2, left: window.innerWidth / 2 };
-    const url = recipe.id && recipe.userId
-      ? `${SHARE_PUBLIC_URL}?recipe=${encodeURIComponent(recipe.id)}&user=${encodeURIComponent(recipe.userId)}`
-      : SHARE_PUBLIC_URL;
+    const url = buildRecipeShareUrl(recipe.id, recipe.userId);
     setShareMenuState({ anchorPosition, url, title: recipe.title, imageUrl: recipe.imageUrl || '' });
   };
 
@@ -3450,7 +3489,15 @@ function App() {
 
     const url = new URL(window.location.href);
     const shareToken = url.searchParams.get('share');
-    const recipeId = url.searchParams.get('recipe');
+    // Recipe id from the new `/recipes/{id}` path form OR the legacy
+    // `?recipe=` query (kept for already-shared old links).
+    let recipeId = url.searchParams.get('recipe');
+    if (!recipeId) {
+      const m = url.pathname.match(/^\/recipes\/([^/?#]+)\/?$/);
+      if (m) {
+        try { recipeId = decodeURIComponent(m[1]); } catch { recipeId = m[1]; }
+      }
+    }
     const sharedUserId = url.searchParams.get('user');
 
     if (activeRecipe) return;
@@ -4194,10 +4241,12 @@ function App() {
     setIsEditMode(false);
     setIsStickyStuck(false);
     const url = new URL(window.location.href);
-    if (url.searchParams.has('recipe') || url.searchParams.has('user') || url.searchParams.has('share')) {
+    const isRecipePath = /^\/recipes\/[^/?#]+\/?$/.test(url.pathname);
+    if (isRecipePath || url.searchParams.has('recipe') || url.searchParams.has('user') || url.searchParams.has('share')) {
       url.searchParams.delete('recipe');
       url.searchParams.delete('user');
       url.searchParams.delete('share');
+      if (isRecipePath) url.pathname = '/';
       window.history.pushState({}, '', url.toString());
     }
   };
@@ -4910,9 +4959,7 @@ function App() {
   };
 
   const shareLoggedOutDirect = async (recipe, anchorPosition) => {
-    const url = recipe.id && recipe.userId
-      ? `${SHARE_PUBLIC_URL}?recipe=${encodeURIComponent(recipe.id)}&user=${encodeURIComponent(recipe.userId)}`
-      : SHARE_PUBLIC_URL;
+    const url = buildRecipeShareUrl(recipe.id, recipe.userId);
     if (navigator.share) {
       try {
         await navigator.share({ title: recipe.title, text: `Check out this recipe on ReciFriend: ${recipe.title}`, url });
@@ -4944,9 +4991,7 @@ function App() {
       // round-trip and routinely break the gesture timing on iOS Safari.
       const ownerId = recipe.userId || session?.user?.id || null;
       const recipeId = typeof recipe.id === 'string' && !recipe.id.startsWith('recipe-') ? recipe.id : null;
-      const shareUrl = recipeId && ownerId
-        ? `${SHARE_PUBLIC_URL}?recipe=${encodeURIComponent(recipeId)}&user=${encodeURIComponent(ownerId)}`
-        : SHARE_PUBLIC_URL;
+      const shareUrl = buildRecipeShareUrl(recipeId, ownerId);
 
       if (navigator.share) {
         try {
@@ -5009,32 +5054,12 @@ function App() {
 
   const handlePickerClose = async (action) => {
     setPickerOpen(false);
-    if (action === 'copy-link') {
-      let shareUrl = null;
-      if (API_BASE_URL && accessToken && pickerRecipeId) {
-        try {
-          const response = await fetch(`${API_BASE_URL}/recipes/${encodeURIComponent(pickerRecipeId)}/share-link`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-          });
-          if (response.ok) {
-            const { token } = await response.json();
-            shareUrl = `${SHARE_PUBLIC_URL}?share=${token}`;
-          }
-        } catch (err) {
-          console.error('Share token error:', err);
-        }
-      }
-      // Fallback: query-param URL (no token needed, works without auth)
-      if (!shareUrl && pickerRecipeId) {
-        const uid = session?.user?.id;
-        shareUrl = uid
-          ? `${SHARE_PUBLIC_URL}?recipe=${encodeURIComponent(pickerRecipeId)}&user=${encodeURIComponent(uid)}`
-          : `${SHARE_PUBLIC_URL}?recipe=${encodeURIComponent(pickerRecipeId)}`;
-      }
-      if (shareUrl) {
-        navigator.clipboard.writeText(shareUrl);
-      }
+    if (action === 'copy-link' && pickerRecipeId) {
+      // Same canonical path link as every other share surface (Option 1):
+      // consistent, deep-links into the app, one OG path. Existing opaque
+      // ?share={token} links still resolve server-side for backward compat.
+      const shareUrl = buildRecipeShareUrl(pickerRecipeId, session?.user?.id || null);
+      navigator.clipboard.writeText(shareUrl);
     }
   };
   // === [/S04] ===

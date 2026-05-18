@@ -33,7 +33,12 @@ export function parseDeepLink(raw: string): DeepLink | null {
     let id: string;
     try { id = decodeURIComponent(recipeMatch[1]); } catch { return null; }
     if (!RECIPE_ID_REGEX.test(id)) return null;
-    return { kind: 'recipe_detail', recipe_id: id };
+    // `?user=<owner>` lets the app fetch a recipe owned by someone else
+    // (the shared-link case) instead of only finding it in the local list.
+    const owner = url.searchParams.get('user');
+    return owner
+      ? { kind: 'recipe_detail', recipe_id: id, owner_id: owner }
+      : { kind: 'recipe_detail', recipe_id: id };
   }
 
   // /auth/callback — accepted via Universal Link OR custom scheme.
