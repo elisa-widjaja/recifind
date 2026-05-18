@@ -167,7 +167,7 @@ export default function DiscoverPage({
       <Stack sx={{ gap: '32px' }}>
         {(!discoverLoaded || videoRecipes.length > 0) && (
           <Box>
-            <SectionLabel>Watch & Cook</SectionLabel>
+            <SectionLabel>From the Community</SectionLabel>
             {discoverLoaded
               ? <DiscoverRecipes recipes={videoRecipes} onOpen={onOpenRecipe} />
               : <WatchCookSkeleton />}

@@ -27,7 +27,7 @@ describe('DiscoverPage', () => {
 
   it('renders the retained section headers (Trending Now removed)', async () => {
     render(<DiscoverPage onOpenRecipe={noop} onSaveRecipe={noop} onShareRecipe={noop} />);
-    await waitFor(() => expect(screen.getByText(/watch & cook/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/from the community/i)).toBeInTheDocument());
     expect(screen.getByText(/editor's picks/i)).toBeInTheDocument();
     expect(screen.getByText(/trending in health & nutrition/i)).toBeInTheDocument();
     // "Trending Now" shelf was removed from the Discover tab.
