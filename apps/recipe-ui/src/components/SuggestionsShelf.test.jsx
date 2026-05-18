@@ -5,7 +5,10 @@ import SuggestionsShelf from './SuggestionsShelf';
 const SUGGESTIONS = [
   { userId: 'u1', name: 'Maya R.', kind: 'fof', mutualCount: 2 },
   { userId: 'u2', name: 'James T.', kind: 'fof', mutualCount: 1 },
-  { userId: 'u3', name: 'Priya S.', kind: 'pref', sharedPref: 'Vegetarian' },
+  // Backend sends the emoji-prefixed onboarding value.
+  { userId: 'u3', name: 'Priya S.', kind: 'pref', sharedPref: '🥦 Vegetarian' },
+  // "None / all good" / unmapped → generic line, never raw "Also into ✅ …".
+  { userId: 'u4', name: 'Sam K.', kind: 'pref', sharedPref: '✅ None / all good' },
 ];
 
 describe('SuggestionsShelf', () => {
@@ -24,7 +27,9 @@ describe('SuggestionsShelf', () => {
     expect(screen.getByText('James T.')).toBeInTheDocument();
     expect(screen.getByText('1 mutual friend')).toBeInTheDocument();
     expect(screen.getByText('Priya S.')).toBeInTheDocument();
-    expect(screen.getByText('Also into Vegetarian')).toBeInTheDocument();
+    expect(screen.getByText('Also vegetarian')).toBeInTheDocument();
+    expect(screen.getByText('Sam K.')).toBeInTheDocument();
+    expect(screen.getByText('Fellow home cook')).toBeInTheDocument();
   });
 
   it('renders "Friends You May Know" header and "See all" when onOpenFriends is provided', () => {

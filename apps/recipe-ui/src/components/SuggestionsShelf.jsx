@@ -20,12 +20,26 @@ function gradientFor(userId) {
   return SUGGESTION_GRADIENTS[first % SUGGESTION_GRADIENTS.length];
 }
 
+// Onboarding stores dietary prefs with an emoji prefix (e.g. "🥦 Vegetarian").
+// Map the known values to a short, friendly, single-line reason. Anything
+// unmapped — "✅ None / all good", meal-type values, future prefs — falls
+// back to the generic line instead of rendering raw "Also into ✅ None…".
+const PREF_REASON = {
+  '🥦 Vegetarian': 'Also vegetarian',
+  '🌱 Vegan': 'Also vegan',
+  '🌾 Gluten-free': 'Also gluten-free',
+  '🥛 Dairy-free': 'Also dairy-free',
+  '💪 High protein': 'Also high-protein',
+  '🐟 Pescatarian': 'Also pescatarian',
+  '🥩 Meat lover': 'Fellow meat lover',
+};
+
 function reasonText(s) {
   if (s.kind === 'fof') {
     const n = s.mutualCount;
     return `${n} mutual ${n === 1 ? 'friend' : 'friends'}`;
   }
-  return s.sharedPref ? `Also into ${s.sharedPref}` : 'Fellow home cook';
+  return PREF_REASON[s.sharedPref] || 'Fellow home cook';
 }
 
 function initialOf(name) {
