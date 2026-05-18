@@ -119,6 +119,7 @@ import SourcesWorkflowRow from './components/SourcesWorkflowRow';
 import { FriendPicker } from './components/FriendPicker';
 import { ShareSheet } from './components/ShareSheet';
 import { shareRecipe } from './lib/shareRecipe';
+import { buildRecipeShareUrl } from './lib/shareUrl';
 // === [/S04] ===
 // === [S09] Capacitor auth ===
 import { Capacitor } from '@capacitor/core';
@@ -141,28 +142,9 @@ import recipesFromPdfData from '../recipes_from_pdf.json';
 
 const API_BASE_URL = (import.meta.env.VITE_RECIPES_API_BASE_URL || '').replace(/\/$/, '');
 const DEV_API_TOKEN = import.meta.env.VITE_RECIPES_API_TOKEN || '';
-// Outbound share URLs always point at the production site so iMessage/Twitter/etc.
-// hit the Pages Functions OG-tag middleware and render rich link previews —
-// the dev tunnel only runs Vite (no middleware), so previews fail there.
-const SHARE_PUBLIC_URL = 'https://recifriend.com';
-
-// Canonical shareable recipe link, used by every share surface so the
-// experience is consistent.
-//
-// QUERY form (`/?recipe={id}&user={owner}`, path `/`) on purpose: AASA only
-// claims `/recipes/*`, so path `/` is NOT a Universal Link → iOS opens these
-// in Safari and the web cold-load resolves them. The path form
-// (`/recipes/{id}?user=`) would be intercepted by TestFlight bundle 17,
-// whose old deep-link code can't resolve a non-owned shared recipe (lands
-// on home). Everything else (OG middleware, web cold-load, deepLink
-// owner_id, dispatcher) already handles BOTH forms — when iOS build 18
-// ships, flip this back to the `/recipes/{id}?user=` path form to get true
-// in-app deep-linking.
-function buildRecipeShareUrl(recipeId, ownerId) {
-  if (!recipeId) return SHARE_PUBLIC_URL;
-  const base = `${SHARE_PUBLIC_URL}?recipe=${encodeURIComponent(recipeId)}`;
-  return ownerId ? `${base}&user=${encodeURIComponent(ownerId)}` : base;
-}
+// Canonical shareable recipe link lives in src/lib/shareUrl.js (imported
+// at the top of this file) — see there for the query-vs-path-form
+// rationale and the build-18 flip note.
 
 // Log version on load to bust cache
 console.log('ReciFriend v2024.12.02.1');
