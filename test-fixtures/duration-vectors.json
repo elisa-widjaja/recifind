@@ -1,0 +1,7 @@
+[
+  { "name": "empty steps -> 0", "steps": [], "ingredients": ["a", "b"], "expected": 0 },
+  { "name": "simple no-verb", "steps": ["Chop the onions", "Add to pan", "Serve hot"], "ingredients": ["onion", "oil", "salt", "pepper"], "expected": 11 },
+  { "name": "bake + rest", "steps": ["Preheat oven and bake the cake for 35 minutes", "Let it rest before serving"], "ingredients": ["flour", "sugar", "eggs", "butter", "milk", "vanilla", "baking powder", "salt"], "expected": 45 },
+  { "name": "many short steps mid", "stepsRepeat": { "text": "Mix", "count": 30 }, "ingredientsCount": 0, "expected": 90 },
+  { "name": "clamp upper", "stepsRepeat": { "text": "Marinate then bake then chill then simmer then rest then boil the mixture thoroughly and carefully for a long time until done", "count": 50 }, "ingredientsCount": 20, "expected": 120 }
+]
