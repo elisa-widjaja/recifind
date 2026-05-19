@@ -4277,7 +4277,7 @@ export function buildNudgeEmailHtml(
     <div style="color:rgba(255,255,255,0.9);margin-top:8px;font-size:15px;">Your personal recipe collection</div>
   </div>
 
-  <div style="padding:32px 24px 16px;">
+  <div style="padding:32px 24px 4px;">
     <div style="font-size:22px;font-weight:700;color:#1a1a1a;">Hey ${displayName}! 👋</div>
     <p style="color:#555;font-size:15px;line-height:1.6;margin-top:12px;">
       Welcome to ReciFriend! You haven't saved your first recipe yet. It only takes a few seconds — here's how:
@@ -4286,23 +4286,19 @@ export function buildNudgeEmailHtml(
 
   ${gifSection}
 
-  <div style="padding:16px 24px 8px;">
+  <div style="padding:2px 24px 8px;">
     <table cellpadding="0" cellspacing="0" border="0" style="width:100%;">
       <tr>
-        <td style="width:28px;vertical-align:top;">
-          <div style="background:#6200EA;color:#fff;border-radius:50%;width:28px;height:28px;text-align:center;line-height:28px;font-weight:700;font-size:14px;">1</div>
-          <div style="width:28px;text-align:center;color:#ccc;font-size:14px;padding:6px 0;">&#8595;</div>
-          <div style="background:#6200EA;color:#fff;border-radius:50%;width:28px;height:28px;text-align:center;line-height:28px;font-weight:700;font-size:14px;">2</div>
-          <div style="width:28px;text-align:center;color:#ccc;font-size:14px;padding:6px 0;">&#8595;</div>
-          <div style="background:#6200EA;color:#fff;border-radius:50%;width:28px;height:28px;text-align:center;line-height:28px;font-weight:700;font-size:14px;">3</div>
-        </td>
-        <td style="vertical-align:top;padding-left:12px;">
-          <div style="height:28px;display:flex;align-items:center;"><div><div style="color:#1a1a1a;font-size:14px;font-weight:600;">Find a recipe online</div><div style="color:#888;font-size:12px;margin-top:1px;">TikTok, Instagram, any website</div></div></div>
-          <div style="height:26px;"></div>
-          <div style="height:28px;display:flex;align-items:center;"><div><div style="color:#1a1a1a;font-size:14px;font-weight:600;">Paste the URL</div><div style="color:#888;font-size:12px;margin-top:1px;">Copy the link and paste it into ReciFriend</div></div></div>
-          <div style="height:26px;"></div>
-          <div style="height:28px;display:flex;align-items:center;"><div><div style="color:#1a1a1a;font-size:14px;font-weight:600;">We auto-fill everything!</div><div style="color:#888;font-size:12px;margin-top:1px;">Ingredients, steps, and photo — just hit Save</div></div></div>
-        </td>
+        <td style="width:28px;vertical-align:top;padding-bottom:18px;"><div style="background:#6200EA;color:#fff;border-radius:50%;width:28px;height:28px;text-align:center;line-height:28px;font-weight:700;font-size:14px;">1</div></td>
+        <td style="vertical-align:top;padding-left:12px;padding-bottom:18px;"><div style="color:#1a1a1a;font-size:14px;font-weight:600;line-height:28px;">Add your recipe</div><div style="color:#888;font-size:12px;margin-top:2px;line-height:1.45;">Save recipes directly from social media reels to ReciFriend.</div></td>
+      </tr>
+      <tr>
+        <td style="width:28px;vertical-align:top;padding-bottom:18px;"><div style="background:#6200EA;color:#fff;border-radius:50%;width:28px;height:28px;text-align:center;line-height:28px;font-weight:700;font-size:14px;">2</div></td>
+        <td style="vertical-align:top;padding-left:12px;padding-bottom:18px;"><div style="color:#1a1a1a;font-size:14px;font-weight:600;line-height:28px;">Invite friends</div><div style="color:#888;font-size:12px;margin-top:2px;line-height:1.45;">Invite friends and family to swap recipes and see what everyone's making.</div></td>
+      </tr>
+      <tr>
+        <td style="width:28px;vertical-align:top;"><div style="background:#6200EA;color:#fff;border-radius:50%;width:28px;height:28px;text-align:center;line-height:28px;font-weight:700;font-size:14px;">3</div></td>
+        <td style="vertical-align:top;padding-left:12px;"><div style="color:#1a1a1a;font-size:14px;font-weight:600;line-height:28px;">Share a recipe with friends</div><div style="color:#888;font-size:12px;margin-top:2px;line-height:1.45;">Share your favorite recipes with friends and start cooking together.</div></td>
       </tr>
     </table>
   </div>
