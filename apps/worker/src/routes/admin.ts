@@ -354,15 +354,15 @@ export async function handleAdminUserDrilldown(args: {
 
   // 2. Recipes
   const recipes = await args.env.DB.prepare(
-    `SELECT id, title, created_at, hidden_at
+    `SELECT id, title, source_url, created_at, hidden_at
      FROM recipes WHERE user_id = ? ORDER BY created_at DESC`
   ).bind(args.userId).all();
 
   // 3. Last 20 cook events
   const cookEvents = await args.env.DB.prepare(
-    `SELECT ce.recipe_id, ce.cooked_at AS created_at, r.title AS recipe_title
+    `SELECT ce.recipe_id, ce.cooked_at AS created_at, r.title AS recipe_title, r.source_url AS recipe_source_url
      FROM cook_events ce
-     LEFT JOIN recipes r ON r.id = ce.recipe_id AND r.user_id = ce.user_id
+     JOIN recipes r ON r.id = ce.recipe_id AND r.user_id = ce.user_id
      WHERE ce.user_id = ? ORDER BY ce.cooked_at DESC LIMIT 20`
   ).bind(args.userId).all();
 

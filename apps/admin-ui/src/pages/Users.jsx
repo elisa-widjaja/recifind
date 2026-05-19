@@ -60,15 +60,9 @@ export default function Users() {
   }, [search, recipeBucket, activity, signupDays, page]);
 
   const columns = useMemo(() => [
-    { accessorKey: 'email', header: 'Email', cell: (i) => i.getValue() },
-    { accessorKey: 'signed_up_at', header: 'Signed up',
-      cell: (i) => new Date(i.getValue()).toLocaleDateString() },
-    { accessorKey: 'recipe_count', header: 'Recipes', cell: (i) => i.getValue() },
-    { accessorKey: 'invites_accepted', header: 'Friends', cell: (i) => i.getValue() },
-    { accessorKey: 'invites_sent', header: 'Sent', cell: (i) => i.getValue() },
     {
       id: 'active',
-      header: 'Active',
+      header: '',
       cell: (i) => (
         <Box
           component="span"
@@ -83,6 +77,12 @@ export default function Users() {
         </Box>
       ),
     },
+    { accessorKey: 'email', header: 'Email', cell: (i) => i.getValue() },
+    { accessorKey: 'display_name', header: 'Display name', cell: (i) => i.getValue() || '—' },
+    { accessorKey: 'signed_up_at', header: 'Signed up',
+      cell: (i) => new Date(i.getValue()).toLocaleDateString() },
+    { accessorKey: 'recipe_count', header: 'Recipes', cell: (i) => i.getValue() },
+    { accessorKey: 'invites_accepted', header: 'Friends', cell: (i) => i.getValue() },
   ], []);
 
   const table = useReactTable({
@@ -100,7 +100,7 @@ export default function Users() {
       params.set('signupAfter', after);
     }
     fetchAdmin(`/admin/users?${params.toString()}`).then((all) => {
-      const headers = ['email', 'signed_up_at', 'recipe_count', 'invites_sent', 'invites_accepted', 'is_active'];
+      const headers = ['email', 'display_name', 'signed_up_at', 'recipe_count', 'invites_accepted', 'is_active'];
       const rows = all.users.map((u) => headers.map((h) => JSON.stringify(u[h] ?? '')).join(','));
       const csv = [headers.join(','), ...rows].join('\n');
       const blob = new Blob([csv], { type: 'text/csv' });

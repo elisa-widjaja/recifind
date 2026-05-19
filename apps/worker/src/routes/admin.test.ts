@@ -347,7 +347,7 @@ describe('handleAdminUserDrilldown', () => {
     expect(cookSql).not.toMatch(/SELECT\s+recipe_id,\s*created_at\s+FROM cook_events/i);
   });
 
-  it('cook events query LEFT JOINs recipes on id AND user_id to resolve title (no fan-out)', async () => {
+  it('cook events query inner-JOINs recipes on id AND user_id (excludes deleted recipes, no fan-out)', async () => {
     const captured: string[] = [];
     let callIdx = 0;
     const stubs = [
@@ -377,9 +377,11 @@ describe('handleAdminUserDrilldown', () => {
     expect(res.status).toBe(200);
     const cookSql = captured.find((s) => /FROM cook_events/i.test(s));
     expect(cookSql).toBeDefined();
-    expect(cookSql).toMatch(/LEFT JOIN recipes/i);
+    expect(cookSql).toMatch(/\bJOIN recipes/i);
+    expect(cookSql).not.toMatch(/LEFT JOIN recipes/i);
     expect(cookSql).toMatch(/r\.id\s*=\s*ce\.recipe_id\s+AND\s+r\.user_id\s*=\s*ce\.user_id/i);
     expect(cookSql).toMatch(/r\.title AS recipe_title/i);
+    expect(cookSql).toMatch(/r\.source_url AS recipe_source_url/i);
   });
 
   it('invite conversions query reads open_invite_used joined to friends/profiles (not dormant friend_requests_sent)', async () => {
