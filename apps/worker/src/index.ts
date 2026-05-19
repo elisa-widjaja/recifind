@@ -5,6 +5,7 @@ import { handleShareRecipe } from './routes/share';
 import { handleRegisterDevice, handleUnregisterDevice } from './routes/devices';
 import { sendPushToUser } from './push/apns';
 // === [/S05] ===
+import { ensureEstimatedDuration } from './estimateDuration';
 
 const DEFAULT_PAGE_SIZE = 1000;
 const MAX_PAGE_SIZE = 1000;
@@ -2789,6 +2790,7 @@ export async function handleReEnrichRecipe(
     youtubeVideo,
     textInference,
   });
+  ensureEstimatedDuration(result);
 
   console.log('[re-enrich]', {
     recipeId,
@@ -5460,6 +5462,7 @@ export async function enrichAfterSave(
     youtubeVideo,
     textInference,
   });
+  ensureEstimatedDuration(result);
 
   console.log('[enrichAfterSave]', {
     recipeId,
