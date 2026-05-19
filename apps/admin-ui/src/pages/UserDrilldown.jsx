@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Box, Button, Chip, CircularProgress, Divider, Paper, Stack, Typography,
+  Box, Button, Chip, CircularProgress, Collapse, Divider, Paper, Stack, Typography,
   Table, TableHead, TableRow, TableCell, TableBody,
   Menu, MenuItem, Snackbar, IconButton, TextField,
   Dialog, DialogTitle, DialogContent, DialogActions,
@@ -29,6 +29,7 @@ export default function UserDrilldown({ id }) {
   const [confirm, setConfirm] = useState(null); // { kind, recipeId?, title? }
   const [editName, setEditName] = useState({ open: false, value: '' });
   const [magicLink, setMagicLink] = useState({ open: false, url: '' });
+  const [showInvitees, setShowInvitees] = useState(false);
 
   const post = (path, body) =>
     fetchAdmin(path, { method: 'POST', body: JSON.stringify(body || {}) });
@@ -95,42 +96,94 @@ export default function UserDrilldown({ id }) {
       <Divider sx={{ my: 3 }} />
 
       <Section title="Invite conversions">
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-          {data.invite_link
-            ? `Invite link active · ${data.invite_conversions.length} conversion${data.invite_conversions.length === 1 ? '' : 's'} · link created ${new Date(data.invite_link.created_at).toLocaleDateString()}`
-            : 'No invite link generated'}
-        </Typography>
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Invitee</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell>Recipes</TableCell>
-              <TableCell>Last seen</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {data.invite_conversions.map((iv, i) => (
-              <TableRow key={iv.invitee_user_id || i}>
-                <TableCell>
-                  {iv.invitee_email || iv.invitee_name || '(email unavailable)'}
-                  {iv.invitee_deleted_at && (
-                    <Typography component="span" variant="caption" color="text.secondary"> · deleted</Typography>
-                  )}
-                </TableCell>
-                <TableCell>
-                  {iv.status === 'accepted_disconnected' ? (
-                    <Typography component="span" variant="body2" color="text.secondary">accepted · disconnected</Typography>
-                  ) : (
-                    iv.status
-                  )}
-                </TableCell>
-                <TableCell>{iv.invitee_recipe_count}</TableCell>
-                <TableCell>{iv.last_sign_in_at ? new Date(iv.last_sign_in_at).toLocaleDateString() : '—'}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        {(() => {
+          const convs = data.invite_conversions;
+          const THIRTY_D = 30 * 24 * 60 * 60 * 1000;
+          const isActivated = (iv) =>
+            iv.invitee_recipe_count >= 1 &&
+            !iv.invitee_deleted_at &&
+            !!iv.last_sign_in_at &&
+            Date.now() - new Date(iv.last_sign_in_at).getTime() <= THIRTY_D;
+          const joined = convs.length;
+          const active = convs.filter(isActivated).length;
+          const rate = joined ? `${Math.round((active / joined) * 100)}%` : '—';
+          const Metric = ({ value, label }) => (
+            <Stack alignItems="center" sx={{ minWidth: 72 }}>
+              <Typography variant="h4">{value}</Typography>
+              <Typography variant="caption" color="text.secondary">{label}</Typography>
+            </Stack>
+          );
+          return (
+            <>
+              <Stack direction="row" spacing={4} sx={{ mb: 0.5 }}>
+                <Metric value={joined} label="Joined" />
+                <Metric value={active} label="Active" />
+                <Metric value={rate} label="Activated" />
+              </Stack>
+              <Typography variant="caption" color="text.secondary">
+                {data.invite_link
+                  ? `via invite link · created ${new Date(data.invite_link.created_at).toLocaleDateString()}`
+                  : 'No invite link generated'}
+              </Typography>
+              {joined === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  No one has joined via this link yet.
+                </Typography>
+              ) : (
+                <>
+                  <Box sx={{ mt: 1 }}>
+                    <Button size="small" onClick={() => setShowInvitees((v) => !v)}>
+                      {showInvitees ? `▾ Hide invitees` : `▸ View ${joined} invitee${joined === 1 ? '' : 's'}`}
+                    </Button>
+                  </Box>
+                  <Collapse in={showInvitees} unmountOnExit>
+                    <Table size="small" sx={{ mt: 1 }}>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ width: 28 }} />
+                          <TableCell>Invitee</TableCell>
+                          <TableCell>Status</TableCell>
+                          <TableCell>Recipes</TableCell>
+                          <TableCell>Last seen</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {convs.map((iv, i) => {
+                          const act = isActivated(iv);
+                          return (
+                            <TableRow key={iv.invitee_user_id || i}>
+                              <TableCell
+                                title={act ? 'Active (≥1 recipe & signed in within 30d)' : 'Inactive'}
+                                sx={{ color: act ? 'success.light' : 'text.disabled' }}
+                              >
+                                {act ? '●' : '○'}
+                              </TableCell>
+                              <TableCell>
+                                {iv.invitee_email || iv.invitee_name || '(email unavailable)'}
+                                {iv.invitee_deleted_at && (
+                                  <Typography component="span" variant="caption" color="text.secondary"> · deleted</Typography>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {iv.status === 'accepted_disconnected' ? (
+                                  <Typography component="span" variant="body2" color="text.secondary">accepted · disconnected</Typography>
+                                ) : (
+                                  iv.status
+                                )}
+                              </TableCell>
+                              <TableCell>{iv.invitee_recipe_count}</TableCell>
+                              <TableCell>{iv.last_sign_in_at ? new Date(iv.last_sign_in_at).toLocaleDateString() : '—'}</TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </Collapse>
+                </>
+              )}
+            </>
+          );
+        })()}
       </Section>
 
       <Section title={`Pending invites received (${data.pending_received.length})`}>
