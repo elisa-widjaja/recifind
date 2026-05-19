@@ -137,6 +137,7 @@ import { NotificationSoftPrompt } from './components/NotificationSoftPrompt';
 import { SharedAuthStore } from './native/SharedAuthStore';
 // === [/S12] ===
 import { formatDuration } from './utils/videoEmbed';
+import { estimateDurationMinutes } from './utils/estimateDuration';
 import recipesData from '../recipes.json';
 import recipesFromPdfData from '../recipes_from_pdf.json';
 
@@ -3382,6 +3383,10 @@ function App() {
 
   // For shared recipes, use activeRecipe directly (read-only); for own recipes, use the editable draft
   const activeRecipeView = isSharedRecipeView ? activeRecipe : activeRecipeDraft;
+  const activeRecipeDisplayDuration = activeRecipeView
+    ? (activeRecipeView.durationMinutes
+        || estimateDurationMinutes(activeRecipeView.steps, activeRecipeView.ingredients))
+    : 0;
 
   const hasUnsavedChanges = useMemo(() => {
     if (!activeRecipe || !activeRecipeDraft) return false;
@@ -5652,7 +5657,7 @@ function App() {
                   ) : (
                     <Typography
                       variant="h6"
-                      sx={{ fontWeight: 700, fontSize: '1.35rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}
+                      sx={{ fontWeight: 700, fontSize: '1.15rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}
                     >
                       {activeRecipeView.title || 'Untitled'}
                     </Typography>
@@ -5676,11 +5681,11 @@ function App() {
                     Clear text
                   </Typography>
                 )}
-                {!isEditMode && activeRecipeView.durationMinutes ? (
+                {!isEditMode && activeRecipeDisplayDuration ? (
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
                     <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
                     <Typography variant="caption" color="text.secondary">
-                      {formatDuration(activeRecipeView.durationMinutes)}
+                      {formatDuration(activeRecipeDisplayDuration)}
                     </Typography>
                   </Box>
                 ) : null}
@@ -5868,7 +5873,7 @@ function App() {
                     ) : (
                       <Typography
                         variant="h6"
-                        sx={{ fontWeight: 700, fontSize: '1.35rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}
+                        sx={{ fontWeight: 700, fontSize: '1.15rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}
                       >
                         {activeRecipeView.title || 'Untitled'}
                       </Typography>
@@ -5884,11 +5889,11 @@ function App() {
                       Clear text
                     </Typography>
                   )}
-                  {!isEditMode && activeRecipeView.durationMinutes ? (
+                  {!isEditMode && activeRecipeDisplayDuration ? (
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
                       <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
                       <Typography variant="caption" color="text.secondary">
-                        {formatDuration(activeRecipeView.durationMinutes)}
+                        {formatDuration(activeRecipeDisplayDuration)}
                       </Typography>
                     </Box>
                   ) : null}
