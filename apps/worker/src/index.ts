@@ -2555,39 +2555,52 @@ async function handleParseRecipe(request: Request, env: Env, ctx: ExecutionConte
 
   // For TikTok URLs, use oEmbed API to get the title since direct HTML returns generic "TikTok - Make Your Day"
   if (parsedUrl.hostname.includes('tiktok.com')) {
-    try {
-      const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(parsedUrl.toString())}`;
-      const oembedResponse = await fetch(oembedUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)',
-          'Accept': 'application/json'
+    // 4 attempts — TikTok oEmbed currently succeeds ~50% per call from
+    // worker IPs (403 the rest), so 4 retries yields ~94% success. Each
+    // !ok response is ~200ms, success is ~400-700ms; worst case ~1.5s,
+    // well inside the iOS 4s parse budget.
+    const TT_MAX_ATTEMPTS = 4;
+    for (let attempt = 0; attempt < TT_MAX_ATTEMPTS; attempt++) {
+      const isLast = attempt === TT_MAX_ATTEMPTS - 1;
+      try {
+        const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(parsedUrl.toString())}`;
+        const oembedResponse = await fetch(oembedUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)',
+            'Accept': 'application/json'
+          }
+        });
+        if (!oembedResponse.ok) {
+          if (isLast) break;
+          continue;
         }
-      });
-      if (oembedResponse.ok) {
         const payload = await oembedResponse.json() as { title?: string; thumbnail_url?: string };
         const caption = (payload.title || '').trim();
-        if (caption) {
-          const title = extractTikTokRecipeTitle(caption);
-          const tiktokParsed = {
-            title,
-            ingredients: [],
-            steps: [],
-            mealTypes: inferMealTypesFromTitle(title),
-            cuisines: [],
-            durationMinutes: null,
-            imageUrl: (payload.thumbnail_url || '').trim() || null
-          };
-          // Cache for 7 days so subsequent shares of the same TikTok URL
-          // bypass IG/TT rate limits and respond instantly.
-          ctx?.waitUntil?.(
-            env.AI_PICKS_CACHE.put(parseCacheKey, JSON.stringify(tiktokParsed), { expirationTtl: 7 * 24 * 60 * 60 })
-          );
-          return json({ parsed: tiktokParsed });
+        if (!caption) {
+          if (isLast) break;
+          continue;
         }
+        const title = extractTikTokRecipeTitle(caption);
+        const tiktokParsed = {
+          title,
+          ingredients: [],
+          steps: [],
+          mealTypes: inferMealTypesFromTitle(title),
+          cuisines: [],
+          durationMinutes: null,
+          imageUrl: (payload.thumbnail_url || '').trim() || null
+        };
+        // Cache for 7 days so subsequent shares of the same TikTok URL
+        // bypass IG/TT rate limits and respond instantly.
+        ctx?.waitUntil?.(
+          env.AI_PICKS_CACHE.put(parseCacheKey, JSON.stringify(tiktokParsed), { expirationTtl: 7 * 24 * 60 * 60 })
+        );
+        return json({ parsed: tiktokParsed });
+      } catch {
+        if (isLast) break;
       }
-    } catch {
-      // Fall through to HTML parsing
     }
+    // Fall through to HTML parsing
   }
 
   const html = await fetchRecipeHtml(parsedUrl.toString());
@@ -4661,23 +4674,28 @@ async function fetchRecipeHtml(sourceUrl: string): Promise<string | null> {
   // subsequent parse calls when Instagram's first response was the stripped
   // login wall. /recipes/parse is called once per share session (low
   // frequency), so always fetching fresh is fine.
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // 5 attempts — bumped from 2 because IG/TT/YT now serve 403/stripped to
+  // worker IPs ~80% of the time. Each !ok response is fast (~200ms), and a
+  // successful 200 with ~1MB body is ~800ms, so the worst case stays around
+  // 1.6s — comfortably inside the iOS share extension's 4s parse budget.
+  const MAX_ATTEMPTS = 5;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const isLast = attempt === MAX_ATTEMPTS - 1;
     try {
       const response = await fetch(sourceUrl, {
         headers,
         redirect: 'follow',
       });
       if (!response.ok) {
-        if (attempt === 0) continue;
-        return null;
+        if (isLast) return null;
+        continue;
       }
       const html = await response.text();
-      if (attempt === 0 && isLikelyStripped(html)) continue;
+      if (isLikelyStripped(html) && !isLast) continue;
       return html;
     } catch (error) {
       console.warn('Failed to fetch recipe HTML', { attempt, error: String(error) });
-      if (attempt === 0) continue;
-      return null;
+      if (isLast) return null;
     }
   }
   return null;
@@ -5269,51 +5287,77 @@ async function fetchOembedCaption(
   deps: FetchOembedCaptionDeps = {}
 ): Promise<string | null> {
   const { fetchImpl = fetch } = deps;
+  let parsed: URL;
+  let isInstagram = false;
+  let isTikTok = false;
+  let isYouTube = false;
   try {
-    const parsed = new URL(sourceUrl);
-    const isInstagram = parsed.hostname.includes('instagram.com');
-    const isTikTok = parsed.hostname.includes('tiktok.com');
-    const isYouTube = parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be');
+    parsed = new URL(sourceUrl);
+    isInstagram = parsed.hostname.includes('instagram.com');
+    isTikTok = parsed.hostname.includes('tiktok.com');
+    isYouTube = parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be');
     if (!isInstagram && !isTikTok && !isYouTube) return null;
-
-    const response = await fetchImpl(sourceUrl, {
-      // A real Safari/Chrome User-Agent is mandatory — Instagram and TikTok
-      // serve a stripped-down empty-meta page to bot-shaped UAs, and the
-      // RecipeBot/1.0 UA we used previously tripped that filter.
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-      },
-    });
-    if (!response.ok) return null;
-    const html = await response.text();
-
-    const ogMatch = html.match(/<meta\s+property=["']og:description["']\s+content=["']([^"']*)["']/i);
-    const twMatch = html.match(/<meta\s+name=["']twitter:description["']\s+content=["']([^"']*)["']/i);
-    const raw = (ogMatch?.[1] ?? twMatch?.[1] ?? '').trim();
-    if (!raw) return null;
-
-    let caption = decodeHtmlEntities(raw);
-
-    // Instagram wraps the caption in a metadata prefix like:
-    //   1,075 likes, 23 comments - alicelovesbreakfast on May 6, 2026: "<caption>"
-    // Strip the prefix + the trailing closing quote so Gemini sees just the
-    // creator's text.
-    if (isInstagram) {
-      const prefixMatch = caption.match(/^[\d,]+\s+likes?,\s+[\d,]+\s+comments?\s+-\s+[^:]+:\s*[“"]?/i);
-      if (prefixMatch) {
-        caption = caption.slice(prefixMatch[0].length).replace(/[”"]\s*\.?\s*$/, '').trim();
-      }
-    }
-    if (!caption) return null;
-
-    const author = isInstagram ? 'Instagram creator' : isTikTok ? 'TikTok creator' : 'YouTube creator';
-    return `Recipe by ${author}:\n\n${caption}`;
-  } catch (err) {
-    console.log('[enrich]', { strategy: 'social-caption', url: sourceUrl, outcome: 'error', error: String(err) });
+  } catch {
     return null;
   }
+
+  // 5 attempts — same rationale as fetchRecipeHtml. IG/TT/YT serve 403 or a
+  // stripped login-wall HTML to worker IPs most of the time; retries roll
+  // the dice multiple times to land on the ~20% (IG) / ~50% (TikTok oEmbed)
+  // window where the full HTML comes through.
+  const MAX_ATTEMPTS = 5;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const isLast = attempt === MAX_ATTEMPTS - 1;
+    try {
+      const response = await fetchImpl(sourceUrl, {
+        // A real Safari/Chrome User-Agent is mandatory — Instagram and TikTok
+        // serve a stripped-down empty-meta page to bot-shaped UAs, and the
+        // RecipeBot/1.0 UA we used previously tripped that filter.
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+        },
+      });
+      if (!response.ok) {
+        if (isLast) return null;
+        continue;
+      }
+      const html = await response.text();
+
+      const ogMatch = html.match(/<meta\s+property=["']og:description["']\s+content=["']([^"']*)["']/i);
+      const twMatch = html.match(/<meta\s+name=["']twitter:description["']\s+content=["']([^"']*)["']/i);
+      const raw = (ogMatch?.[1] ?? twMatch?.[1] ?? '').trim();
+      if (!raw) {
+        if (isLast) return null;
+        continue;
+      }
+
+      let caption = decodeHtmlEntities(raw);
+
+      // Instagram wraps the caption in a metadata prefix like:
+      //   1,075 likes, 23 comments - alicelovesbreakfast on May 6, 2026: "<caption>"
+      // Strip the prefix + the trailing closing quote so Gemini sees just the
+      // creator's text.
+      if (isInstagram) {
+        const prefixMatch = caption.match(/^[\d,]+\s+likes?,\s+[\d,]+\s+comments?\s+-\s+[^:]+:\s*[“"]?/i);
+        if (prefixMatch) {
+          caption = caption.slice(prefixMatch[0].length).replace(/[”"]\s*\.?\s*$/, '').trim();
+        }
+      }
+      if (!caption) {
+        if (isLast) return null;
+        continue;
+      }
+
+      const author = isInstagram ? 'Instagram creator' : isTikTok ? 'TikTok creator' : 'YouTube creator';
+      return `Recipe by ${author}:\n\n${caption}`;
+    } catch (err) {
+      console.log('[enrich]', { strategy: 'social-caption', url: sourceUrl, outcome: 'error', error: String(err) });
+      if (isLast) return null;
+    }
+  }
+  return null;
 }
 
 // Enrichment result shape shared by all strategy functions. When a strategy
