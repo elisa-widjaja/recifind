@@ -492,6 +492,16 @@ export default {
         return await handleTestNudgeEmail({ env, user, adminEmails: env.ADMIN_EMAILS, request });
       }
 
+      // One-shot backfill: re-host stale external image_urls onto Supabase.
+      // Body: { dryRun?: boolean, batchSize?: number, hostnames?: string[] }.
+      // Idempotent and batched — call repeatedly until totalRemaining hits 0.
+      if (url.pathname === '/admin/migrate-images' && request.method === 'POST') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        return await handleAdminMigrateImages(request, env, user);
+      }
+
       if (url.pathname === '/admin/metrics/timeseries' && request.method === 'GET') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');
@@ -2757,6 +2767,126 @@ async function handleUpdateRecipe(request: Request, env: Env, user: Authenticate
 
   const updated: Recipe = { ...recipe, provenance: effectiveProvenance };
   return json({ recipe: updated });
+}
+
+// One-shot backfill that re-hosts stale external image_urls (Instagram/TikTok
+// CDN URLs with expiring oh/oe signatures) onto Supabase storage. Iterates in
+// caller-controlled batches; safe to call repeatedly until totalRemaining
+// reaches zero. Default dryRun=true.
+async function handleAdminMigrateImages(
+  request: Request,
+  env: Env,
+  user: AuthenticatedUser
+): Promise<Response> {
+  const { isAdminEmail, writeAuditLog } = await import('./routes/admin');
+  if (!isAdminEmail(user.email, env.ADMIN_EMAILS)) {
+    return json({ code: 'FORBIDDEN', message: 'Not an admin' }, 403);
+  }
+
+  const body = (await request.json().catch(() => ({}))) as {
+    dryRun?: boolean;
+    batchSize?: number;
+    hostnames?: string[];
+  };
+  const dryRun = body.dryRun !== false;
+  // Each candidate triggers up to ~3 subrequests (source fetch, image fetch,
+  // Supabase upload). 50-subrequest free-tier ceiling → keep default ≤15.
+  const batchSize = Math.min(Math.max(body.batchSize ?? 10, 1), 50);
+  const hostnames = Array.isArray(body.hostnames) && body.hostnames.length > 0
+    ? body.hostnames.filter((h): h is string => typeof h === 'string' && h.length > 0)
+    : ['cdninstagram.com', 'tiktokcdn'];
+  if (hostnames.length === 0) {
+    return json({ code: 'BAD_REQUEST', message: 'hostnames must be non-empty' }, 400);
+  }
+
+  const wherePatternSql = hostnames.map(() => 'image_url LIKE ?').join(' OR ');
+  const patternValues = hostnames.map((h) => `%${h}%`);
+
+  const totalRow = await env.DB.prepare(
+    `SELECT COUNT(*) AS cnt FROM recipes WHERE (${wherePatternSql}) AND hidden_at IS NULL`
+  ).bind(...patternValues).first<{ cnt: number }>();
+  const totalRemaining = Number(totalRow?.cnt ?? 0);
+
+  const candidates = await env.DB.prepare(
+    `SELECT id, user_id, source_url, image_url FROM recipes
+     WHERE (${wherePatternSql}) AND hidden_at IS NULL
+     ORDER BY created_at DESC
+     LIMIT ?`
+  ).bind(...patternValues, batchSize).all<{ id: string; user_id: string; source_url: string; image_url: string }>();
+
+  type Status = 'rehosted' | 'cleared' | 'failed' | 'dry-run';
+  const results: Array<{ id: string; status: Status; oldUrl: string; newUrl?: string; reason?: string }> = [];
+
+  for (const row of (candidates.results || [])) {
+    const recipeId = String(row.id);
+    const userId = String(row.user_id);
+    const sourceUrl = String(row.source_url || '');
+    const oldUrl = String(row.image_url || '');
+
+    if (dryRun) {
+      results.push({ id: recipeId, status: 'dry-run', oldUrl });
+      continue;
+    }
+
+    try {
+      const fresh = sourceUrl ? await fetchOgImage(sourceUrl) : null;
+      const payload = deriveImplicitPreviewPayload(fresh, env);
+      if (!payload) {
+        await env.DB.prepare(
+          'UPDATE recipes SET image_url = ?, image_path = NULL, preview_image = NULL WHERE id = ?'
+        ).bind('', recipeId).run();
+        results.push({ id: recipeId, status: 'cleared', oldUrl, reason: 'no og:image from source' });
+        continue;
+      }
+
+      const preview = await persistPreviewImage(payload, env, userId, recipeId);
+      if (!preview?.publicUrl) {
+        await env.DB.prepare(
+          'UPDATE recipes SET image_url = ?, image_path = NULL, preview_image = NULL WHERE id = ?'
+        ).bind('', recipeId).run();
+        results.push({ id: recipeId, status: 'cleared', oldUrl, reason: 'rehost upload returned no publicUrl' });
+        continue;
+      }
+
+      await env.DB.prepare(
+        'UPDATE recipes SET image_url = ?, image_path = ?, preview_image = ? WHERE id = ?'
+      ).bind(
+        preview.publicUrl,
+        buildImagePath(recipeId),
+        JSON.stringify(preview),
+        recipeId
+      ).run();
+      results.push({ id: recipeId, status: 'rehosted', oldUrl, newUrl: preview.publicUrl });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      results.push({ id: recipeId, status: 'failed', oldUrl, reason });
+    }
+  }
+
+  const counts = {
+    rehosted: results.filter((r) => r.status === 'rehosted').length,
+    cleared: results.filter((r) => r.status === 'cleared').length,
+    failed: results.filter((r) => r.status === 'failed').length,
+    dryRun: results.filter((r) => r.status === 'dry-run').length,
+  };
+
+  if (!dryRun) {
+    await writeAuditLog(env.DB, {
+      adminEmail: user.email || 'unknown',
+      action: 'migrate-images',
+      payload: { batchSize, hostnames, totalRemaining, counts },
+    });
+  }
+
+  return json({
+    dryRun,
+    hostnames,
+    batchSize,
+    totalRemaining,
+    processed: results.length,
+    counts,
+    results,
+  });
 }
 
 async function handleDeleteRecipe(env: Env, user: AuthenticatedUser, recipeId: string) {
