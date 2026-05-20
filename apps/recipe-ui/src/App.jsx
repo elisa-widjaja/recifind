@@ -2983,7 +2983,7 @@ function App() {
         if (normalizedIngredients.length > 0) {
           const haystack = `${recipe.title} ${recipe.ingredients.join(' ')} ${
             recipe.steps ? recipe.steps.join(' ') : ''
-          }`.toLowerCase();
+          } ${(recipe.customTags || []).join(' ')}`.toLowerCase();
 
           normalizedIngredients.forEach((term) => {
             if (term && haystack.includes(term)) {
