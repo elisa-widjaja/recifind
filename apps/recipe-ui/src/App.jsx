@@ -3393,7 +3393,8 @@ function App() {
       JSON.stringify(activeRecipeDraft.ingredients) !== JSON.stringify(activeRecipe.ingredients) ||
       JSON.stringify(activeRecipeDraft.steps) !== JSON.stringify(activeRecipe.steps) ||
       JSON.stringify(activeRecipeDraft.mealTypes) !== JSON.stringify(activeRecipe.mealTypes) ||
-      JSON.stringify(activeRecipeDraft.cuisines || []) !== JSON.stringify(activeRecipe.cuisines || [])
+      JSON.stringify(activeRecipeDraft.cuisines || []) !== JSON.stringify(activeRecipe.cuisines || []) ||
+      JSON.stringify(activeRecipeDraft.customTags || []) !== JSON.stringify(activeRecipe.customTags || [])
     );
   }, [activeRecipe, activeRecipeDraft]);
 
@@ -6120,7 +6121,7 @@ function App() {
                 )}
 
                 {(isEditMode || (activeRecipeView.cuisines && activeRecipeView.cuisines.length > 0)) && (
-                  <Box sx={{ pb: isEditMode ? 3 : 0 }}>
+                  <Box>
                     <Divider sx={{ borderColor: darkMode ? 'rgba(255, 255, 255, 0.12)' : '#E0E0E0', mb: 3 }} />
                     <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                       Cuisines
