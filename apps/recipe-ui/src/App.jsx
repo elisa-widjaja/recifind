@@ -409,6 +409,7 @@ async function buildApiRecipePayload(recipe, { includePreviewImage = false } = {
     imageUrl: recipe.imageUrl || '',
     mealTypes,
     cuisines,
+    customTags: Array.isArray(recipe.customTags) ? recipe.customTags : [],
     ingredients,
     steps,
     durationMinutes:
@@ -462,6 +463,7 @@ const NEW_RECIPE_TEMPLATE = {
   sourceUrl: '',
   imageUrl: '',
   mealTypes: '',
+  customTags: [],
   ingredients: '',
   steps: '',
   durationMinutes: '',
@@ -503,6 +505,7 @@ function validateRecipesPayload(payload) {
       sourceUrl: recipe.sourceUrl ?? '',
       imageUrl: resolveRecipeImageUrl(normalizedTitle, recipe.imageUrl),
       mealTypes,
+      customTags: Array.isArray(recipe.customTags) ? recipe.customTags : [],
       ingredients: Array.isArray(recipe.ingredients) ? recipe.ingredients : [],
       steps: Array.isArray(recipe.steps) ? recipe.steps : null,
       durationMinutes:
