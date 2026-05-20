@@ -1252,6 +1252,7 @@ function App() {
   });
   const [selectedMealType, setSelectedMealType] = useState('');
   const [selectedCuisine, setSelectedCuisine] = useState('');
+  const [selectedTags, setSelectedTags] = useState([]);
   const [ingredientInput, setIngredientInput] = useState('');
   const [activeRecipe, setActiveRecipe] = useState(null);
   const [activeRecipeDraft, setActiveRecipeDraft] = useState(null);
@@ -2979,6 +2980,13 @@ function App() {
           if (!matchesCuisine) return null;
         }
 
+        if (selectedTags.length > 0) {
+          const matchesAnyTag = (recipe.customTags || []).some(
+            (t) => selectedTags.some((s) => s.toLowerCase() === t.toLowerCase())
+          );
+          if (!matchesAnyTag) return null;
+        }
+
         let ingredientScore = 0;
         if (normalizedIngredients.length > 0) {
           const haystack = `${recipe.title} ${recipe.ingredients.join(' ')} ${
@@ -3010,7 +3018,7 @@ function App() {
       .map((entry) => entry.recipe);
 
     return scored;
-  }, [recipes, selectedMealType, selectedCuisine, normalizedIngredients, showFavoritesOnly, favorites]);
+  }, [recipes, selectedMealType, selectedCuisine, selectedTags, normalizedIngredients, showFavoritesOnly, favorites]);
 
   const pendingRecipesRef = useRef(null);
 
@@ -5429,6 +5437,10 @@ function App() {
                 availableCuisines={availableCuisines}
                 selectedCuisine={selectedCuisine}
                 onCuisineSelect={(c) => handleCuisineSelect(c)}
+                availableTags={availableTags}
+                selectedTags={selectedTags}
+                onTagToggle={(t) => setSelectedTags((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t])}
+                onClearTags={() => setSelectedTags([])}
                 showFavoritesOnly={showFavoritesOnly}
                 onToggleFavoritesOnly={() => setShowFavoritesOnly((prev) => !prev)}
                 MEAL_TYPE_LABELS={MEAL_TYPE_LABELS}

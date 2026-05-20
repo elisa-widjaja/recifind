@@ -72,6 +72,10 @@ export default function RecipesPage({
   availableCuisines = [],
   selectedCuisine = '',
   onCuisineSelect = () => {},
+  availableTags = [],
+  selectedTags = [],
+  onTagToggle = () => {},
+  onClearTags = () => {},
   showFavoritesOnly = false,
   onToggleFavoritesOnly = () => {},
   MEAL_TYPE_LABELS = {},
@@ -308,11 +312,12 @@ export default function RecipesPage({
         ) : (
           (() => {
             const hasActiveFilters = Boolean(
-              selectedMealType || selectedCuisine || showFavoritesOnly || normalizedIngredients.length > 0
+              selectedMealType || selectedCuisine || selectedTags.length > 0 || showFavoritesOnly || normalizedIngredients.length > 0
             );
             const clearAllFilters = () => {
               if (selectedMealType) onMealTypeSelect('');
               if (selectedCuisine) onCuisineSelect('');
+              if (selectedTags.length > 0) onClearTags();
               if (showFavoritesOnly) onToggleFavoritesOnly();
               if (normalizedIngredients.length > 0) setIngredientInput('');
             };
@@ -600,6 +605,58 @@ export default function RecipesPage({
                       })}
                     >
                       {label}
+                    </Box>
+                  );
+                })}
+              </Box>
+            </Box>
+          </>
+        )}
+
+        {availableTags.length > 0 && (
+          <>
+            <Divider sx={{ mx: 2 }} />
+
+            <Box sx={{ px: 2, py: 2 }}>
+              <Typography component="div" variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' }}>
+                Tags
+              </Typography>
+              {/* Multi-select OR filter — same horizontally-scrolling chip strip
+                  as Cuisine. Section hidden when user has no tagged recipes. */}
+              <Box
+                sx={{
+                  display: 'flex', flexWrap: 'nowrap', overflowX: 'auto',
+                  gap: 1, mt: 1,
+                  mx: -2, px: 2,
+                  '&::-webkit-scrollbar': { display: 'none' },
+                  scrollbarWidth: 'none',
+                  maskImage: 'linear-gradient(to right, transparent 0, black 16px, black calc(100% - 16px), transparent 100%)',
+                  WebkitMaskImage: 'linear-gradient(to right, transparent 0, black 16px, black calc(100% - 16px), transparent 100%)',
+                }}
+              >
+                {availableTags.map((t) => {
+                  const selected = selectedTags.includes(t);
+                  return (
+                    <Box
+                      key={t}
+                      component="button"
+                      role="button"
+                      aria-pressed={selected}
+                      onClick={() => onTagToggle(t)}
+                      sx={(theme) => ({
+                        display: 'inline-flex', alignItems: 'center',
+                        height: 36, px: 1.75, border: 'none', borderRadius: '999px',
+                        cursor: 'pointer', fontFamily: 'inherit', fontSize: 14, fontWeight: 500,
+                        whiteSpace: 'nowrap', flexShrink: 0,
+                        ...(selected
+                          ? { bgcolor: 'primary.main', color: '#fff' }
+                          : {
+                              bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)',
+                              color: 'text.primary',
+                            }),
+                      })}
+                    >
+                      {t}
                     </Box>
                   );
                 })}
