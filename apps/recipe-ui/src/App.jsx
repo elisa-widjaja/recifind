@@ -1166,7 +1166,7 @@ function CustomTagsAutocomplete({ availableTags, value, onValueChange, disabled 
         )}
       />
       {value.length > 0 && (
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2 }}>
           {value.map((tag, i) => (
             <Chip
               key={tag}
