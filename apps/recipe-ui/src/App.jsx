@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import {
   Alert,
   AppBar,
+  Autocomplete,
   Box,
   Button,
   Card,
@@ -3395,6 +3396,27 @@ function App() {
     return resolveRecipeImageUrl(activeRecipeView.title, activeRecipeView.imageUrl);
   }, [activeRecipeView]);
 
+  // Distinct customTags across all of the user's recipes, sorted alphabetically.
+  // Case-insensitive dedupe — when two recipes have different casings ("Meal Prep"
+  // vs "meal prep"), the first occurrence wins. This list is what the
+  // Autocomplete dropdown shows as suggestions, and what the filter drawer's Tags
+  // section iterates over.
+  const availableTags = useMemo(() => {
+    const seenLower = new Set();
+    const out = [];
+    for (const r of recipes) {
+      const tags = r.customTags || [];
+      for (const tag of tags) {
+        if (typeof tag !== 'string') continue;
+        const lower = tag.toLowerCase();
+        if (seenLower.has(lower)) continue;
+        seenLower.add(lower);
+        out.push(tag);
+      }
+    }
+    return out.sort((a, b) => a.localeCompare(b));
+  }, [recipes]);
+
   const newRecipePreviewImageUrl = useMemo(
     () => resolveRecipeImageUrl(newRecipeForm.title, newRecipeForm.imageUrl),
     [newRecipeForm.title, newRecipeForm.imageUrl]
@@ -6128,6 +6150,65 @@ function App() {
                         ))
                       )}
                     </Box>
+                  </Box>
+                )}
+
+                {((activeRecipeView.customTags || []).length > 0 || isEditMode) && (
+                  <Box sx={{ pb: isEditMode ? 3 : 0 }}>
+                    <Divider sx={{ borderColor: darkMode ? 'rgba(255, 255, 255, 0.12)' : '#E0E0E0', mb: 3 }} />
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                      Tags
+                    </Typography>
+                    {isEditMode ? (
+                      <Autocomplete
+                        multiple
+                        freeSolo
+                        options={availableTags}
+                        value={activeRecipeDraft?.customTags ?? []}
+                        onChange={(_, newValue) => {
+                          // Client-side mirror of the worker's sanitizeCustomTags — same
+                          // rules (trim, 30-char cap, case-insensitive dedupe, 5-tag cap).
+                          // The worker repeats this on save; doing it client-side gives
+                          // immediate visual feedback when a rule kicks in.
+                          const cleaned = [];
+                          const seenLower = new Set();
+                          for (const item of newValue) {
+                            if (typeof item !== 'string') continue;
+                            const trimmed = item.trim().slice(0, 30);
+                            if (!trimmed) continue;
+                            const lower = trimmed.toLowerCase();
+                            if (seenLower.has(lower)) continue;
+                            seenLower.add(lower);
+                            cleaned.push(trimmed);
+                            if (cleaned.length >= 5) break;
+                          }
+                          setActiveRecipeDraft((prev) => prev ? { ...prev, customTags: cleaned } : prev);
+                        }}
+                        disabled={isSharedRecipeView}
+                        renderTags={(tags, getTagProps) =>
+                          tags.map((t, i) => (
+                            <Chip key={t} label={t} size="small" {...getTagProps({ index: i })} />
+                          ))
+                        }
+                        renderInput={(params) => (
+                          <TextField
+                            {...params}
+                            placeholder={(activeRecipeDraft?.customTags ?? []).length >= 5 ? 'Max 5 tags' : 'Add a tag…'}
+                            inputProps={{
+                              ...params.inputProps,
+                              maxLength: 30,
+                              disabled: (activeRecipeDraft?.customTags ?? []).length >= 5,
+                            }}
+                          />
+                        )}
+                      />
+                    ) : (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                        {(activeRecipeView.customTags || []).map((t) => (
+                          <Chip key={t} label={t} size="small" variant="filled" color="primary" />
+                        ))}
+                      </Box>
+                    )}
                   </Box>
                 )}
               </Stack>
