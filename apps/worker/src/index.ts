@@ -5666,9 +5666,14 @@ async function fetchOgImage(sourceUrl: string | undefined): Promise<string | nul
               return `data:${contentType};base64,${base64}`;
             }
           } catch (imgError) {
-            console.warn('Failed to download Instagram thumbnail, returning URL:', imgError);
+            console.warn('Failed to download Instagram thumbnail:', imgError);
           }
-          return thumbnail;
+          // Don't propagate the raw scontent.cdninstagram.com URL — the
+          // oh/oe signature expires in ~a few days and the image 403s for
+          // every client that doesn't have it cached. Fall through to the
+          // HTML og:image path (which yields a fresher graph URL) and let
+          // the save-time re-host in handleCreateRecipe / handleUpdateRecipe
+          // pull it onto Supabase.
         }
       }
     }
@@ -5712,9 +5717,10 @@ async function fetchOgImage(sourceUrl: string | undefined): Promise<string | nul
               return `data:${contentType};base64,${base64}`;
             }
           } catch (imgError) {
-            console.warn('Failed to download TikTok thumbnail, returning URL:', imgError);
+            console.warn('Failed to download TikTok thumbnail:', imgError);
           }
-          return thumbnail;
+          // Same rationale as the Instagram branch: don't propagate the raw
+          // tiktokcdn URL since it expires. Fall through to HTML og:image.
         }
       }
     }
