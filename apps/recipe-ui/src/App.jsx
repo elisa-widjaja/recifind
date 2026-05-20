@@ -677,12 +677,20 @@ function generatePlaceholderImage(title) {
   const hash = hashString(lowercaseTitle);
   const [start, end] = palettes[hash % palettes.length];
 
-  const initials = lowercaseTitle
+  // First letter/digit of each word. \p{L}/\p{N} with the /u flag skips
+  // leading emoji or punctuation AND treats each codepoint as a unit, so
+  // emoji-prefixed words don't leak a lone surrogate into the SVG (which
+  // would make encodeURIComponent throw "URI malformed" and the fallback
+  // crash → original dead src stays → native broken-image icon).
+  const initials = (lowercaseTitle
     .split(/\s+/)
+    .map((word) => {
+      const m = word.match(/\p{L}|\p{N}/u);
+      return m ? m[0].toUpperCase() : '';
+    })
     .filter(Boolean)
-    .map((word) => word[0]?.toUpperCase() ?? '')
     .join('')
-    .slice(0, 3);
+    .slice(0, 3)) || 'REC';
 
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600">
@@ -704,12 +712,20 @@ function generatePlaceholderImage(title) {
         font-size="140"
         letter-spacing="6"
       >
-        ${escapeSvgText(initials || safeTitle.slice(0, 3).toUpperCase())}
+        ${escapeSvgText(initials)}
       </text>
     </svg>
   `;
 
-  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+  try {
+    return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+  } catch (_err) {
+    // Defense in depth: should be unreachable now that initials is always
+    // ASCII, but a future caller might pass a title with a lone surrogate
+    // that slips into the SVG via a different path. Return '' so the
+    // calling onError fallback can short-circuit instead of crashing.
+    return '';
+  }
 }
 
 function resolveRecipeImageUrl(title, imageUrl) {
