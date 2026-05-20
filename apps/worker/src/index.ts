@@ -2787,17 +2787,21 @@ async function handleAdminMigrateImages(
     dryRun?: boolean;
     batchSize?: number;
     hostnames?: string[];
+    recipeIds?: string[];
   };
   const dryRun = body.dryRun !== false;
   // Each candidate triggers up to ~3 subrequests (source fetch, image fetch,
-  // Supabase upload). 50-subrequest free-tier ceiling → keep default ≤15.
-  const batchSize = Math.min(Math.max(body.batchSize ?? 10, 1), 50);
+  // Supabase upload). Paid Workers ceiling is 1000 — keep generous headroom.
+  const batchSize = Math.min(Math.max(body.batchSize ?? 10, 1), 200);
   const hostnames = Array.isArray(body.hostnames) && body.hostnames.length > 0
     ? body.hostnames.filter((h): h is string => typeof h === 'string' && h.length > 0)
     : ['cdninstagram.com', 'tiktokcdn'];
   if (hostnames.length === 0) {
     return json({ code: 'BAD_REQUEST', message: 'hostnames must be non-empty' }, 400);
   }
+  const recipeIds = Array.isArray(body.recipeIds)
+    ? body.recipeIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+    : null;
 
   const wherePatternSql = hostnames.map(() => 'image_url LIKE ?').join(' OR ');
   const patternValues = hostnames.map((h) => `%${h}%`);
@@ -2807,24 +2811,33 @@ async function handleAdminMigrateImages(
   ).bind(...patternValues).first<{ cnt: number }>();
   const totalRemaining = Number(totalRow?.cnt ?? 0);
 
-  const candidates = await env.DB.prepare(
-    `SELECT id, user_id, source_url, image_url FROM recipes
-     WHERE (${wherePatternSql}) AND hidden_at IS NULL
-     ORDER BY created_at DESC
-     LIMIT ?`
-  ).bind(...patternValues, batchSize).all<{ id: string; user_id: string; source_url: string; image_url: string }>();
+  // When the caller pins specific recipeIds, target only those — skip the
+  // hostname/created_at ordering. Useful for spot-fixing or verification
+  // without churning through every candidate.
+  const candidates = recipeIds && recipeIds.length > 0
+    ? await env.DB.prepare(
+        `SELECT id, user_id, title, source_url, image_url FROM recipes
+         WHERE id IN (${recipeIds.map(() => '?').join(',')}) AND hidden_at IS NULL`
+      ).bind(...recipeIds).all<{ id: string; user_id: string; title: string; source_url: string; image_url: string }>()
+    : await env.DB.prepare(
+        `SELECT id, user_id, title, source_url, image_url FROM recipes
+         WHERE (${wherePatternSql}) AND hidden_at IS NULL
+         ORDER BY created_at DESC
+         LIMIT ?`
+      ).bind(...patternValues, batchSize).all<{ id: string; user_id: string; title: string; source_url: string; image_url: string }>();
 
   type Status = 'rehosted' | 'cleared' | 'failed' | 'dry-run';
-  const results: Array<{ id: string; status: Status; oldUrl: string; newUrl?: string; reason?: string }> = [];
+  const results: Array<{ id: string; title: string; userId: string; status: Status; oldUrl: string; newUrl?: string; reason?: string }> = [];
 
   for (const row of (candidates.results || [])) {
     const recipeId = String(row.id);
     const userId = String(row.user_id);
+    const title = String(row.title || '');
     const sourceUrl = String(row.source_url || '');
     const oldUrl = String(row.image_url || '');
 
     if (dryRun) {
-      results.push({ id: recipeId, status: 'dry-run', oldUrl });
+      results.push({ id: recipeId, title, userId, status: 'dry-run', oldUrl });
       continue;
     }
 
@@ -2835,7 +2848,7 @@ async function handleAdminMigrateImages(
         await env.DB.prepare(
           'UPDATE recipes SET image_url = ?, image_path = NULL, preview_image = NULL WHERE id = ?'
         ).bind('', recipeId).run();
-        results.push({ id: recipeId, status: 'cleared', oldUrl, reason: 'no og:image from source' });
+        results.push({ id: recipeId, title, userId, status: 'cleared', oldUrl, reason: 'no og:image from source' });
         continue;
       }
 
@@ -2844,7 +2857,7 @@ async function handleAdminMigrateImages(
         await env.DB.prepare(
           'UPDATE recipes SET image_url = ?, image_path = NULL, preview_image = NULL WHERE id = ?'
         ).bind('', recipeId).run();
-        results.push({ id: recipeId, status: 'cleared', oldUrl, reason: 'rehost upload returned no publicUrl' });
+        results.push({ id: recipeId, title, userId, status: 'cleared', oldUrl, reason: 'rehost upload returned no publicUrl' });
         continue;
       }
 
@@ -2856,10 +2869,10 @@ async function handleAdminMigrateImages(
         JSON.stringify(preview),
         recipeId
       ).run();
-      results.push({ id: recipeId, status: 'rehosted', oldUrl, newUrl: preview.publicUrl });
+      results.push({ id: recipeId, title, userId, status: 'rehosted', oldUrl, newUrl: preview.publicUrl });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      results.push({ id: recipeId, status: 'failed', oldUrl, reason });
+      results.push({ id: recipeId, title, userId, status: 'failed', oldUrl, reason });
     }
   }
 
@@ -5796,14 +5809,17 @@ async function fetchOgImage(sourceUrl: string | undefined): Promise<string | nul
               return `data:${contentType};base64,${base64}`;
             }
           } catch (imgError) {
-            console.warn('Failed to download Instagram thumbnail:', imgError);
+            console.warn('Failed to download Instagram thumbnail, returning URL:', imgError);
           }
-          // Don't propagate the raw scontent.cdninstagram.com URL — the
-          // oh/oe signature expires in ~a few days and the image 403s for
-          // every client that doesn't have it cached. Fall through to the
-          // HTML og:image path (which yields a fresher graph URL) and let
-          // the save-time re-host in handleCreateRecipe / handleUpdateRecipe
-          // pull it onto Supabase.
+          // Return the raw oEmbed thumbnail URL rather than falling through
+          // to the HTML og:image path. Instagram returns a login wall to
+          // worker IPs, so the HTML path adds 5–15s of latency for ~zero
+          // benefit, blowing past the iOS share extension's enrich timeout
+          // and causing the create call to land with enriched=nil
+          // (recipe saves but has no ingredients/steps). The save-time
+          // re-host in handleCreateRecipe / handleUpdateRecipe will pull
+          // this URL onto Supabase before it lands in image_url.
+          return thumbnail;
         }
       }
     }
@@ -5847,10 +5863,12 @@ async function fetchOgImage(sourceUrl: string | undefined): Promise<string | nul
               return `data:${contentType};base64,${base64}`;
             }
           } catch (imgError) {
-            console.warn('Failed to download TikTok thumbnail:', imgError);
+            console.warn('Failed to download TikTok thumbnail, returning URL:', imgError);
           }
-          // Same rationale as the Instagram branch: don't propagate the raw
-          // tiktokcdn URL since it expires. Fall through to HTML og:image.
+          // Same rationale as the Instagram branch above: return the raw
+          // oEmbed thumbnail URL to keep enrichment fast; save-time re-host
+          // handles upgrading it to Supabase.
+          return thumbnail;
         }
       }
     }
