@@ -119,7 +119,10 @@ export default function DiscoverPage({
   useEffect(() => {
     setAiLoaded(false);
     const params = new URLSearchParams();
-    if (cuisinePrefs?.length && !cuisinePrefs.includes('All of the above')) {
+    // cuisinePrefs is now always an array of canonical lowercase keys (no
+    // "All of the above" sentinel — selecting that in onboarding/settings
+    // stores all 12 keys explicitly). Pass them through verbatim.
+    if (cuisinePrefs?.length) {
       params.set('cuisine', cuisinePrefs.join(','));
     }
     if (cookingFor) params.set('cooking_for', cookingFor);

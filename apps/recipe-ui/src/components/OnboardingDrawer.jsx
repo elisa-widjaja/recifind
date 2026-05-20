@@ -4,6 +4,7 @@ import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
 import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
 import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos';
+import { CUISINE_LABELS, CUISINE_ORDER } from '../lib/cuisines';
 
 // First-time onboarding hosted in a single bottom-sheet drawer with five
 // internal screens: Welcome → Dietary → Cooking-for → Cuisines → Checklist.
@@ -16,19 +17,6 @@ const COOKING_FOR = [
   { value: 'family',       label: '👨‍👩‍👧 Family',               sub: 'Kid-friendly, crowd pleasers' },
   { value: 'entertaining', label: '🎉 I love to entertain',    sub: 'Impressive dishes, feeds a crowd' },
 ];
-const CUISINES = [
-  '🍔 American comfort',
-  '🥢 Asian',
-  '🇫🇷 French',
-  '🇮🇳 Indian',
-  '🇮🇹 Italian',
-  '🇯🇵 Japanese',
-  '🫒 Mediterranean',
-  '🇲🇽 Mexican',
-  '🧆 Middle Eastern',
-  '🌍 All of the above',
-];
-
 const CHECKLIST_STEPS = [
   {
     label: 'Add your first recipe',
@@ -97,15 +85,16 @@ export default function OnboardingDrawer({
       });
     }
   };
-  const toggleCuisine = (value) => {
-    if (value === '🌍 All of the above') {
-      setCuisinePrefs((prev) => prev.includes(value) ? [] : [value]);
-    } else {
-      setCuisinePrefs((prev) => {
-        const without = prev.filter((v) => v !== '🌍 All of the above');
-        return without.includes(value) ? without.filter((v) => v !== value) : [...without, value];
-      });
-    }
+  const toggleCuisine = (key) => {
+    setCuisinePrefs((prev) => prev.includes(key) ? prev.filter((v) => v !== key) : [...prev, key]);
+  };
+  // "All of the above" is a UX shortcut, not a stored value — it toggles
+  // between the full set of cuisine keys and an empty selection. Saved
+  // prefs only ever contain real cuisine keys (matching CUISINE_ORDER), so
+  // they line up with recipe-detail chips and the worker enrichment enum.
+  const allCuisinesSelected = CUISINE_ORDER.every((k) => cuisinePrefs.includes(k));
+  const toggleAllCuisines = () => {
+    setCuisinePrefs(allCuisinesSelected ? [] : [...CUISINE_ORDER]);
   };
 
   const goNext = async () => {
@@ -210,6 +199,8 @@ export default function OnboardingDrawer({
           <CuisinesScreen
             cuisinePrefs={cuisinePrefs}
             toggleCuisine={toggleCuisine}
+            allCuisinesSelected={allCuisinesSelected}
+            toggleAllCuisines={toggleAllCuisines}
             saving={saving}
             onNext={goNext}
             onBack={goBack}
@@ -399,25 +390,26 @@ function CookingForScreen({ cookingFor, setCookingFor, saving, onNext, onBack })
   );
 }
 
-function CuisinesScreen({ cuisinePrefs, toggleCuisine, saving, onNext, onBack }) {
+function CuisinesScreen({ cuisinePrefs, toggleCuisine, allCuisinesSelected, toggleAllCuisines, saving, onNext, onBack }) {
   return (
     <>
       <H1>Favorite cuisines</H1>
       <Tagline>Pick all that apply — we'll surface more of what you're into.</Tagline>
       <Box>
-        {CUISINES.map((c, i) => {
-          const sel = cuisinePrefs.includes(c);
-          const firstSpace = c.indexOf(' ');
-          const label = firstSpace > 0 ? c.slice(firstSpace + 1) : c;
-          const isLast = i === CUISINES.length - 1;
+        {[...CUISINE_ORDER, '__all__'].map((key, i, arr) => {
+          const isAllRow = key === '__all__';
+          const sel = isAllRow ? allCuisinesSelected : cuisinePrefs.includes(key);
+          const label = isAllRow ? 'All of the above' : CUISINE_LABELS[key];
+          const isLast = i === arr.length - 1;
+          const onToggle = isAllRow ? toggleAllCuisines : () => toggleCuisine(key);
           return (
             <Box
-              key={c}
+              key={key}
               role="button"
               tabIndex={0}
               aria-pressed={sel}
-              onClick={() => toggleCuisine(c)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCuisine(c); } }}
+              onClick={onToggle}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
               sx={{
                 display: 'flex', alignItems: 'center', gap: 1.5,
                 py: 1.75, px: 0,

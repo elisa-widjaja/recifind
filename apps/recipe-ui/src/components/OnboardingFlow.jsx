@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Dialog, DialogContent, Box, Typography, Button, Stack, Chip, LinearProgress } from '@mui/material';
+import { CUISINE_LABELS, CUISINE_ORDER } from '../lib/cuisines';
 
 const DIETARY_PREFS = ['🥦 Vegetarian', '🌱 Vegan', '🌾 Gluten-free', '🥛 Dairy-free', '💪 High protein', '🐟 Pescatarian', '🥩 Meat lover', '✅ None / all good'];
 const COOKING_FOR = [
@@ -8,7 +9,6 @@ const COOKING_FOR = [
   { value: 'family', label: '👨‍👩‍👧 Family', sub: 'Kid-friendly, crowd pleasers' },
   { value: 'entertaining', label: '🎉 I love to entertain', sub: 'Impressive dishes, feeds a crowd' },
 ];
-const CUISINES = ['🇮🇹 Italian', '🥢 Asian', '🇲🇽 Mexican', '🫒 Mediterranean', '🍔 American comfort', '🇮🇳 Indian', '🧆 Middle Eastern', '🇫🇷 French', '🇯🇵 Japanese', '🌍 All of the above'];
 
 /**
  * 3-screen onboarding flow.
@@ -34,15 +34,17 @@ export default function OnboardingFlow({ open, onComplete, onSkip, onDismiss }) 
     }
   };
 
-  const toggleCuisine = (value) => {
-    if (value === '🌍 All of the above') {
-      setCuisinePrefs(prev => prev.includes('🌍 All of the above') ? [] : ['🌍 All of the above']);
-    } else {
-      setCuisinePrefs(prev => {
-        const without = prev.filter(v => v !== '🌍 All of the above');
-        return without.includes(value) ? without.filter(v => v !== value) : [...without, value];
-      });
-    }
+  const toggleCuisine = (key) => {
+    setCuisinePrefs(prev => prev.includes(key) ? prev.filter(v => v !== key) : [...prev, key]);
+  };
+  // "All of the above" is a UX shortcut, not a stored value — it toggles
+  // between the full set of cuisine keys and an empty selection. Saved
+  // prefs only ever contain real cuisine keys (matching CUISINE_ORDER), so
+  // the recipe-detail chips, worker enrichment enum, and prefs share one
+  // vocabulary.
+  const allCuisinesSelected = CUISINE_ORDER.every(k => cuisinePrefs.includes(k));
+  const toggleAllCuisines = () => {
+    setCuisinePrefs(allCuisinesSelected ? [] : [...CUISINE_ORDER]);
   };
 
   const handleNext = () => {
@@ -102,12 +104,19 @@ export default function OnboardingFlow({ open, onComplete, onSkip, onDismiss }) 
 
         {screen === 2 && (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            {CUISINES.map(c => (
-              <Chip key={c} label={c} clickable onClick={() => toggleCuisine(c)}
-                variant={cuisinePrefs.includes(c) ? 'filled' : 'outlined'}
-                color={cuisinePrefs.includes(c) ? 'primary' : 'default'}
-                sx={{ fontWeight: cuisinePrefs.includes(c) ? 700 : 400, alignSelf: 'flex-start' }} />
-            ))}
+            {CUISINE_ORDER.map(key => {
+              const sel = cuisinePrefs.includes(key);
+              return (
+                <Chip key={key} label={CUISINE_LABELS[key]} clickable onClick={() => toggleCuisine(key)}
+                  variant={sel ? 'filled' : 'outlined'}
+                  color={sel ? 'primary' : 'default'}
+                  sx={{ fontWeight: sel ? 700 : 400, alignSelf: 'flex-start' }} />
+              );
+            })}
+            <Chip label="All of the above" clickable onClick={toggleAllCuisines}
+              variant={allCuisinesSelected ? 'filled' : 'outlined'}
+              color={allCuisinesSelected ? 'primary' : 'default'}
+              sx={{ fontWeight: allCuisinesSelected ? 700 : 400, alignSelf: 'flex-start' }} />
           </Box>
         )}
       </Box>

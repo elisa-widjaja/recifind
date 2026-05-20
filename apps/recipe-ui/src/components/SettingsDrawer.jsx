@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Drawer, Box, Typography, IconButton, TextField, Button, Stack, CircularProgress, Rating, Chip, Divider, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
 import { Capacitor } from '@capacitor/core';
+import { CUISINE_LABELS, CUISINE_ORDER } from '../lib/cuisines';
 
 // Right-anchored drawer used for "info" pages (About, Privacy, Notifications)
 // and the Send Feedback form. Slides in from the right with MUI's default
@@ -445,19 +446,6 @@ const COOKING_FOR = [
   { value: 'entertaining', label: '🎉 I love to entertain',    sub: 'Impressive dishes, feeds a crowd' },
 ];
 // Alphabetical by label; "All of the above" pinned at the end.
-const CUISINES = [
-  '🍔 American comfort',
-  '🥢 Asian',
-  '🇫🇷 French',
-  '🇮🇳 Indian',
-  '🇮🇹 Italian',
-  '🇯🇵 Japanese',
-  '🫒 Mediterranean',
-  '🇲🇽 Mexican',
-  '🧆 Middle Eastern',
-  '🌍 All of the above',
-];
-
 function PreferencesContent({ initial, onSave }) {
   const [dietary, setDietary] = useState(() => initial?.dietaryPrefs ?? []);
   const [cookingFor, setCookingFor] = useState(() => initial?.cookingFor ?? '');
@@ -483,15 +471,16 @@ function PreferencesContent({ initial, onSave }) {
       });
     }
   };
-  const toggleCuisine = (value) => {
-    if (value === '🌍 All of the above') {
-      setCuisinePrefs((prev) => prev.includes(value) ? [] : [value]);
-    } else {
-      setCuisinePrefs((prev) => {
-        const without = prev.filter((v) => v !== '🌍 All of the above');
-        return without.includes(value) ? without.filter((v) => v !== value) : [...without, value];
-      });
-    }
+  const toggleCuisine = (key) => {
+    setCuisinePrefs((prev) => prev.includes(key) ? prev.filter((v) => v !== key) : [...prev, key]);
+  };
+  // "All of the above" is a UX shortcut, not a stored value — it toggles
+  // between the full set of cuisine keys and an empty selection. Saved
+  // prefs only ever contain real cuisine keys (matching CUISINE_ORDER), so
+  // they line up with recipe-detail chips and the worker enrichment enum.
+  const allCuisinesSelected = CUISINE_ORDER.every((k) => cuisinePrefs.includes(k));
+  const toggleAllCuisines = () => {
+    setCuisinePrefs(allCuisinesSelected ? [] : [...CUISINE_ORDER]);
   };
 
   const handleSave = async () => {
@@ -628,22 +617,20 @@ function PreferencesContent({ initial, onSave }) {
         Pick all that apply — we'll surface more of what you're into.
       </Typography>
       <Box sx={{ mb: 4 }}>
-        {CUISINES.map((c, i) => {
-          const sel = cuisinePrefs.includes(c);
-          // Strip the leading flag/glyph from stored values for display only
-          // (kept on disk for backward compat with profiles set during
-          // onboarding).
-          const firstSpace = c.indexOf(' ');
-          const label = firstSpace > 0 ? c.slice(firstSpace + 1) : c;
-          const isLast = i === CUISINES.length - 1;
+        {[...CUISINE_ORDER, '__all__'].map((key, i, arr) => {
+          const isAllRow = key === '__all__';
+          const sel = isAllRow ? allCuisinesSelected : cuisinePrefs.includes(key);
+          const label = isAllRow ? 'All of the above' : CUISINE_LABELS[key];
+          const isLast = i === arr.length - 1;
+          const onToggle = isAllRow ? toggleAllCuisines : () => toggleCuisine(key);
           return (
             <Box
-              key={c}
+              key={key}
               role="button"
               tabIndex={0}
               aria-pressed={sel}
-              onClick={() => toggleCuisine(c)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCuisine(c); } }}
+              onClick={onToggle}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
               sx={{
                 display: 'flex', alignItems: 'center', gap: 1.5,
                 py: 1.75, px: 0,

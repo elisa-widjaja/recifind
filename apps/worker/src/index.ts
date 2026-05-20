@@ -5401,7 +5401,7 @@ Rules:
 Return JSON matching this schema:
 { "ingredients": [], "steps": [], "mealTypes": [], "cuisines": [], "durationMinutes": null, "notes": "", "title": "" }
 
-For cuisines, pick at most 2 entries from this enum based ONLY on what's explicit (dish name, hashtags, creator's words): ["italian","mexican","chinese","japanese","korean","thai","vietnamese","indian","mediterranean","french","american","middle-eastern"]. Use the lowercase hyphenated form. If nothing in the text indicates a cuisine, return [].
+For cuisines, pick at most 2 entries from this enum based ONLY on what's explicit (dish name, hashtags, creator's words): ["african","american","british","chinese","filipino","french","indian","indonesian","italian","japanese","korean","mediterranean","mexican","middle-eastern","nordic","thai","vietnamese"]. Use the lowercase hyphenated form. If nothing in the text indicates a cuisine, return [].
 
 Text:
 ${captionText}`;
@@ -6012,7 +6012,7 @@ function buildGeminiPrompt(recipe: Recipe, rawText: string) {
   "sourceUrl": "string",
   "imageUrl": "string",
   "mealTypes": ["breakfast","lunch","dinner","dessert","appetizer","snack"],
-  "cuisines": ["italian","mexican","chinese","japanese","korean","thai","vietnamese","indian","mediterranean","french","american","middle-eastern"],
+  "cuisines": ["african","american","british","chinese","filipino","french","indian","indonesian","italian","japanese","korean","mediterranean","mexican","middle-eastern","nordic","thai","vietnamese"],
   "ingredients": ["string"],
   "steps": ["string"],
   "durationMinutes": number | null,

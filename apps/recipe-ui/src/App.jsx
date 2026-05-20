@@ -120,6 +120,7 @@ import { FriendPicker } from './components/FriendPicker';
 import { ShareSheet } from './components/ShareSheet';
 import { shareRecipe } from './lib/shareRecipe';
 import { buildRecipeShareUrl } from './lib/shareUrl';
+import { CUISINE_LABELS, CUISINE_ORDER } from './lib/cuisines';
 // === [/S04] ===
 // === [S09] Capacitor auth ===
 import { Capacitor } from '@capacitor/core';
@@ -456,40 +457,6 @@ const MEAL_TYPE_ORDER = ['breakfast', 'lunch', 'dinner', 'dessert', 'appetizer',
 
 // Cuisine taxonomy — kept tight so the filter chips stay scannable. Values
 // match the enum in the worker's Gemini prompt (lowercase, hyphenated).
-const CUISINE_LABELS = {
-  italian: 'Italian',
-  mexican: 'Mexican',
-  chinese: 'Chinese',
-  japanese: 'Japanese',
-  korean: 'Korean',
-  thai: 'Thai',
-  vietnamese: 'Vietnamese',
-  indian: 'Indian',
-  mediterranean: 'Mediterranean',
-  french: 'French',
-  american: 'American',
-  'middle-eastern': 'Middle Eastern',
-};
-
-const CUISINE_ICONS = {
-  italian: '🍝',
-  mexican: '🌮',
-  chinese: '🥡',
-  japanese: '🍣',
-  korean: '🍲',
-  thai: '🌶️',
-  vietnamese: '🍜',
-  indian: '🍛',
-  mediterranean: '🫒',
-  french: '🥖',
-  american: '🍔',
-  'middle-eastern': '🥙',
-};
-
-const CUISINE_ORDER = [
-  'italian', 'mexican', 'chinese', 'japanese', 'korean', 'thai',
-  'vietnamese', 'indian', 'mediterranean', 'french', 'american', 'middle-eastern',
-];
 const NEW_RECIPE_TEMPLATE = {
   title: '',
   sourceUrl: '',
@@ -5442,7 +5409,6 @@ function App() {
                 MEAL_TYPE_LABELS={MEAL_TYPE_LABELS}
                 MEAL_TYPE_ICONS={MEAL_TYPE_ICONS}
                 CUISINE_LABELS={CUISINE_LABELS}
-                CUISINE_ICONS={CUISINE_ICONS}
               />
             )}
             {currentView === 'friends' && session && (

@@ -77,7 +77,6 @@ export default function RecipesPage({
   MEAL_TYPE_LABELS = {},
   MEAL_TYPE_ICONS = {},
   CUISINE_LABELS = {},
-  CUISINE_ICONS = {},
 }) {
   const [suggestions, setSuggestions] = useState([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
