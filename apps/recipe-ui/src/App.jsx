@@ -1091,6 +1091,72 @@ const PENDING_SHARE_TTL_MS = 24 * 60 * 60 * 1000;
 // twice.
 const dispatchedDeepLinks = new Set();
 
+// Recipe-detail custom tags input. Owns its `inputValue` so we can commit
+// what the user typed even when they leave the field without pressing Enter
+// (the default freeSolo Autocomplete drops uncommitted text on blur, which
+// silently lost the user's tag — they'd see the chip flash in, then on
+// click-away nothing was actually stored in the draft).
+function CustomTagsAutocomplete({ availableTags, value, onValueChange, disabled }) {
+  const [inputValue, setInputValue] = useState('');
+
+  const commit = (rawArray) => {
+    const cleaned = [];
+    const seenLower = new Set();
+    for (const item of rawArray) {
+      if (typeof item !== 'string') continue;
+      const trimmed = item.trim().slice(0, 30);
+      if (!trimmed) continue;
+      const lower = trimmed.toLowerCase();
+      if (seenLower.has(lower)) continue;
+      seenLower.add(lower);
+      cleaned.push(trimmed);
+      if (cleaned.length >= 5) break;
+    }
+    onValueChange(cleaned);
+  };
+
+  return (
+    <Autocomplete
+      multiple
+      freeSolo
+      options={availableTags}
+      value={value}
+      inputValue={inputValue}
+      onInputChange={(_, next, reason) => {
+        if (reason !== 'reset') setInputValue(next);
+      }}
+      onChange={(_, newValue) => {
+        commit(newValue);
+        setInputValue('');
+      }}
+      onBlur={() => {
+        // Commit any pending input that the user hadn't pressed Enter on.
+        const pending = inputValue.trim();
+        if (!pending) return;
+        commit([...value, pending]);
+        setInputValue('');
+      }}
+      disabled={disabled}
+      renderTags={(tags, getTagProps) =>
+        tags.map((t, i) => (
+          <Chip key={t} label={t} size="small" {...getTagProps({ index: i })} />
+        ))
+      }
+      renderInput={(params) => (
+        <TextField
+          {...params}
+          placeholder={value.length >= 5 ? 'Max 5 tags' : 'Add a tag…'}
+          inputProps={{
+            ...params.inputProps,
+            maxLength: 30,
+            disabled: value.length >= 5,
+          }}
+        />
+      )}
+    />
+  );
+}
+
 function App() {
   // Use window width directly for reliable mobile detection
   const [isMobile, setIsMobile] = useState(() => {
@@ -6173,47 +6239,11 @@ function App() {
                       Tags
                     </Typography>
                     {isEditMode ? (
-                      <Autocomplete
-                        multiple
-                        freeSolo
-                        options={availableTags}
+                      <CustomTagsAutocomplete
+                        availableTags={availableTags}
                         value={activeRecipeDraft?.customTags ?? []}
-                        onChange={(_, newValue) => {
-                          // Client-side mirror of the worker's sanitizeCustomTags — same
-                          // rules (trim, 30-char cap, case-insensitive dedupe, 5-tag cap).
-                          // The worker repeats this on save; doing it client-side gives
-                          // immediate visual feedback when a rule kicks in.
-                          const cleaned = [];
-                          const seenLower = new Set();
-                          for (const item of newValue) {
-                            if (typeof item !== 'string') continue;
-                            const trimmed = item.trim().slice(0, 30);
-                            if (!trimmed) continue;
-                            const lower = trimmed.toLowerCase();
-                            if (seenLower.has(lower)) continue;
-                            seenLower.add(lower);
-                            cleaned.push(trimmed);
-                            if (cleaned.length >= 5) break;
-                          }
-                          setActiveRecipeDraft((prev) => prev ? { ...prev, customTags: cleaned } : prev);
-                        }}
+                        onValueChange={(next) => setActiveRecipeDraft((prev) => prev ? { ...prev, customTags: next } : prev)}
                         disabled={isSharedRecipeView}
-                        renderTags={(tags, getTagProps) =>
-                          tags.map((t, i) => (
-                            <Chip key={t} label={t} size="small" {...getTagProps({ index: i })} />
-                          ))
-                        }
-                        renderInput={(params) => (
-                          <TextField
-                            {...params}
-                            placeholder={(activeRecipeDraft?.customTags ?? []).length >= 5 ? 'Max 5 tags' : 'Add a tag…'}
-                            inputProps={{
-                              ...params.inputProps,
-                              maxLength: 30,
-                              disabled: (activeRecipeDraft?.customTags ?? []).length >= 5,
-                            }}
-                          />
-                        )}
                       />
                     ) : (
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
