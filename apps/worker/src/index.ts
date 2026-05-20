@@ -2355,7 +2355,11 @@ async function handleCreateRecipe(
     }
   }
 
-  const preview = await persistPreviewImage(previewImagePayload, env, user.userId, recipe.id);
+  const effectivePreviewPayload =
+    previewImagePayload && hasPreviewUpload(previewImagePayload)
+      ? previewImagePayload
+      : deriveImplicitPreviewPayload(recipe.imageUrl, env);
+  const preview = await persistPreviewImage(effectivePreviewPayload, env, user.userId, recipe.id);
   if (preview) {
     recipe.previewImage = preview;
     recipe.imagePath = buildImagePath(recipe.id);
@@ -2692,11 +2696,20 @@ async function handleUpdateRecipe(request: Request, env: Env, user: Authenticate
   }
 
   const hasUpload = previewImagePayload && hasPreviewUpload(previewImagePayload);
-  if (hasUpload) {
+  // If the update sets imageUrl to a different external URL with no explicit
+  // upload payload (e.g. background-enrichment PATCH discovers an og:image),
+  // derive a payload from imageUrl so the worker re-hosts it on Supabase
+  // instead of saving the raw external URL. Mirrors the create-path defense.
+  const implicitRehostPayload =
+    !hasUpload && recipe.imageUrl !== existing.imageUrl
+      ? deriveImplicitPreviewPayload(recipe.imageUrl, env)
+      : null;
+  const effectivePreviewPayload = hasUpload ? previewImagePayload : implicitRehostPayload;
+  if (effectivePreviewPayload) {
     if (existing.previewImage?.objectKey) {
       await deleteSupabaseObject(env, existing.previewImage.objectKey);
     }
-    const preview = await persistPreviewImage(previewImagePayload, env, user.userId, recipe.id);
+    const preview = await persistPreviewImage(effectivePreviewPayload, env, user.userId, recipe.id);
     if (preview) {
       recipe.previewImage = preview;
       recipe.imagePath = buildImagePath(recipe.id);
@@ -3834,6 +3847,27 @@ function extractPreviewImagePayload(input: unknown): PreviewImagePayload | null 
 
 function hasPreviewUpload(payload: PreviewImagePayload): boolean {
   return Boolean(payload.data || payload.dataUrl || payload.url);
+}
+
+// When a client save sets recipe.imageUrl but doesn't send a previewImage
+// payload (iOS share extension, server-side enrichment patches), we still
+// want the worker to fetch the URL and re-host it on Supabase. Otherwise
+// raw Instagram/TikTok CDN URLs end up in image_url; their `oh`/`oe` signed
+// params expire after ~a few days and the recipe's image 403s for everyone
+// who doesn't already have the bytes in their HTTP cache. Returns null when
+// the URL is already on our storage, empty, or an SVG placeholder data URI
+// (those are client-side fallbacks, not real images).
+function deriveImplicitPreviewPayload(
+  imageUrl: string | undefined | null,
+  env: Env
+): PreviewImagePayload | null {
+  const trimmed = (imageUrl || '').trim();
+  if (!trimmed) return null;
+  const supabaseBase = env.SUPABASE_URL ? env.SUPABASE_URL.replace(/\/$/, '') : '';
+  if (supabaseBase && trimmed.startsWith(supabaseBase)) return null;
+  if (trimmed.startsWith('data:image/svg')) return null;
+  if (trimmed.startsWith('data:')) return { dataUrl: trimmed };
+  return { url: trimmed };
 }
 
 async function persistPreviewImage(
