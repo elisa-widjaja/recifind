@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { handleCreateRecipe, enrichAfterSave, handleUpdateRecipe } from './index';
+import { afterEach, describe, expect, it, test, vi } from 'vitest';
+import { handleCreateRecipe, enrichAfterSave, handleUpdateRecipe, sanitizeCustomTags } from './index';
 import type { Env } from './index';
 
 function makeMockDb(options: {
@@ -545,5 +545,71 @@ describe('handleUpdateRecipe provenance', () => {
     const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
     expect(update).toBeDefined();
     expect(update!.binds).not.toContain('inferred');
+  });
+});
+
+describe('sanitizeCustomTags', () => {
+  test('returns empty array for non-array input', () => {
+    expect(sanitizeCustomTags(undefined)).toEqual([]);
+    expect(sanitizeCustomTags(null)).toEqual([]);
+    expect(sanitizeCustomTags('hello')).toEqual([]);
+    expect(sanitizeCustomTags(42)).toEqual([]);
+  });
+
+  test('trims whitespace and drops empty strings', () => {
+    expect(sanitizeCustomTags(['  meal prep  ', '   ', '', 'camping'])).toEqual([
+      'meal prep',
+      'camping',
+    ]);
+  });
+
+  test('drops non-string elements', () => {
+    expect(sanitizeCustomTags(['valid', 123, null, undefined, 'kept'])).toEqual([
+      'valid',
+      'kept',
+    ]);
+  });
+
+  test('dedupes case-insensitively, preserves first occurrence casing', () => {
+    expect(sanitizeCustomTags(['Meal Prep', 'meal prep', 'MEAL PREP'])).toEqual([
+      'Meal Prep',
+    ]);
+  });
+
+  test('caps each tag at 30 chars', () => {
+    const long = 'a'.repeat(50);
+    expect(sanitizeCustomTags([long])).toEqual(['a'.repeat(30)]);
+  });
+
+  test('caps the array at 5 tags', () => {
+    expect(sanitizeCustomTags(['a', 'b', 'c', 'd', 'e', 'f', 'g'])).toEqual([
+      'a',
+      'b',
+      'c',
+      'd',
+      'e',
+    ]);
+  });
+
+  test('combined: trims, dedupes, truncates, caps', () => {
+    const input = [
+      '  Meal Prep  ',
+      'meal prep',
+      'Backpacking',
+      'a'.repeat(40),
+      '',
+      42,
+      'Camping',
+      'Dog Food',
+      'Toddler Meals',
+      'Sixth Tag',
+    ];
+    expect(sanitizeCustomTags(input)).toEqual([
+      'Meal Prep',
+      'Backpacking',
+      'a'.repeat(30),
+      'Camping',
+      'Dog Food',
+    ]);
   });
 });

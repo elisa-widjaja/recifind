@@ -46,6 +46,7 @@ interface Recipe {
   imagePath?: string | null;
   mealTypes: string[];
   cuisines: string[];
+  customTags: string[];
   ingredients: string[];
   steps: string[];
   durationMinutes: number | null;
@@ -3957,6 +3958,26 @@ function sanitizeStringArray(value: unknown): string[] {
   return values
     .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
     .filter((entry) => Boolean(entry));
+}
+
+// User-authored organizational tags on a recipe. Capped at 5 per recipe,
+// 30 chars per tag; deduped case-insensitively within the recipe but
+// stored with the user's original casing so display is unchanged.
+export function sanitizeCustomTags(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  const seenLower = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const trimmed = item.trim().slice(0, 30);
+    if (!trimmed) continue;
+    const lower = trimmed.toLowerCase();
+    if (seenLower.has(lower)) continue;
+    seenLower.add(lower);
+    out.push(trimmed);
+    if (out.length >= 5) break;
+  }
+  return out;
 }
 
 function sanitizeDuration(value: unknown): number | null {
