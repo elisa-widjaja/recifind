@@ -5372,7 +5372,7 @@ function App() {
                   onInviteFriend={() => setAddFriendDrawerOpen(true)}
                   onOpenFriends={navigateToFriendsTab}
                   onSuggestionTap={fetchSuggestionRecipes}
-                  onOpenFriendRecipes={(userId, name) => fetchSuggestionRecipes({ userId, name })}
+                  onOpenFriendRecipes={(userId, name, avatarUrl) => fetchSuggestionRecipes({ userId, name, avatarUrl })}
                   onAcceptFriendRequest={acceptFriendRequest}
                   onDeclineFriendRequest={declineFriendRequest}
                   darkMode={darkMode}

@@ -719,7 +719,7 @@ export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest, onOpenFr
         const avatarTappable = !!(onOpenFriendRecipes && item.friendUserId);
         return (
           <Box
-            onClick={avatarTappable ? (e) => { e.stopPropagation(); onOpenFriendRecipes(item.friendUserId, friendName); } : undefined}
+            onClick={avatarTappable ? (e) => { e.stopPropagation(); onOpenFriendRecipes(item.friendUserId, friendName, item.avatarUrl ?? null); } : undefined}
             role={avatarTappable ? 'button' : undefined}
             tabIndex={avatarTappable ? 0 : undefined}
             aria-label={avatarTappable ? `View ${friendName}'s recipes` : undefined}
@@ -727,7 +727,7 @@ export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest, onOpenFr
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 e.stopPropagation();
-                onOpenFriendRecipes(item.friendUserId, friendName);
+                onOpenFriendRecipes(item.friendUserId, friendName, item.avatarUrl ?? null);
               }
             } : undefined}
             sx={{
