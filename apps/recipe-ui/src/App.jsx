@@ -6265,7 +6265,7 @@ function App() {
                     {isEditMode ? (
                       <>
                         <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mb: 1 }}>
-                          Add tags like 'meal prep' or 'weeknight' to organize and find recipes faster.
+                          Add tags like 'meal prep' or 'camping' to organize and find recipes faster.
                         </Typography>
                         <CustomTagsAutocomplete
                           availableTags={availableTags}
