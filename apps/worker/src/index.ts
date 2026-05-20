@@ -353,7 +353,7 @@ export default {
           const userId = decodeURIComponent(publicRecipeMatch[1]);
           const recipeId = decodeURIComponent(publicRecipeMatch[2]);
           const row = await env.DB.prepare(
-            `SELECT id, title, source_url, image_url, ingredients, steps FROM recipes WHERE user_id = ? AND id = ? AND hidden_at IS NULL`
+            `SELECT id, title, source_url, image_url, ingredients, steps, custom_tags FROM recipes WHERE user_id = ? AND id = ? AND hidden_at IS NULL`
           ).bind(userId, recipeId).first<Record<string, unknown>>();
           if (!row) return json({ error: 'Not found' }, 404, withCors());
           return json({
@@ -363,6 +363,7 @@ export default {
             imageUrl: String(row.image_url),
             ingredients: JSON.parse(String(row.ingredients || '[]')),
             steps: JSON.parse(String(row.steps || '[]')),
+            customTags: JSON.parse(String(row.custom_tags || '[]')),
           }, 200, withCors());
         })();
       }
@@ -1185,6 +1186,7 @@ function rowToRecipe(row: Record<string, unknown>): Recipe {
     imagePath: (row.image_path as string) || null,
     mealTypes: JSON.parse((row.meal_types as string) || '[]'),
     cuisines: JSON.parse((row.cuisines as string) || '[]'),
+    customTags: JSON.parse((row.custom_tags as string) || '[]'),
     ingredients: JSON.parse((row.ingredients as string) || '[]'),
     steps: JSON.parse((row.steps as string) || '[]'),
     durationMinutes: row.duration_minutes as number | null,
@@ -1691,7 +1693,7 @@ const CURATED_YOUTUBE_SHORTS_IDS = [
 
 type DiscoverRecipe = {
   id: string; userId: string; title: string; sourceUrl: string; imageUrl: string;
-  mealTypes: string[]; durationMinutes: number | null;
+  mealTypes: string[]; customTags: string[]; durationMinutes: number | null;
   ingredients: string[]; steps: string[];
 };
 
@@ -1703,13 +1705,14 @@ function mapDiscoverRow(r: Record<string, unknown>): DiscoverRecipe {
     sourceUrl: String(r.source_url),
     imageUrl: String(r.image_url),
     mealTypes: JSON.parse(String(r.meal_types || '[]')),
+    customTags: JSON.parse(String(r.custom_tags || '[]')),
     durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
     ingredients: JSON.parse(String(r.ingredients || '[]')),
     steps: JSON.parse(String(r.steps || '[]')),
   };
 }
 
-const DISCOVER_SELECT = `SELECT id, user_id, title, source_url, image_url, meal_types, duration_minutes, ingredients, steps FROM recipes`;
+const DISCOVER_SELECT = `SELECT id, user_id, title, source_url, image_url, meal_types, custom_tags, duration_minutes, ingredients, steps FROM recipes`;
 
 export async function getPublicDiscover(db: D1Database): Promise<DiscoverRecipe[]> {
   // Privacy gate: every public-feed query requires shared_with_friends = 1.
@@ -1755,11 +1758,11 @@ export async function getTrendingRecipes(
   now: number = Date.now(),
 ): Promise<Array<{
   id: string; userId: string; title: string; sourceUrl: string; imageUrl: string;
-  mealTypes: string[]; durationMinutes: number | null;
+  mealTypes: string[]; customTags: string[]; durationMinutes: number | null;
   ingredients: string[]; steps: string[];
 }>> {
   const rows = await db.prepare(
-    `SELECT id, user_id, title, source_url, image_url, meal_types, duration_minutes, ingredients, steps
+    `SELECT id, user_id, title, source_url, image_url, meal_types, custom_tags, duration_minutes, ingredients, steps
      FROM recipes
      WHERE user_id = ?
        AND is_favorite = 1
@@ -1790,6 +1793,7 @@ export async function getTrendingRecipes(
     sourceUrl: String(r.source_url),
     imageUrl: String(r.image_url),
     mealTypes: JSON.parse(String(r.meal_types || '[]')),
+    customTags: JSON.parse(String(r.custom_tags || '[]')),
     durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
     ingredients: JSON.parse(String(r.ingredients || '[]')),
     steps: JSON.parse(String(r.steps || '[]')),
@@ -1872,11 +1876,11 @@ export async function getEditorsPick(
   now: number = Date.now(),
 ): Promise<Array<{
   id: string; userId: string; title: string; sourceUrl: string; imageUrl: string;
-  mealTypes: string[]; durationMinutes: number | null;
+  mealTypes: string[]; customTags: string[]; durationMinutes: number | null;
   ingredients: string[]; steps: string[];
 }>> {
   const rows = await db.prepare(
-    `SELECT id, user_id, title, source_url, image_url, meal_types, duration_minutes, ingredients, steps
+    `SELECT id, user_id, title, source_url, image_url, meal_types, custom_tags, duration_minutes, ingredients, steps
      FROM recipes
      WHERE user_id = ?
        AND is_favorite = 1
@@ -1899,6 +1903,7 @@ export async function getEditorsPick(
     sourceUrl: String(r.source_url),
     imageUrl: String(r.image_url),
     mealTypes: JSON.parse(String(r.meal_types || '[]')),
+    customTags: JSON.parse(String(r.custom_tags || '[]')),
     durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
     ingredients: JSON.parse(String(r.ingredients || '[]')),
     steps: JSON.parse(String(r.steps || '[]')),
@@ -1911,7 +1916,7 @@ type AiPick = {
   reason: string;
   recipe: {
     id: string; userId: string; title: string; imageUrl: string;
-    mealTypes: string[]; durationMinutes: number | null;
+    mealTypes: string[]; customTags: string[]; durationMinutes: number | null;
     sourceUrl: string; ingredients: string[]; steps: string[];
   }
 };
@@ -1933,7 +1938,7 @@ export async function getAiPicks(
 
   // Fetch a pool of candidate recipes from D1 so Gemini picks from real titles
   const candidateRows = await db.prepare(
-    `SELECT id, user_id, title, image_url, meal_types, duration_minutes, source_url, ingredients, steps
+    `SELECT id, user_id, title, image_url, meal_types, custom_tags, duration_minutes, source_url, ingredients, steps
      FROM recipes WHERE shared_with_friends = 1 AND hidden_at IS NULL ORDER BY RANDOM() LIMIT 40`
   ).all();
   // Only include recipes with clean, structured ingredients and steps (not Instagram captions)
@@ -1995,6 +2000,7 @@ export async function getAiPicks(
           title: String(row.title),
           imageUrl: String(row.image_url),
           mealTypes: JSON.parse(String(row.meal_types || '[]')),
+          customTags: JSON.parse(String(row.custom_tags || '[]')),
           durationMinutes: row.duration_minutes != null ? Number(row.duration_minutes) : null,
           sourceUrl: String(row.source_url || ''),
           ingredients: JSON.parse(String(row.ingredients || '[]')),
@@ -2020,6 +2026,7 @@ type FriendRecipeItem = {
     imageUrl: string | null;
     sourceUrl: string;
     mealTypes: string[];
+    customTags: string[];
     durationMinutes: number | null;
     createdAt: string;
     ingredients: string[];
@@ -2043,7 +2050,7 @@ export async function getFriendActivity(
   friendUserId?: string;
   avatarUrl?: string | null;
   resolved?: boolean;
-  recipe: { id: string; title: string; imageUrl: string | null; sourceUrl: string; ingredients: string[]; steps: string[] } | null;
+  recipe: { id: string; title: string; imageUrl: string | null; sourceUrl: string; ingredients: string[]; steps: string[]; customTags: string[] } | null;
   createdAt: string;
   read: boolean;
 }>> {
@@ -2088,11 +2095,11 @@ export async function getFriendActivity(
   // them), but "someone saved/shared YOUR recipe" types resolve even when
   // private — the viewer is the owner / an explicit share recipient and has
   // a legitimate right to see it.
-  const recipeMap = new Map<string, { id: string; title: string; imageUrl: string | null; sourceUrl: string; ingredients: string[]; steps: string[]; ownerId: string; isPublic: boolean }>();
+  const recipeMap = new Map<string, { id: string; title: string; imageUrl: string | null; sourceUrl: string; ingredients: string[]; steps: string[]; customTags: string[]; ownerId: string; isPublic: boolean }>();
   if (recipeIds.length > 0) {
     const placeholders = recipeIds.map(() => '?').join(', ');
     const recipeRows = await db.prepare(
-      `SELECT id, user_id, shared_with_friends, title, image_url, source_url, ingredients, steps FROM recipes WHERE id IN (${placeholders}) AND hidden_at IS NULL`
+      `SELECT id, user_id, shared_with_friends, title, image_url, source_url, ingredients, steps, custom_tags FROM recipes WHERE id IN (${placeholders}) AND hidden_at IS NULL`
     ).bind(...recipeIds).all();
     for (const r of (recipeRows.results as Array<Record<string, unknown>>)) {
       recipeMap.set(String(r.id), {
@@ -2102,6 +2109,7 @@ export async function getFriendActivity(
         sourceUrl: r.source_url ? String(r.source_url) : '',
         ingredients: (() => { try { return JSON.parse(String(r.ingredients || '[]')); } catch { return []; } })(),
         steps: (() => { try { return JSON.parse(String(r.steps || '[]')); } catch { return []; } })(),
+        customTags: (() => { try { return JSON.parse(String(r.custom_tags || '[]')); } catch { return []; } })(),
         ownerId: String(r.user_id),
         isPublic: Number(r.shared_with_friends) === 1,
       });
@@ -2189,6 +2197,7 @@ export async function getFriendActivity(
             sourceUrl: rec.sourceUrl,
             ingredients: rec.ingredients,
             steps: rec.steps,
+            customTags: rec.customTags,
           }
         : null;
       return {
@@ -2227,14 +2236,14 @@ export async function getFriendsRecentlySaved(db: D1Database, userId: string): P
       // stay in the saver's own collection and never surface to friends.
       // Mirrors the gate added to handleCreateRecipe's notification fanout
       // so /friends/activity and /friends/recently-saved agree.
-      `SELECT id, title, source_url, image_url, meal_types, duration_minutes, created_at, ingredients, steps FROM recipes WHERE user_id = ? AND shared_with_friends = 1 AND hidden_at IS NULL ORDER BY created_at DESC LIMIT 2`
+      `SELECT id, title, source_url, image_url, meal_types, custom_tags, duration_minutes, created_at, ingredients, steps FROM recipes WHERE user_id = ? AND shared_with_friends = 1 AND hidden_at IS NULL ORDER BY created_at DESC LIMIT 2`
     ).bind(String(friend.friend_id)).all();
     for (const r of (rows.results as Array<Record<string, unknown>>)) {
       items.push({
         friendName: String(friend.friend_name),
         friendId: String(friend.friend_id),
         avatarUrl: friend.avatar_url ? String(friend.avatar_url) : null,
-        recipe: { id: String(r.id), userId: String(friend.friend_id), title: String(r.title), sourceUrl: r.source_url ? String(r.source_url) : null, imageUrl: r.image_url ? String(r.image_url) : null, mealTypes: JSON.parse(String(r.meal_types || '[]')), durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null, createdAt: String(r.created_at), ingredients: JSON.parse(String(r.ingredients || '[]')), steps: JSON.parse(String(r.steps || '[]')) }
+        recipe: { id: String(r.id), userId: String(friend.friend_id), title: String(r.title), sourceUrl: r.source_url ? String(r.source_url) : null, imageUrl: r.image_url ? String(r.image_url) : null, mealTypes: JSON.parse(String(r.meal_types || '[]')), customTags: JSON.parse(String(r.custom_tags || '[]')), durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null, createdAt: String(r.created_at), ingredients: JSON.parse(String(r.ingredients || '[]')), steps: JSON.parse(String(r.steps || '[]')) }
       });
     }
   }
@@ -2246,7 +2255,7 @@ export async function getFriendsRecentlyShared(db: D1Database, userId: string): 
   // Query recipes shared directly with this user via recipe_shares table
   const rows = await db.prepare(
     `SELECT r.id, r.user_id, r.title, r.source_url, r.image_url, r.meal_types,
-            r.duration_minutes, r.created_at, r.ingredients, r.steps,
+            r.custom_tags, r.duration_minutes, r.created_at, r.ingredients, r.steps,
             rs.created_at as shared_at, rs.sharer_id,
             p.display_name as sharer_name, p.avatar_url as sharer_avatar
      FROM recipe_shares rs
@@ -2268,6 +2277,7 @@ export async function getFriendsRecentlyShared(db: D1Database, userId: string): 
       sourceUrl: r.source_url ? String(r.source_url) : null,
       imageUrl: r.image_url ? String(r.image_url) : null,
       mealTypes: JSON.parse(String(r.meal_types || '[]')),
+      customTags: JSON.parse(String(r.custom_tags || '[]')),
       durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
       createdAt: String(r.shared_at ?? r.created_at),
       ingredients: JSON.parse(String(r.ingredients || '[]')),
@@ -2378,12 +2388,13 @@ async function handleCreateRecipe(
   }
 
   await env.DB.prepare(
-    `INSERT INTO recipes (id, user_id, title, source_url, image_url, image_path, meal_types, cuisines, ingredients, steps, duration_minutes, notes, preview_image, shared_with_friends, provenance, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO recipes (id, user_id, title, source_url, image_url, image_path, meal_types, cuisines, custom_tags, ingredients, steps, duration_minutes, notes, preview_image, shared_with_friends, provenance, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     recipe.id, recipe.userId, recipe.title, recipe.sourceUrl, recipe.imageUrl,
     recipe.imagePath ?? null, JSON.stringify(recipe.mealTypes),
     JSON.stringify(recipe.cuisines || []),
+    JSON.stringify(recipe.customTags || []),
     JSON.stringify(recipe.ingredients),
     JSON.stringify(recipe.steps), recipe.durationMinutes, recipe.notes || '',
     recipe.previewImage ? JSON.stringify(recipe.previewImage) : null,
@@ -2763,12 +2774,13 @@ async function handleUpdateRecipe(request: Request, env: Env, user: Authenticate
   const effectiveProvenance = contentEdited ? null : (existing.provenance ?? null);
 
   await env.DB.prepare(
-    `UPDATE recipes SET title = ?, source_url = ?, image_url = ?, image_path = ?, meal_types = ?, cuisines = ?, ingredients = ?, steps = ?, duration_minutes = ?, notes = ?, preview_image = ?, shared_with_friends = ?, provenance = ?, updated_at = ?
+    `UPDATE recipes SET title = ?, source_url = ?, image_url = ?, image_path = ?, meal_types = ?, cuisines = ?, custom_tags = ?, ingredients = ?, steps = ?, duration_minutes = ?, notes = ?, preview_image = ?, shared_with_friends = ?, provenance = ?, updated_at = ?
      WHERE user_id = ? AND id = ?`
   ).bind(
     recipe.title, recipe.sourceUrl, recipe.imageUrl, recipe.imagePath ?? null,
     JSON.stringify(recipe.mealTypes),
     JSON.stringify(recipe.cuisines || []),
+    JSON.stringify(recipe.customTags || []),
     JSON.stringify(recipe.ingredients), JSON.stringify(recipe.steps),
     recipe.durationMinutes, recipe.notes || '',
     recipe.previewImage ? JSON.stringify(recipe.previewImage) : null,
@@ -3857,7 +3869,7 @@ async function readJsonBody(request: Request): Promise<Record<string, any>> {
   }
 }
 
-function normalizeRecipePayload(
+export function normalizeRecipePayload(
   payload: Record<string, any>,
   userId: string,
   existing?: Recipe
@@ -3874,6 +3886,7 @@ function normalizeRecipePayload(
         imagePath: null,
         mealTypes: [],
         cuisines: [],
+        customTags: [],
         ingredients: [],
         steps: [],
         durationMinutes: null,
@@ -3909,6 +3922,10 @@ function normalizeRecipePayload(
 
   if ('cuisines' in payload || !existing) {
     recipe.cuisines = sanitizeStringArray(payload.cuisines);
+  }
+
+  if ('customTags' in payload || !existing) {
+    recipe.customTags = sanitizeCustomTags(payload.customTags);
   }
 
   if ('ingredients' in payload || !existing) {
@@ -4402,7 +4419,7 @@ async function getRecipesForUser(
   limit = 11
 ): Promise<Array<{
   id: string; userId: string; title: string; sourceUrl: string; imageUrl: string;
-  mealTypes: string[]; durationMinutes: number | null;
+  mealTypes: string[]; customTags: string[]; durationMinutes: number | null;
   ingredients: string[]; steps: string[];
 }>> {
   const profile = await db.prepare(
@@ -4423,7 +4440,7 @@ async function getRecipesForUser(
       const likeClauses = validPrefs.map(() => '(r.meal_types LIKE ? OR r.ingredients LIKE ?)').join(' OR ');
       const likeBinds = validPrefs.flatMap(pref => [`%${pref}%`, `%${pref}%`]);
       const rows = await db.prepare(
-        `SELECT id, user_id, title, source_url, image_url, meal_types, duration_minutes, ingredients, steps
+        `SELECT id, user_id, title, source_url, image_url, meal_types, custom_tags, duration_minutes, ingredients, steps
          FROM recipes r
          WHERE r.user_id != ? AND r.shared_with_friends = 1 AND r.hidden_at IS NULL AND (${likeClauses})
          ORDER BY RANDOM() LIMIT ?`
@@ -4437,6 +4454,7 @@ async function getRecipesForUser(
           sourceUrl: String(r.source_url || ''),
           imageUrl: String(r.image_url || ''),
           mealTypes: JSON.parse(String(r.meal_types || '[]')),
+          customTags: JSON.parse(String(r.custom_tags || '[]')),
           durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
           ingredients: JSON.parse(String(r.ingredients || '[]')),
           steps: JSON.parse(String(r.steps || '[]')),

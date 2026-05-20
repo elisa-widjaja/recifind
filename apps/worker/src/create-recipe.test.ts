@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, test, vi } from 'vitest';
-import { handleCreateRecipe, enrichAfterSave, handleUpdateRecipe, sanitizeCustomTags } from './index';
+import { handleCreateRecipe, enrichAfterSave, handleUpdateRecipe, sanitizeCustomTags, normalizeRecipePayload } from './index';
 import type { Env } from './index';
 
 function makeMockDb(options: {
@@ -611,5 +611,19 @@ describe('sanitizeCustomTags', () => {
       'Camping',
       'Dog Food',
     ]);
+  });
+});
+
+describe('normalizeRecipePayload', () => {
+  test('normalizeRecipePayload sanitizes customTags', () => {
+    const body = {
+      title: 'Test recipe',
+      sourceUrl: 'https://example.com',
+      ingredients: ['a'],
+      steps: ['b'],
+      customTags: ['Meal Prep', 'meal prep', '  Camping  ', 42, '', '   ', 'Sixth'],
+    };
+    const { recipe } = normalizeRecipePayload(body, 'user-1');
+    expect(recipe.customTags).toEqual(['Meal Prep', 'Camping', 'Sixth']);
   });
 });
