@@ -1094,10 +1094,15 @@ const dispatchedDeepLinks = new Set();
 // Recipe-detail custom tags input. Owns its `inputValue` so we can commit
 // what the user typed even when they leave the field without pressing Enter
 // (the default freeSolo Autocomplete drops uncommitted text on blur, which
-// silently lost the user's tag — they'd see the chip flash in, then on
-// click-away nothing was actually stored in the draft).
+// silently lost the user's tag).
+//
+// Layout: the Autocomplete renders ONLY the text input — no chips inside it.
+// Committed tags render as a separate chip row below the input, each with a
+// delete X. Keeps the input clean and always visible regardless of how many
+// tags are present.
 function CustomTagsAutocomplete({ availableTags, value, onValueChange, disabled }) {
   const [inputValue, setInputValue] = useState('');
+  const atCap = value.length >= 5;
 
   const commit = (rawArray) => {
     const cleaned = [];
@@ -1115,45 +1120,64 @@ function CustomTagsAutocomplete({ availableTags, value, onValueChange, disabled 
     onValueChange(cleaned);
   };
 
+  const removeAt = (index) => {
+    onValueChange(value.filter((_, i) => i !== index));
+  };
+
   return (
-    <Autocomplete
-      multiple
-      freeSolo
-      options={availableTags}
-      value={value}
-      inputValue={inputValue}
-      onInputChange={(_, next, reason) => {
-        if (reason !== 'reset') setInputValue(next);
-      }}
-      onChange={(_, newValue) => {
-        commit(newValue);
-        setInputValue('');
-      }}
-      onBlur={() => {
-        // Commit any pending input that the user hadn't pressed Enter on.
-        const pending = inputValue.trim();
-        if (!pending) return;
-        commit([...value, pending]);
-        setInputValue('');
-      }}
-      disabled={disabled}
-      renderTags={(tags, getTagProps) =>
-        tags.map((t, i) => (
-          <Chip key={t} label={t} size="small" {...getTagProps({ index: i })} />
-        ))
-      }
-      renderInput={(params) => (
-        <TextField
-          {...params}
-          placeholder={value.length >= 5 ? 'Max 5 tags' : 'Add a tag…'}
-          inputProps={{
-            ...params.inputProps,
-            maxLength: 30,
-            disabled: value.length >= 5,
-          }}
-        />
+    <Box>
+      <Autocomplete
+        multiple
+        freeSolo
+        options={availableTags}
+        value={value}
+        inputValue={inputValue}
+        onInputChange={(_, next, reason) => {
+          if (reason !== 'reset') setInputValue(next);
+        }}
+        onChange={(_, newValue) => {
+          commit(newValue);
+          setInputValue('');
+        }}
+        onBlur={() => {
+          // Commit any pending input that the user hadn't pressed Enter on.
+          const pending = inputValue.trim();
+          if (!pending || atCap) {
+            setInputValue('');
+            return;
+          }
+          commit([...value, pending]);
+          setInputValue('');
+        }}
+        disabled={disabled}
+        // Suppress MUI's default in-input chip rendering. Chips render below
+        // the input as a separate row (see <Box> after the Autocomplete).
+        renderTags={() => null}
+        renderInput={(params) => (
+          <TextField
+            {...params}
+            placeholder={atCap ? 'Max 5 tags — remove one to add another' : 'Add a tag…'}
+            inputProps={{
+              ...params.inputProps,
+              maxLength: 30,
+              disabled: atCap,
+            }}
+          />
+        )}
+      />
+      {value.length > 0 && (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
+          {value.map((tag, i) => (
+            <Chip
+              key={tag}
+              label={tag}
+              size="small"
+              onDelete={disabled ? undefined : () => removeAt(i)}
+            />
+          ))}
+        </Box>
       )}
-    />
+    </Box>
   );
 }
 
@@ -6239,12 +6263,17 @@ function App() {
                       Tags
                     </Typography>
                     {isEditMode ? (
-                      <CustomTagsAutocomplete
-                        availableTags={availableTags}
-                        value={activeRecipeDraft?.customTags ?? []}
-                        onValueChange={(next) => setActiveRecipeDraft((prev) => prev ? { ...prev, customTags: next } : prev)}
-                        disabled={isSharedRecipeView}
-                      />
+                      <>
+                        <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mb: 1 }}>
+                          Add tags like 'meal prep' or 'weeknight' to organize and find recipes faster.
+                        </Typography>
+                        <CustomTagsAutocomplete
+                          availableTags={availableTags}
+                          value={activeRecipeDraft?.customTags ?? []}
+                          onValueChange={(next) => setActiveRecipeDraft((prev) => prev ? { ...prev, customTags: next } : prev)}
+                          disabled={isSharedRecipeView}
+                        />
+                      </>
                     ) : (
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                         {(activeRecipeView.customTags || []).map((t) => (
