@@ -228,8 +228,9 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, onTapCard
                 flexShrink: 0,
               }}
             >
-              {/* Mirror the real card: circular avatar, name line, two-line
-                  reason, pill button — so the layout doesn't jump on load. */}
+              {/* Simplified placeholder: circular avatar + a single text
+                  line. Intentionally lighter than the real card so the
+                  loading state reads as a quick stand-in, not a full mirror. */}
               <Skeleton
                 variant="circular"
                 animation="wave"
@@ -239,21 +240,6 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, onTapCard
                 variant="text"
                 animation="wave"
                 sx={{ width: '70%', fontSize: v.nameFont, mt: v.nameMt }}
-              />
-              <Skeleton
-                variant="text"
-                animation="wave"
-                sx={{ width: '90%', fontSize: v.reasonFont, mt: v.reasonMt }}
-              />
-              <Skeleton
-                variant="text"
-                animation="wave"
-                sx={{ width: '60%', fontSize: v.reasonFont }}
-              />
-              <Skeleton
-                variant="rounded"
-                animation="wave"
-                sx={{ width: v.buttonWidth, height: 26, borderRadius: '999px', mt: 'auto', flexShrink: 0 }}
               />
             </Box>
           ))}
