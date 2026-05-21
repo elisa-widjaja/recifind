@@ -6692,6 +6692,7 @@ function App() {
                               // .font(.system(size: 15, weight: .semibold)).
                               fontSize: 15,
                               fontWeight: 600,
+                              lineHeight: 1.25,
                               display: '-webkit-box',
                               WebkitLineClamp: 2,
                               WebkitBoxOrient: 'vertical',
