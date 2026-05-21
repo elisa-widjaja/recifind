@@ -1165,7 +1165,11 @@ function CustomTagsAutocomplete({ availableTags, value, onValueChange, disabled 
           />
         )}
       />
-      {value.length > 0 && (
+      {value.length === 0 ? (
+        <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 1 }}>
+          Add tags like 'meal prep' or 'camping' to organize and find recipes faster.
+        </Typography>
+      ) : (
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2 }}>
           {value.map((tag, i) => (
             <Chip
@@ -6263,17 +6267,12 @@ function App() {
                       Tags
                     </Typography>
                     {isEditMode ? (
-                      <>
-                        <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mb: 1 }}>
-                          Add tags like 'meal prep' or 'camping' to organize and find recipes faster.
-                        </Typography>
-                        <CustomTagsAutocomplete
-                          availableTags={availableTags}
-                          value={activeRecipeDraft?.customTags ?? []}
-                          onValueChange={(next) => setActiveRecipeDraft((prev) => prev ? { ...prev, customTags: next } : prev)}
-                          disabled={isSharedRecipeView}
-                        />
-                      </>
+                      <CustomTagsAutocomplete
+                        availableTags={availableTags}
+                        value={activeRecipeDraft?.customTags ?? []}
+                        onValueChange={(next) => setActiveRecipeDraft((prev) => prev ? { ...prev, customTags: next } : prev)}
+                        disabled={isSharedRecipeView}
+                      />
                     ) : (
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                         {(activeRecipeView.customTags || []).map((t) => (
