@@ -374,7 +374,9 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, onTapCard
                     src={s.avatarUrl}
                     alt=""
                     onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                    sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                    sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover',
+                      // Suppress iOS WKWebView long-press image menu on this avatar.
+                      WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
                   />
                 )}
               </Box>

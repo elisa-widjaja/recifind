@@ -89,6 +89,8 @@ function ProfileIcon({ initial, avatarUrl, signedIn = true }) {
           width: 30, height: 30, borderRadius: '50%',
           objectFit: 'cover',
           display: 'block',
+          // Suppress iOS WKWebView long-press image menu on this avatar.
+          WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none',
         }}
       />
     );

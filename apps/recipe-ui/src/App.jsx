@@ -1843,6 +1843,20 @@ function App() {
           paper: { borderRadius: '16px' },
         },
       },
+      MuiAvatar: {
+        styleOverrides: {
+          // Suppress the iOS WKWebView long-press image menu (Save to Photos /
+          // Copy / Copy Subject / Look Up / Share) on avatar <img>s. Profile
+          // pics aren't content meant to be saved — this matches native apps.
+          // Recipe images are intentionally left long-press-saveable. CSS-only:
+          // no effect on desktop web/Android or on tap handlers.
+          img: {
+            WebkitTouchCallout: 'none',
+            WebkitUserSelect: 'none',
+            userSelect: 'none',
+          },
+        },
+      },
       ...(darkMode ? {
         MuiLink: { defaultProps: { color: 'inherit' }, styleOverrides: { root: { color: '#fff' } } },
       } : {}),
@@ -6984,7 +6998,9 @@ function App() {
                       src={avatarSrc}
                       alt=""
                       onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                      sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                      sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover',
+                        // Suppress iOS WKWebView long-press image menu on this avatar.
+                        WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
                     />
                   )}
                 </Box>
