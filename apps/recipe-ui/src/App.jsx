@@ -1592,7 +1592,6 @@ function App() {
   useEffect(() => {
     if (!isAddDialogOpen) {
       setImageLoadFailed(false);
-      setIsEditingTitle(false);
     }
   }, [isAddDialogOpen]);
 
