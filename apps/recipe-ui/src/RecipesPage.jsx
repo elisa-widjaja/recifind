@@ -467,7 +467,7 @@ export default function RecipesPage({
             {displayedRecipes.map((recipe) => renderRecipeCard(recipe))}
           </Box>
           {showSuggestionShelf && (
-            <Stack spacing={1} sx={{ mt: 5, maxWidth: 600, mx: 'auto', width: '100%' }}>
+            <Stack spacing={1} sx={{ mt: 8, maxWidth: 600, mx: 'auto', width: '100%' }}>
               <Typography sx={{ fontWeight: 700, fontSize: 13, color: 'text.primary', mb: 1 }}>
                 Recipes you might like
               </Typography>
