@@ -261,12 +261,24 @@ export default function UserDrilldown({ id }) {
         {(() => {
           const recipes = data.recipes;
           const count = recipes.length;
+          const publicCount = recipes.filter((r) => Number(r.shared_with_friends) === 1).length;
+          const privateCount = count - publicCount;
           return (
             <>
               <Stack direction="row" alignItems="center" sx={{ mb: 0.5 }}>
-                <Stack alignItems="center" sx={{ minWidth: 72 }}>
-                  <Typography variant="h4">{count}</Typography>
-                  <Typography variant="caption" color="text.secondary">Recipes</Typography>
+                <Stack direction="row" spacing={4}>
+                  <Stack alignItems="center" sx={{ minWidth: 72 }}>
+                    <Typography variant="h4">{count}</Typography>
+                    <Typography variant="caption" color="text.secondary">Recipes</Typography>
+                  </Stack>
+                  <Stack alignItems="center" sx={{ minWidth: 72 }}>
+                    <Typography variant="h4">{publicCount}</Typography>
+                    <Typography variant="caption" color="text.secondary">Public</Typography>
+                  </Stack>
+                  <Stack alignItems="center" sx={{ minWidth: 72 }}>
+                    <Typography variant="h4">{privateCount}</Typography>
+                    <Typography variant="caption" color="text.secondary">Private</Typography>
+                  </Stack>
                 </Stack>
                 <Box sx={{ flexGrow: 1 }} />
                 {count > 0 && (

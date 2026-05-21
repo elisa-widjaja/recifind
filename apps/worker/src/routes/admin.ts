@@ -354,7 +354,7 @@ export async function handleAdminUserDrilldown(args: {
 
   // 2. Recipes
   const recipes = await args.env.DB.prepare(
-    `SELECT id, title, source_url, created_at, hidden_at
+    `SELECT id, title, source_url, created_at, hidden_at, shared_with_friends
      FROM recipes WHERE user_id = ? ORDER BY created_at DESC`
   ).bind(args.userId).all();
 

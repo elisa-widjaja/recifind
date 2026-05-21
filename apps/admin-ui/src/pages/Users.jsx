@@ -81,6 +81,8 @@ export default function Users() {
     { accessorKey: 'display_name', header: 'Display name', cell: (i) => i.getValue() || '—' },
     { accessorKey: 'signed_up_at', header: 'Signed up',
       cell: (i) => new Date(i.getValue()).toLocaleDateString() },
+    { accessorKey: 'last_sign_in_at', header: 'Last signed in',
+      cell: (i) => (i.getValue() ? new Date(i.getValue()).toLocaleDateString() : '—') },
     { accessorKey: 'recipe_count', header: 'Recipes', cell: (i) => i.getValue() },
     { accessorKey: 'invites_accepted', header: 'Friends', cell: (i) => i.getValue() },
   ], []);
@@ -100,7 +102,7 @@ export default function Users() {
       params.set('signupAfter', after);
     }
     fetchAdmin(`/admin/users?${params.toString()}`).then((all) => {
-      const headers = ['email', 'display_name', 'signed_up_at', 'recipe_count', 'invites_accepted', 'is_active'];
+      const headers = ['email', 'display_name', 'signed_up_at', 'last_sign_in_at', 'recipe_count', 'invites_accepted', 'is_active'];
       const rows = all.users.map((u) => headers.map((h) => JSON.stringify(u[h] ?? '')).join(','));
       const csv = [headers.join(','), ...rows].join('\n');
       const blob = new Blob([csv], { type: 'text/csv' });
