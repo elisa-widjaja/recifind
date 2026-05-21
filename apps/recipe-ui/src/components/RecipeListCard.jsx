@@ -36,17 +36,15 @@ export default function RecipeListCard({ recipe, onOpen, onSave, onShare, thumbn
           onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDismiss(recipe); }}
           sx={{
             position: 'absolute',
-            top: 4,
-            right: 4,
+            top: 2,
+            right: 2,
             zIndex: 2,
-            width: 24,
-            height: 24,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            color: '#fff',
-            '&:hover': { backgroundColor: 'rgba(0,0,0,0.7)' },
+            p: 0.5,
+            color: 'text.secondary',
+            '&:hover': { color: 'text.primary', backgroundColor: 'transparent' },
           }}
         >
-          <CloseIcon sx={{ fontSize: 15 }} />
+          <CloseIcon sx={{ fontSize: 18 }} />
         </IconButton>
       )}
       <CardActionArea
@@ -79,6 +77,9 @@ export default function RecipeListCard({ recipe, onOpen, onSave, onShare, thumbn
               WebkitLineClamp: 2,
               WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
+              // Reserve clearance for the absolutely-positioned dismiss X so a
+              // long title doesn't run under it.
+              pr: onDismiss ? 3 : 0,
             }}
           >
             {recipe.title}
