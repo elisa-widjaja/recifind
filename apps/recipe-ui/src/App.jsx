@@ -6802,11 +6802,10 @@ function App() {
               />
             </Box>
           )}
-          </Box>
-          {/* Actions — Save Recipe button mirrors the Add Recipe FAB pill
-              styling (same height, px, font, radius, shadow, primary bg)
-              minus the + icon, so the two CTAs feel like the same control. */}
-          <Box sx={{ px: 3, pb: 2, pt: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+          {/* Actions — Save Recipe sits directly under the content (Make it
+              public), flowing with it rather than pinned to the sheet bottom.
+              Mirrors the Add Recipe FAB pill styling minus the + icon. */}
+          <Box sx={{ px: 3, pb: 2, pt: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <Button
               type="submit"
               disabled={shareLayoutIsLoading}
@@ -6830,6 +6829,7 @@ function App() {
             >
               Save Recipe
             </Button>
+          </Box>
           </Box>
         </Drawer>
       ) : (
