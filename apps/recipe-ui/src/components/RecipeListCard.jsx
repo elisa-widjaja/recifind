@@ -40,8 +40,8 @@ export default function RecipeListCard({ recipe, onOpen, onSave, onShare, thumbn
             right: 2,
             zIndex: 2,
             p: 0.5,
-            color: 'text.secondary',
-            '&:hover': { color: 'text.primary', backgroundColor: 'transparent' },
+            color: 'text.disabled',
+            '&:hover': { color: 'text.secondary', backgroundColor: 'transparent' },
           }}
         >
           <CloseIcon sx={{ fontSize: 18 }} />
