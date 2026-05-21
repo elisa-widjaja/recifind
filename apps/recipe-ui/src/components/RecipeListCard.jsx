@@ -3,6 +3,7 @@ import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import IosShareOutlinedIcon from '@mui/icons-material/IosShareOutlined';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import CloseIcon from '@mui/icons-material/Close';
 import { formatDuration } from '../utils/videoEmbed';
 import RecipeThumbnail from './RecipeThumbnail';
 
@@ -20,12 +21,34 @@ import RecipeThumbnail from './RecipeThumbnail';
  *                 make the save control a no-op (recipe already in collection)
  *   cardSx      — optional extra sx merged onto the Card
  */
-export default function RecipeListCard({ recipe, onOpen, onSave, onShare, thumbnail, saveIcon, saved, cardSx }) {
+export default function RecipeListCard({ recipe, onOpen, onSave, onShare, thumbnail, saveIcon, saved, cardSx, onDismiss }) {
   return (
     <Card
       elevation={0}
-      sx={{ border: 1, borderColor: 'divider', borderRadius: '10px', overflow: 'hidden', ...cardSx }}
+      sx={{ border: 1, borderColor: 'divider', borderRadius: '10px', overflow: 'hidden', position: 'relative', ...cardSx }}
     >
+      {onDismiss && (
+        <IconButton
+          size="small"
+          aria-label="Dismiss suggestion"
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDismiss(recipe); }}
+          sx={{
+            position: 'absolute',
+            top: 4,
+            right: 4,
+            zIndex: 2,
+            width: 24,
+            height: 24,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            color: '#fff',
+            '&:hover': { backgroundColor: 'rgba(0,0,0,0.7)' },
+          }}
+        >
+          <CloseIcon sx={{ fontSize: 15 }} />
+        </IconButton>
+      )}
       <CardActionArea
         onClick={() => onOpen?.(recipe)}
         sx={{
