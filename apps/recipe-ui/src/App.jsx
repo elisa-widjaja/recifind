@@ -6687,8 +6687,10 @@ function App() {
                       ) : (
                         <>
                           <Typography
-                            variant="subtitle1"
                             sx={{
+                              // Match the iOS share-extension recipe title:
+                              // .font(.system(size: 15, weight: .semibold)).
+                              fontSize: 15,
                               fontWeight: 600,
                               display: '-webkit-box',
                               WebkitLineClamp: 2,
