@@ -60,6 +60,7 @@ import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import ClearIcon from '@mui/icons-material/Clear';
+import CancelIcon from '@mui/icons-material/Cancel';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import LogoutIcon from '@mui/icons-material/Logout';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -1404,8 +1405,7 @@ function App() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [addRecipeSource, setAddRecipeSource] = useState(null); // 'share-extension' | 'manual' | null
   const [imageLoadFailed, setImageLoadFailed] = useState(false);
-  const [isEditingTitle, setIsEditingTitle] = useState(false);
-  const titlePreEditRef = useRef('');
+  const titleInputRef = useRef(null);
   const [isFirstRecipe, setIsFirstRecipe] = useState(false);
   const [newRecipeForm, setNewRecipeForm] = useState(() => ({ ...NEW_RECIPE_TEMPLATE }));
   const [newRecipeErrors, setNewRecipeErrors] = useState({});
@@ -6648,7 +6648,10 @@ function App() {
                     🍳
                   </Box>
                 )}
-                {/* Title + Edit link */}
+                {/* Title — borderless, always-editable field with an X to
+                    clear, mirroring the iOS share extension's title row
+                    (size 15 / semibold, xmark.circle.fill clear button that
+                    empties + refocuses). */}
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   {shareLayoutIsLoading ? (
                     <>
@@ -6656,71 +6659,56 @@ function App() {
                       <Skeleton variant="text" width="60%" height={20} />
                     </>
                   ) : (
-                    <>
-                      {isEditingTitle ? (
-                        <TextField
-                          value={newRecipeForm.title}
-                          onChange={(e) => setNewRecipeForm((prev) => ({ ...prev, title: e.target.value }))}
-                          onBlur={() => {
-                            setNewRecipeForm((prev) => ({
-                              ...prev,
-                              title: (prev.title || '').trim() || 'Untitled recipe',
-                            }));
-                            setIsEditingTitle(false);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              e.currentTarget.blur();
-                            } else if (e.key === 'Escape') {
-                              e.preventDefault();
-                              setNewRecipeForm((prev) => ({ ...prev, title: titlePreEditRef.current }));
-                              setIsEditingTitle(false);
-                            }
-                          }}
-                          autoFocus
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.5 }}>
+                      <TextField
+                        value={newRecipeForm.title}
+                        onChange={(e) => setNewRecipeForm((prev) => ({ ...prev, title: e.target.value }))}
+                        onBlur={() => setNewRecipeForm((prev) => ({ ...prev, title: (prev.title || '').trim() }))}
+                        inputRef={titleInputRef}
+                        placeholder="Title"
+                        variant="standard"
+                        fullWidth
+                        multiline
+                        maxRows={2}
+                        autoFocus
+                        onFocus={(e) => {
+                          // Cursor at the end (not select-all), matching iOS.
+                          const len = e.target.value.length;
+                          e.target.setSelectionRange(len, len);
+                        }}
+                        InputProps={{ disableUnderline: true }}
+                        inputProps={{ 'aria-label': 'Recipe title' }}
+                        sx={{
+                          '& .MuiInputBase-root': { p: 0 },
+                          '& .MuiInputBase-input': {
+                            // Match the iOS share-extension title font.
+                            fontSize: 15,
+                            fontWeight: 600,
+                            lineHeight: 1.25,
+                            p: 0,
+                          },
+                        }}
+                      />
+                      {hasTitle && (
+                        <IconButton
                           size="small"
-                          fullWidth
-                          inputProps={{ 'aria-label': 'Recipe title' }}
-                          onFocus={(e) => e.target.select()}
-                        />
-                      ) : (
-                        <>
-                          <Typography
-                            sx={{
-                              // Match the iOS share-extension recipe title:
-                              // .font(.system(size: 15, weight: .semibold)).
-                              fontSize: 15,
-                              fontWeight: 600,
-                              lineHeight: 1.25,
-                              display: '-webkit-box',
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden',
-                              wordBreak: 'break-word',
-                            }}
-                          >
-                            {hasTitle ? newRecipeForm.title : 'Untitled recipe'}
-                          </Typography>
-                          <Typography
-                            component="button"
-                            type="button"
-                            variant="caption"
-                            onClick={() => {
-                              titlePreEditRef.current = newRecipeForm.title || '';
-                              setIsEditingTitle(true);
-                            }}
-                            sx={{
-                              background: 'none', border: 'none', p: 0, mt: 0.5, cursor: 'pointer',
-                              color: 'primary.main',
-                              '&:hover': { textDecoration: 'underline' },
-                            }}
-                          >
-                            Edit
-                          </Typography>
-                        </>
+                          aria-label="Clear title"
+                          onClick={() => {
+                            setNewRecipeForm((prev) => ({ ...prev, title: '' }));
+                            requestAnimationFrame(() => titleInputRef.current?.focus());
+                          }}
+                          sx={{
+                            p: 0.25,
+                            mt: '-1px',
+                            flexShrink: 0,
+                            color: 'text.disabled',
+                            '&:hover': { color: 'text.secondary', backgroundColor: 'transparent' },
+                          }}
+                        >
+                          <CancelIcon sx={{ fontSize: 18 }} />
+                        </IconButton>
                       )}
-                    </>
+                    </Box>
                   )}
                 </Box>
               </Box>
