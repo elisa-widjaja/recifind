@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Box, Button, Typography, CircularProgress } from '@mui/material';
+import { AppBar, Box, Button, CircularProgress, IconButton, Toolbar, Typography } from '@mui/material';
+import MenuIcon from '@mui/icons-material/Menu';
 import { supabase } from './supabaseClient';
 import { fetchAdmin } from './api';
-import SidebarNav from './components/SidebarNav';
+import SidebarNav, { DRAWER_WIDTH } from './components/SidebarNav';
 import Dashboard from './pages/Dashboard';
 import Users from './pages/Users';
 import UserDrilldown from './pages/UserDrilldown';
@@ -11,6 +12,7 @@ import AuditLog from './pages/AuditLog';
 export default function App() {
   const [session, setSession] = useState(null);
   const [check, setCheck] = useState({ status: 'idle', email: null, error: null });
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -59,8 +61,41 @@ export default function App() {
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      <SidebarNav signOut={signOut} email={check.email} />
-      <Box sx={{ flex: 1, p: 4 }}>
+      <AppBar
+        position="fixed"
+        color="default"
+        elevation={1}
+        sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}
+      >
+        <Toolbar>
+          <IconButton
+            edge="start"
+            aria-label="open menu"
+            onClick={() => setDrawerOpen((v) => !v)}
+            sx={{ mr: 2 }}
+          >
+            <MenuIcon />
+          </IconButton>
+          <Typography variant="h6" sx={{ flex: 1 }}>ReciFriend Admin</Typography>
+        </Toolbar>
+      </AppBar>
+      <SidebarNav open={drawerOpen} signOut={signOut} email={check.email} />
+      <Box
+        component="main"
+        sx={{
+          flex: 1,
+          minWidth: 0,
+          p: { xs: 2, sm: 4 },
+          transition: (theme) => theme.transitions.create('margin', {
+            easing: drawerOpen ? theme.transitions.easing.easeOut : theme.transitions.easing.sharp,
+            duration: drawerOpen
+              ? theme.transitions.duration.enteringScreen
+              : theme.transitions.duration.leavingScreen,
+          }),
+          marginLeft: drawerOpen ? 0 : `-${DRAWER_WIDTH}px`,
+        }}
+      >
+        <Toolbar />
         <Router />
       </Box>
     </Box>
