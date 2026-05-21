@@ -76,6 +76,8 @@ export default function RecipesPage({
   selectedTags = [],
   onTagToggle = () => {},
   onClearTags = () => {},
+  dismissedSuggestionIds = [],
+  onDismissSuggestion = () => {},
   showFavoritesOnly = false,
   onToggleFavoritesOnly = () => {},
   MEAL_TYPE_LABELS = {},
@@ -129,7 +131,7 @@ export default function RecipesPage({
   }, [filterDrawerOpen]);
 
   useEffect(() => {
-    if (totalRecipes !== 0) return;
+    if (totalRecipes >= 5) return;
     let cancelled = false;
     setSuggestionsLoading(true);
     // Empty-state suggestions ("Recipes you might like") come from the same
@@ -142,6 +144,16 @@ export default function RecipesPage({
       .finally(() => { if (!cancelled) setSuggestionsLoading(false); });
     return () => { cancelled = true; };
   }, [totalRecipes, accessToken]);
+
+  const visibleSuggestions = suggestions.filter((r) => !dismissedSuggestionIds.includes(r.id));
+  const isFilteringOrSearching = Boolean(
+    (normalizedIngredients && normalizedIngredients.length > 0) ||
+    selectedMealType ||
+    selectedCuisine ||
+    (selectedTags && selectedTags.length > 0) ||
+    showFavoritesOnly
+  );
+  const showSuggestionShelf = totalRecipes < 5 && visibleSuggestions.length > 0 && !isFilteringOrSearching;
 
   const renderRecipeCard = (recipe, isSuggestion = false) => {
     const displayImageUrl = resolveRecipeImageUrl(recipe.title, recipe.imageUrl);
@@ -157,6 +169,7 @@ export default function RecipesPage({
           toggleFavorite(recipe.id);
         }}
         onShare={(_, e) => handleShare(recipe, e)}
+        onDismiss={isSuggestion ? onDismissSuggestion : undefined}
         saveIcon={
           !session || isSuggestion
             ? <BookmarkBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
@@ -417,7 +430,7 @@ export default function RecipesPage({
                 mx: 'auto'
               }}
             >
-              {suggestions.map((recipe) => renderRecipeCard(recipe, true))}
+              {visibleSuggestions.map((recipe) => renderRecipeCard(recipe, true))}
             </Box>
           )}
         </Stack>
@@ -440,18 +453,37 @@ export default function RecipesPage({
           </Typography>
         </Box>
       ) : (
-        <Box
-          sx={{
-            width: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: { xs: '10px', sm: '14px' },
-            maxWidth: 600,
-            mx: 'auto'
-          }}
-        >
-          {displayedRecipes.map((recipe) => renderRecipeCard(recipe))}
-        </Box>
+        <>
+          <Box
+            sx={{
+              width: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: { xs: '10px', sm: '14px' },
+              maxWidth: 600,
+              mx: 'auto'
+            }}
+          >
+            {displayedRecipes.map((recipe) => renderRecipeCard(recipe))}
+          </Box>
+          {showSuggestionShelf && (
+            <Stack spacing={1} sx={{ mt: 5, maxWidth: 600, mx: 'auto', width: '100%' }}>
+              <Typography sx={{ fontWeight: 700, fontSize: 13, color: 'text.primary', mb: 1 }}>
+                Recipes you might like
+              </Typography>
+              <Box
+                sx={{
+                  width: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: { xs: '10px', sm: '14px' },
+                }}
+              >
+                {visibleSuggestions.map((recipe) => renderRecipeCard(recipe, true))}
+              </Box>
+            </Stack>
+          )}
+        </>
       )}
       <Box ref={sentinelRef} sx={{ height: 1 }} />
 
