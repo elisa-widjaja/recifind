@@ -6571,10 +6571,16 @@ function App() {
             sx: {
               borderRadius: '16px 16px 0 0',
               paddingBottom: 'env(safe-area-inset-bottom)',
+              // Open as a tall sheet (like the iOS share drawer) instead of
+              // sizing to content. Title bar pinned top, content scrolls,
+              // Save button pinned bottom via the flex column below.
+              height: '90dvh',
               // Cap the drawer's top edge below the notch / Dynamic Island
               // so the title bar can't slide under it on small devices when
               // the keyboard is up. Preserves the rounded-top corners.
               maxHeight: 'calc(100% - env(safe-area-inset-top))',
+              display: 'flex',
+              flexDirection: 'column',
               ...(darkMode ? { backgroundColor: '#212328', backgroundImage: 'none' } : {}),
             },
           }}
@@ -6594,6 +6600,7 @@ function App() {
               display: 'flex', alignItems: 'center',
               px: 1.5, pt: 2, pb: 0.5,
               touchAction: 'none',
+              flexShrink: 0,
             }}
           >
             <IconButton
@@ -6618,7 +6625,10 @@ function App() {
                 centered between the two sides. */}
             <Box sx={{ width: 30, height: 30, flexShrink: 0 }} />
           </Box>
-          {/* Fields */}
+          {/* Fields — scrollable region between the pinned title bar and the
+              pinned Save button, so the sheet can be tall without leaving the
+              CTA floating mid-sheet. */}
+          <Box sx={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
           {useIosShareLayout ? (
             <Box sx={{ px: 3, pt: 1, pb: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
               {/* Preview row: thumbnail + title */}
@@ -6679,8 +6689,11 @@ function App() {
                         sx={{
                           '& .MuiInputBase-root': { p: 0 },
                           '& .MuiInputBase-input': {
-                            // Match the iOS share-extension title font.
-                            fontSize: 15,
+                            // 16px (not 15) to sit at iOS's input-zoom
+                            // threshold — prevents the auto-zoom-on-focus that
+                            // shifts the page. Visually ~identical to the iOS
+                            // share extension's 15px title.
+                            fontSize: 16,
                             fontWeight: 600,
                             lineHeight: 1.25,
                             p: 0,
@@ -6789,10 +6802,11 @@ function App() {
               />
             </Box>
           )}
+          </Box>
           {/* Actions — Save Recipe button mirrors the Add Recipe FAB pill
               styling (same height, px, font, radius, shadow, primary bg)
               minus the + icon, so the two CTAs feel like the same control. */}
-          <Box sx={{ px: 3, pb: 2, pt: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <Box sx={{ px: 3, pb: 2, pt: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
             <Button
               type="submit"
               disabled={shareLayoutIsLoading}
