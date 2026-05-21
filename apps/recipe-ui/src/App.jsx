@@ -1185,6 +1185,26 @@ function CustomTagsAutocomplete({ availableTags, value, onValueChange, disabled 
   );
 }
 
+const DISMISSED_SUGGESTIONS_KEY = 'recifriend-dismissed-suggestions';
+
+function readDismissedSuggestions() {
+  try {
+    const raw = localStorage.getItem(DISMISSED_SUGGESTIONS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeDismissedSuggestions(ids) {
+  try {
+    localStorage.setItem(DISMISSED_SUGGESTIONS_KEY, JSON.stringify(ids));
+  } catch {
+    // localStorage unavailable (private mode etc.) — dismissal is best-effort.
+  }
+}
+
 function App() {
   // Use window width directly for reliable mobile detection
   const [isMobile, setIsMobile] = useState(() => {
@@ -1350,6 +1370,17 @@ function App() {
   const [ingredientInput, setIngredientInput] = useState('');
   const [activeRecipe, setActiveRecipe] = useState(null);
   const [activeRecipeDraft, setActiveRecipeDraft] = useState(null);
+  const [dismissedSuggestionIds, setDismissedSuggestionIds] = useState(() => readDismissedSuggestions());
+
+  const dismissSuggestion = useCallback((id) => {
+    if (!id) return;
+    setDismissedSuggestionIds((prev) => {
+      if (prev.includes(id)) return prev;
+      const next = [...prev, id];
+      writeDismissedSuggestions(next);
+      return next;
+    });
+  }, []);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [addRecipeSource, setAddRecipeSource] = useState(null); // 'share-extension' | 'manual' | null
   const [imageLoadFailed, setImageLoadFailed] = useState(false);
@@ -2417,6 +2448,7 @@ function App() {
         return updated;
       });
       setSnackbarState({ open: true, message: `"${recipe.title}" saved to your collection!`, severity: 'success' });
+      dismissSuggestion(recipe.id);
     } catch {
       setSnackbarState({ open: true, message: 'Failed to save recipe', severity: 'error' });
     }
@@ -4451,6 +4483,7 @@ function App() {
         saveRecipesToCache(updated, userId, serverVersionRef.current);
         return updated;
       });
+      dismissSuggestion(activeRecipe.id);
     } catch (error) {
       console.error('Error saving shared recipe:', error);
       setSnackbarState({
@@ -5500,6 +5533,8 @@ function App() {
                 accessToken={accessToken}
                 onSaveSuggestion={handleSavePublicRecipe}
                 onOpenSuggestion={handleOpenEditorPickRecipe}
+                dismissedSuggestionIds={dismissedSuggestionIds}
+                onDismissSuggestion={(recipe) => dismissSuggestion(recipe.id)}
                 ingredientInput={ingredientInput}
                 setIngredientInput={setIngredientInput}
                 ingredientInputKeyCount={ingredientInputKeyCount}
