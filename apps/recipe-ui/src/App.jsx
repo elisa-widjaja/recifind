@@ -1185,6 +1185,26 @@ function CustomTagsAutocomplete({ availableTags, value, onValueChange, disabled 
   );
 }
 
+// Strip recipe deep-link params/path from the current URL without navigating.
+// Called on logout: otherwise a stale own-recipe link (?recipe=id&user=me or
+// /recipes/id) is left in the URL, and once the session clears the deep-link
+// effect re-reads it, can't match the now-inaccessible private recipe via the
+// public endpoint, and fires "Recipe not found or no longer available"
+// repeatedly.
+function clearRecipeDeepLinkFromUrl() {
+  try {
+    const url = new URL(window.location.href);
+    let changed = false;
+    for (const param of ['recipe', 'user', 'share']) {
+      if (url.searchParams.has(param)) { url.searchParams.delete(param); changed = true; }
+    }
+    if (/^\/recipes\/[^/?#]+\/?$/.test(url.pathname)) { url.pathname = '/'; changed = true; }
+    if (changed) window.history.replaceState({}, '', url.toString());
+  } catch {
+    // best-effort — URL cleanup should never block logout
+  }
+}
+
 const DISMISSED_SUGGESTIONS_KEY = 'recifriend-dismissed-suggestions';
 
 function readDismissedSuggestions() {
@@ -2899,6 +2919,10 @@ function App() {
     if (!supabase) return;
 
     setAccountMenuAnchor(null);
+    // Drop any stale recipe deep-link before the session clears, so the
+    // deep-link effect doesn't reprocess an own-recipe URL as a shared one
+    // and spam the "Recipe not found" snackbar.
+    clearRecipeDeepLinkFromUrl();
     // === [S09] Capacitor auth ===
     if (Capacitor.isNativePlatform()) {
       try {
@@ -2967,6 +2991,7 @@ function App() {
       throw new Error('You appear to be signed out. Refresh and try again.');
     }
     await callRecipesApi('/profile', { method: 'DELETE' }, accessToken);
+    clearRecipeDeepLinkFromUrl();
     clearRecipesCache();
     setRecipes([]);
     setHasNewRecipes(false);
