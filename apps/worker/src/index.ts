@@ -2058,7 +2058,7 @@ export async function getFriendActivity(
   friendUserId?: string;
   avatarUrl?: string | null;
   resolved?: boolean;
-  recipe: { id: string; title: string; imageUrl: string | null; sourceUrl: string; ingredients: string[]; steps: string[]; customTags: string[] } | null;
+  recipe: { id: string; userId: string; title: string; imageUrl: string | null; sourceUrl: string; ingredients: string[]; steps: string[]; customTags: string[] } | null;
   createdAt: string;
   read: boolean;
 }>> {
@@ -2196,10 +2196,17 @@ export async function getFriendActivity(
         ? !pendingFromUserIds.has(fromUserId)
         : undefined;
       const rec = recipeId ? recipeMap.get(recipeId) : undefined;
-      // Project to the public recipe shape — strip internal ownerId/isPublic.
+      // Project to the public recipe shape. Carry ownerId through as `userId`
+      // (matching every other feed source — friend drawer, recently-saved,
+      // recently-shared, discovery). The share-link builder needs the recipe's
+      // owner to construct `?recipe={id}&user={owner}`; without it, sharing a
+      // recipe opened from this feed fell back to the viewer's own id, yielding
+      // a link that resolved to "recipe not found" with no SMS/OG preview.
+      // isPublic stays internal — it's used only by the privacy filter above.
       const recipe = rec
         ? {
             id: rec.id,
+            userId: rec.ownerId,
             title: rec.title,
             imageUrl: rec.imageUrl,
             sourceUrl: rec.sourceUrl,

@@ -36,6 +36,39 @@ describe('getFriendActivity', () => {
     expect(result[0].recipe?.steps).toEqual(['boil', 'mix']);
   });
 
+  it('carries the recipe owner id through as recipe.userId so share links resolve', async () => {
+    // Regression: the activity feed used to strip the owner id from its recipe
+    // projection. Sharing a recipe opened from this feed then fell back to the
+    // viewer's own id when building `?recipe={id}&user={owner}`, producing a
+    // link that resolved to "recipe not found" with no SMS/OG thumbnail. The
+    // owner id (recipes.user_id) must survive as recipe.userId, matching every
+    // other feed source.
+    const notificationRows = [
+      {
+        id: 10,
+        type: 'friend_shared_recipe',
+        message: 'Sarah shared Spicy Thai Noodles',
+        data: JSON.stringify({ sharerId: 'cook-1', recipeId: 'recipe-1', friendName: 'Sarah' }),
+        created_at: '2026-03-10T10:00:00Z',
+        read: 0,
+      },
+    ];
+    const recipeRows = [
+      { id: 'recipe-1', user_id: 'owner-1', shared_with_friends: 1, title: 'Spicy Thai Noodles', image_url: 'https://example.com/img.jpg', source_url: '', ingredients: '["noodles"]', steps: '["boil"]' },
+    ];
+
+    const mockDb = {
+      prepare: vi.fn()
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: notificationRows }) })
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [] }) }) // pending_requests
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: recipeRows }) })
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [{ user_id: 'cook-1', display_name: 'Sarah' }] }) }), // actor profiles
+    } as unknown as D1Database;
+
+    const result = await getFriendActivity(mockDb, 'user-123');
+    expect(result[0].recipe?.userId).toBe('owner-1');
+  });
+
   it('falls back to first word of message when friendName not in data blob', async () => {
     const notificationRows = [
       {
