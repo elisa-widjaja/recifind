@@ -9,7 +9,11 @@ const STEPS = [
   { key: 'share',  label: 'Share a recipe with a friend' },
 ];
 
-export default function OnboardingChecklist({ hasRecipe, hasInvitedFriend, hasSharedRecipe }) {
+export default function OnboardingChecklist({ hasRecipe, hasInvitedFriend, hasSharedRecipe, onAddRecipe, onInviteFriend }) {
+  // Per-step tap action, only used while the step is incomplete. The 'share'
+  // step has no direct entry point (sharing happens from a recipe), so it
+  // stays non-interactive.
+  const actions = { recipe: onAddRecipe, invite: onInviteFriend, share: null };
   const status = { recipe: !!hasRecipe, invite: !!hasInvitedFriend, share: !!hasSharedRecipe };
   const done = STEPS.filter((s) => status[s.key]).length;
   // Expanded by default until the user has completed 2 of 3 steps; collapsed
@@ -82,9 +86,26 @@ export default function OnboardingChecklist({ hasRecipe, hasInvitedFriend, hasSh
         <Box sx={{ mt: 1.5 }}>
           {STEPS.map((step) => {
             const isDone = status[step.key];
+            const action = !isDone ? actions[step.key] : null;
+            const isTappable = typeof action === 'function';
             return (
               <Box key={step.key} data-step={step.key} data-done={isDone ? 'true' : 'false'}
-                sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 0.75 }}>
+                {...(isTappable ? {
+                  component: 'button',
+                  type: 'button',
+                  'aria-label': step.label,
+                  onClick: action,
+                } : {})}
+                sx={{
+                  display: 'flex', alignItems: 'center', gap: 1.5, py: 0.75,
+                  width: '100%',
+                  ...(isTappable ? {
+                    border: 'none', bgcolor: 'transparent', cursor: 'pointer',
+                    fontFamily: 'inherit', textAlign: 'left', px: 0,
+                    WebkitTapHighlightColor: 'transparent',
+                    '&:hover .checklist-label': { color: 'primary.main' },
+                  } : {}),
+                }}>
                 <Box sx={{
                   width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
                   border: '1.5px solid',
@@ -95,10 +116,11 @@ export default function OnboardingChecklist({ hasRecipe, hasInvitedFriend, hasSh
                 }}>
                   {isDone && <CheckIcon sx={{ fontSize: 14 }} />}
                 </Box>
-                <Typography sx={{
+                <Typography className="checklist-label" sx={{
                   fontSize: 14,
                   color: isDone ? 'text.disabled' : 'text.primary',
                   textDecoration: isDone ? 'line-through' : 'none',
+                  transition: 'color 150ms ease',
                 }}>
                   {step.label}
                 </Typography>

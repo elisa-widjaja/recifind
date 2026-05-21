@@ -5448,6 +5448,8 @@ function App() {
                         hasRecipe={hasRecipe}
                         hasInvitedFriend={hasInvitedFriend}
                         hasSharedRecipe={hasSharedRecipe}
+                        onAddRecipe={openAddDialog}
+                        onInviteFriend={() => setAddFriendDrawerOpen(true)}
                       />
                     </Box>
                   );
