@@ -3,9 +3,10 @@ import { AppBar, Box, Button, CircularProgress, IconButton, Toolbar, Typography 
 import MenuIcon from '@mui/icons-material/Menu';
 import { supabase } from './supabaseClient';
 import { fetchAdmin } from './api';
-import SidebarNav, { DRAWER_WIDTH } from './components/SidebarNav';
+import SidebarNav from './components/SidebarNav';
 import Dashboard from './pages/Dashboard';
 import Users from './pages/Users';
+import Recipes from './pages/Recipes';
 import UserDrilldown from './pages/UserDrilldown';
 import AuditLog from './pages/AuditLog';
 
@@ -79,20 +80,13 @@ export default function App() {
           <Typography variant="h6" sx={{ flex: 1 }}>ReciFriend Admin</Typography>
         </Toolbar>
       </AppBar>
-      <SidebarNav open={drawerOpen} signOut={signOut} email={check.email} />
+      <SidebarNav open={drawerOpen} onClose={() => setDrawerOpen(false)} signOut={signOut} email={check.email} />
       <Box
         component="main"
         sx={{
           flex: 1,
           minWidth: 0,
           p: { xs: 2, sm: 4 },
-          transition: (theme) => theme.transitions.create('margin', {
-            easing: drawerOpen ? theme.transitions.easing.easeOut : theme.transitions.easing.sharp,
-            duration: drawerOpen
-              ? theme.transitions.duration.enteringScreen
-              : theme.transitions.duration.leavingScreen,
-          }),
-          marginLeft: drawerOpen ? 0 : `-${DRAWER_WIDTH}px`,
         }}
       >
         <Toolbar />
@@ -115,6 +109,7 @@ function Router() {
     return <UserDrilldown id={id} />;
   }
   if (hash === '#/users') return <Users />;
+  if (hash === '#/recipes') return <Recipes />;
   if (hash === '#/audit-log') return <AuditLog />;
   return <Dashboard />;
 }

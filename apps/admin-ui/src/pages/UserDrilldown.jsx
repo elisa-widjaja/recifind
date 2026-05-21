@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   Box, Button, Chip, CircularProgress, Collapse, Divider, Link, Paper, Stack, Typography,
   Table, TableHead, TableRow, TableCell, TableBody,
-  Menu, MenuItem, Snackbar, IconButton, TextField,
+  Menu, MenuItem, Select, FormControl, InputLabel, OutlinedInput, Snackbar, IconButton, TextField,
   Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
@@ -15,6 +15,28 @@ const truncateTitle = (s) => {
   const t = s || '';
   return t.length > 35 ? t.slice(0, 35) + '…' : t;
 };
+
+const ACTIVITY_LABEL = { save: 'Saved', share: 'Shared', cook: 'Cooked' };
+const ACTIVITY_COLOR = { save: 'default', share: 'info', cook: 'success' };
+
+// Merge saves (recipe additions), shares, and cook events into one reverse-chron
+// timeline. recipe_shares.created_at is epoch ms; the others are ISO strings.
+function buildActivity(data) {
+  const saves = (data.recipes || []).map((r) => ({
+    type: 'save', title: r.title, source_url: r.source_url, when: r.created_at, detail: null,
+  }));
+  const shares = (data.shares || []).map((s) => ({
+    type: 'share', title: s.recipe_title, source_url: s.recipe_source_url,
+    when: typeof s.created_at === 'number' ? new Date(s.created_at).toISOString() : s.created_at,
+    detail: s.recipient_name ? `→ ${s.recipient_name}` : null,
+  }));
+  const cooks = (data.cook_events || []).map((c) => ({
+    type: 'cook', title: c.recipe_title, source_url: c.recipe_source_url, when: c.created_at, detail: null,
+  }));
+  return [...saves, ...shares, ...cooks]
+    .filter((a) => a.when)
+    .sort((a, b) => new Date(b.when).getTime() - new Date(a.when).getTime());
+}
 
 export default function UserDrilldown({ id }) {
   const [data, setData] = useState(null);
@@ -34,7 +56,8 @@ export default function UserDrilldown({ id }) {
   const [showInvitees, setShowInvitees] = useState(false);
   const [showPending, setShowPending] = useState(false);
   const [showRecipes, setShowRecipes] = useState(false);
-  const [showCookEvents, setShowCookEvents] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
+  const [activityFilter, setActivityFilter] = useState('all');
 
   const post = (path, body) =>
     fetchAdmin(path, { method: 'POST', body: JSON.stringify(body || {}) });
@@ -338,24 +361,42 @@ export default function UserDrilldown({ id }) {
         })()}
       </Section>
 
-      <Section title="Cook events" titleVariant="h6" titleSx={{ mb: 1.5 }}>
+      <Section title="Recent activity" titleVariant="h6" titleSx={{ mb: 1.5 }}>
         {(() => {
-          const events = data.cook_events;
-          const count = events.length;
+          const items = buildActivity(data);
+          const filtered = activityFilter === 'all' ? items : items.filter((a) => a.type === activityFilter);
+          const count = filtered.length;
           return (
             <>
-              <Stack direction="row" alignItems="center" sx={{ mb: 0.5 }}>
+              <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 0.5 }}>
                 <Stack alignItems="center" sx={{ minWidth: 72 }}>
                   <Typography variant="h4">{count}</Typography>
-                  <Typography variant="caption" color="text.secondary">Cook events</Typography>
+                  <Typography variant="caption" color="text.secondary">Activity</Typography>
                 </Stack>
+                <Box sx={{ pl: '20px' }}>
+                  <FormControl size="small" sx={{ minWidth: 150 }}>
+                    <InputLabel id="activity-type-label" shrink>Activity type</InputLabel>
+                    <Select
+                      labelId="activity-type-label"
+                      displayEmpty
+                      value={activityFilter}
+                      onChange={(e) => setActivityFilter(e.target.value)}
+                      input={<OutlinedInput notched label="Activity type" />}
+                    >
+                      <MenuItem value="all">All</MenuItem>
+                      <MenuItem value="save">Saved</MenuItem>
+                      <MenuItem value="share">Shared</MenuItem>
+                      <MenuItem value="cook">Cooked</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Box>
                 <Box sx={{ flexGrow: 1 }} />
                 {count > 0 && (
                   <IconButton
-                    onClick={() => setShowCookEvents((v) => !v)}
-                    aria-label={showCookEvents ? 'Hide cook events' : 'Show cook events'}
+                    onClick={() => setShowActivity((v) => !v)}
+                    aria-label={showActivity ? 'Hide activity' : 'Show activity'}
                   >
-                    {showCookEvents
+                    {showActivity
                       ? <KeyboardArrowUpIcon sx={{ fontSize: 44 }} />
                       : <KeyboardArrowDownIcon sx={{ fontSize: 44 }} />}
                   </IconButton>
@@ -363,32 +404,38 @@ export default function UserDrilldown({ id }) {
               </Stack>
               {count === 0 ? (
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  No cook events.
+                  No {activityFilter === 'all' ? 'activity' : `${ACTIVITY_LABEL[activityFilter].toLowerCase()} activity`}.
                 </Typography>
               ) : (
-                <Collapse in={showCookEvents} unmountOnExit>
-                  <Table size="small" sx={{ mt: 1 }}>
+                <Collapse in={showActivity} unmountOnExit>
+                  <Table size="small" sx={{ mt: 1, tableLayout: 'fixed' }}>
                     <TableHead>
                       <TableRow>
+                        <TableCell sx={{ width: 96 }}>Type</TableCell>
                         <TableCell>Recipe</TableCell>
-                        <TableCell>Date</TableCell>
-                        <TableCell>Time</TableCell>
+                        <TableCell sx={{ width: 160 }}>Details</TableCell>
+                        <TableCell sx={{ width: 100 }}>Date</TableCell>
+                        <TableCell sx={{ width: 96 }}>Time</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {events.map((e, i) => (
+                      {filtered.slice(0, 100).map((a, i) => (
                         <TableRow key={i}>
-                          <TableCell title={e.recipe_title}>
-                            {e.recipe_source_url ? (
-                              <Link href={e.recipe_source_url} target="_blank" rel="noopener noreferrer">
-                                {truncateTitle(e.recipe_title)}
+                          <TableCell sx={{ width: 96 }}>
+                            <Chip size="small" variant="outlined" color={ACTIVITY_COLOR[a.type]} label={ACTIVITY_LABEL[a.type]} />
+                          </TableCell>
+                          <TableCell title={a.title} sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {a.source_url ? (
+                              <Link href={a.source_url} target="_blank" rel="noopener noreferrer">
+                                {truncateTitle(a.title)}
                               </Link>
                             ) : (
-                              truncateTitle(e.recipe_title)
+                              truncateTitle(a.title)
                             )}
                           </TableCell>
-                          <TableCell>{new Date(e.created_at).toLocaleDateString()}</TableCell>
-                          <TableCell>{new Date(e.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</TableCell>
+                          <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.detail || '—'}</TableCell>
+                          <TableCell sx={{ whiteSpace: 'nowrap' }}>{new Date(a.when).toLocaleDateString()}</TableCell>
+                          <TableCell sx={{ whiteSpace: 'nowrap' }}>{new Date(a.when).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

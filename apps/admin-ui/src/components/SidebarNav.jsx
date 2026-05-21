@@ -2,16 +2,16 @@ import { Box, Button, Drawer, List, ListItemButton, ListItemText, Toolbar, Typog
 
 export const DRAWER_WIDTH = 220;
 
-export default function SidebarNav({ open, email, signOut }) {
-  const nav = (path) => () => { window.location.hash = path; };
+export default function SidebarNav({ open, onClose, email, signOut }) {
+  const nav = (path) => () => { window.location.hash = path; onClose?.(); };
   return (
     <Drawer
-      variant="persistent"
+      variant="temporary"
       anchor="left"
       open={open}
+      onClose={onClose}
+      ModalProps={{ keepMounted: true }}
       sx={{
-        width: DRAWER_WIDTH,
-        flexShrink: 0,
         '& .MuiDrawer-paper': { width: DRAWER_WIDTH, boxSizing: 'border-box' },
       }}
     >
@@ -20,6 +20,7 @@ export default function SidebarNav({ open, email, signOut }) {
         <List>
           <ListItemButton onClick={nav('#/')}><ListItemText primary="Dashboard" /></ListItemButton>
           <ListItemButton onClick={nav('#/users')}><ListItemText primary="Users" /></ListItemButton>
+          <ListItemButton onClick={nav('#/recipes')}><ListItemText primary="Recipes" /></ListItemButton>
           <ListItemButton onClick={nav('#/audit-log')}><ListItemText primary="Audit log" /></ListItemButton>
         </List>
         <Box sx={{ mt: 'auto', fontSize: 12 }}>

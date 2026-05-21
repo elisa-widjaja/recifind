@@ -452,6 +452,14 @@ export default {
         });
       }
 
+      if (url.pathname === '/admin/recipes/search' && request.method === 'GET') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const { handleAdminSearchRecipes } = await import('./routes/admin');
+        return await handleAdminSearchRecipes({ env, user, adminEmails: env.ADMIN_EMAILS, url });
+      }
+
       const adminHideRecipeMatch = url.pathname.match(/^\/admin\/recipes\/([^/]+)\/hide$/);
       if (adminHideRecipeMatch && request.method === 'POST') {
         if (!user) {

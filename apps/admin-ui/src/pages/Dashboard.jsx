@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
-  Box, Card, CardContent, CircularProgress, Grid, MenuItem, Select, Tooltip as MuiTooltip, Typography,
+  Box, Card, CardContent, CircularProgress, ClickAwayListener, Grid, IconButton, MenuItem, Select,
+  Tooltip as MuiTooltip, Typography,
 } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import {
@@ -101,14 +102,32 @@ export default function Dashboard() {
 }
 
 function HelpIcon({ text }) {
+  const [open, setOpen] = useState(false);
   if (!text) return null;
   return (
-    <MuiTooltip title={text} arrow placement="top">
-      <InfoOutlinedIcon
-        fontSize="inherit"
-        sx={{ ml: 0.5, color: 'text.secondary', verticalAlign: 'middle', cursor: 'help' }}
-      />
-    </MuiTooltip>
+    <ClickAwayListener onClickAway={() => setOpen(false)}>
+      <MuiTooltip
+        title={text}
+        arrow
+        placement="top"
+        open={open}
+        disableFocusListener
+        disableHoverListener
+        disableTouchListener
+        slotProps={{ tooltip: { sx: { fontSize: '0.85rem', maxWidth: 320 } } }}
+      >
+        <IconButton
+          size="small"
+          aria-label="More info"
+          onClick={() => setOpen((v) => !v)}
+          onMouseEnter={() => setOpen(true)}
+          onMouseLeave={() => setOpen(false)}
+          sx={{ ml: 0.25, p: 0.25, color: 'text.disabled', verticalAlign: 'middle' }}
+        >
+          <InfoOutlinedIcon fontSize="small" />
+        </IconButton>
+      </MuiTooltip>
+    </ClickAwayListener>
   );
 }
 

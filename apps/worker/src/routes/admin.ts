@@ -179,8 +179,8 @@ export function buildUsersListQuery(p: UsersListParams): BuiltQuery {
   }
 
   if (p.search) {
-    where.push('p.email LIKE ?');
-    params.push(`%${p.search}%`);
+    where.push('(p.email LIKE ? OR p.display_name LIKE ?)');
+    params.push(`%${p.search}%`, `%${p.search}%`);
   }
   if (p.signupAfter) {
     where.push('p.created_at >= ?');
@@ -397,6 +397,24 @@ export async function handleAdminUserDrilldown(args: {
      ORDER BY fr.created_at DESC`
   ).bind(args.userId).all();
 
+  // 6. Recent shares this user sent. recipe_shares.created_at is epoch ms.
+  //    Sharing never copies a recipe — a share row just references an existing
+  //    recipe id (which is unique), so join on id alone, the same way the app
+  //    looks up a shared recipe. Matching on r.user_id = sharer would miss
+  //    re-shares (recipes the user received then shared on, whose id belongs to
+  //    the original owner). A deleted recipe still yields a null title. The
+  //    recipient profile join is independent. One row per recipient.
+  const shares = await args.env.DB.prepare(
+    `SELECT rs.recipe_id, rs.created_at, rs.recipient_id,
+            r.title AS recipe_title, r.source_url AS recipe_source_url,
+            COALESCE(p.display_name, p.email) AS recipient_name
+     FROM recipe_shares rs
+     LEFT JOIN recipes r ON r.id = rs.recipe_id
+     LEFT JOIN profiles p ON p.user_id = rs.recipient_id
+     WHERE rs.sharer_id = ?
+     ORDER BY rs.created_at DESC LIMIT 50`
+  ).bind(args.userId).all();
+
   // Enrich conversions with last_sign_in (recipe count already comes from SQL)
   const enrichedConversions = await Promise.all((conversions.results || []).map(async (row: any) => {
     let lastSignInAt: string | null = null;
@@ -420,6 +438,7 @@ export async function handleAdminUserDrilldown(args: {
     profile,
     recipes: recipes.results || [],
     cook_events: cookEvents.results || [],
+    shares: shares.results || [],
     invite_conversions: enrichedConversions,
     invite_link: inviteLinkRow ? { token: inviteLinkRow.token, created_at: inviteLinkRow.created_at } : null,
     pending_received: pendingReceived.results || [],
@@ -822,6 +841,97 @@ export async function handleAdminUnhideRecipe(args: {
   });
 
   return json(200, { ok: true });
+}
+
+// ---------------------------------------------------------------------------
+// GET /admin/recipes/search — find recipes by title, grouped by recipe identity
+// ---------------------------------------------------------------------------
+//
+// There is no canonical "recipe" entity: saving a recipe inserts a fresh row
+// per user (composite PK user_id+id). Copies are linked only by a shared
+// source_url (imported recipes); user-typed recipes have no link, so we fall
+// back to grouping by exact (case-insensitive) title. Grouping happens in JS so
+// a recipe's owners are never split across the SQL LIMIT boundary.
+
+export function buildRecipeSearchQuery(p: { q: string; limit: number }): BuiltQuery {
+  const sql = `
+    SELECT
+      r.id                  AS id,
+      r.user_id             AS user_id,
+      r.title               AS title,
+      r.source_url          AS source_url,
+      r.created_at          AS created_at,
+      r.hidden_at           AS hidden_at,
+      r.shared_with_friends AS shared_with_friends,
+      p.email               AS owner_email,
+      p.display_name        AS owner_display_name
+    FROM recipes r
+    LEFT JOIN profiles p ON p.user_id = r.user_id
+    WHERE r.title LIKE ?
+    ORDER BY r.title COLLATE NOCASE ASC, r.created_at DESC
+    LIMIT ?
+  `.trim();
+  return { sql, params: [`%${p.q}%`, p.limit] };
+}
+
+export async function handleAdminSearchRecipes(args: {
+  env: { DB: D1Database };
+  user: { userId: string; email?: string };
+  adminEmails: string | undefined;
+  url: URL;
+}): Promise<Response> {
+  const denied = requireAdmin({ user: args.user, adminEmails: args.adminEmails });
+  if (denied) return denied;
+
+  const q = (args.url.searchParams.get('q') || '').trim();
+  if (!q) {
+    return json(200, { groups: [], page: { returned: 0, has_more: false } });
+  }
+
+  // Title search is selective; cap the raw scan and group the rows in memory.
+  const ROW_CAP = 1000;
+  const MAX_GROUPS = 100;
+  const { sql, params } = buildRecipeSearchQuery({ q, limit: ROW_CAP });
+  const { results } = await args.env.DB.prepare(sql).bind(...params).all();
+  const rows = (results || []) as any[];
+
+  const groups = new Map<string, any>();
+  for (const r of rows) {
+    const src = (r.source_url || '').trim();
+    const key = src ? `url:${src}` : `title:${(r.title || '').trim().toLowerCase()}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = { key, title: r.title, source_url: src || null, owner_count: 0, hidden_count: 0, owners: [] };
+      groups.set(key, g);
+    }
+    g.owners.push({
+      id: r.id,
+      user_id: r.user_id,
+      email: r.owner_email || null,
+      display_name: r.owner_display_name || null,
+      created_at: r.created_at,
+      shared_with_friends: r.shared_with_friends,
+      hidden_at: r.hidden_at || null,
+    });
+    g.owner_count += 1;
+    if (r.hidden_at) g.hidden_count += 1;
+  }
+
+  const all = Array.from(groups.values());
+  for (const g of all) {
+    g.owners.sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
+  }
+  // Most-saved recipes first, then alphabetical.
+  all.sort((a, b) => b.owner_count - a.owner_count || String(a.title).localeCompare(String(b.title)));
+  const limited = all.slice(0, MAX_GROUPS);
+
+  return json(200, {
+    groups: limited,
+    page: {
+      returned: limited.length,
+      has_more: all.length > MAX_GROUPS || rows.length === ROW_CAP,
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------

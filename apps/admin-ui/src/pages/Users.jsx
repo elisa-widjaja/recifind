@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Box, Button, MenuItem, Select, TextField, Typography,
+  Box, Button, FormControl, InputLabel, MenuItem, OutlinedInput, Select, TextField, Typography,
   Table, TableHead, TableRow, TableCell, TableBody, CircularProgress
 } from '@mui/material';
 import {
@@ -117,17 +117,44 @@ export default function Users() {
     <Box>
       <Typography variant="h4" gutterBottom>Users</Typography>
       <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-        <TextField size="small" placeholder="Search email…" value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(0); }} />
-        <Select size="small" value={recipeBucket} onChange={(e) => { setRecipeBucket(e.target.value); setPage(0); }}>
-          {RECIPE_BUCKETS.map((b) => <MenuItem key={b.v} value={b.v}>{b.label}</MenuItem>)}
-        </Select>
-        <Select size="small" value={activity} onChange={(e) => { setActivity(e.target.value); setPage(0); }}>
-          {ACTIVITY_OPTIONS.map((b) => <MenuItem key={b.v} value={b.v}>{b.label}</MenuItem>)}
-        </Select>
-        <Select size="small" value={signupDays} onChange={(e) => { setSignupDays(e.target.value); setPage(0); }}>
-          {SIGNUP_OPTIONS.map((b) => <MenuItem key={b.v} value={b.v}>{b.label}</MenuItem>)}
-        </Select>
+        <TextField size="small" placeholder="Search email or name…" value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(0); }} sx={{ minWidth: 300 }} />
+        <FormControl size="small" sx={{ minWidth: 150 }}>
+          <InputLabel id="recipes-filter-label" shrink>Recipes</InputLabel>
+          <Select
+            labelId="recipes-filter-label"
+            displayEmpty
+            value={recipeBucket}
+            onChange={(e) => { setRecipeBucket(e.target.value); setPage(0); }}
+            input={<OutlinedInput notched label="Recipes" />}
+          >
+            {RECIPE_BUCKETS.map((b) => <MenuItem key={b.v} value={b.v}>{b.label}</MenuItem>)}
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 150 }}>
+          <InputLabel id="activity-filter-label" shrink>Activity</InputLabel>
+          <Select
+            labelId="activity-filter-label"
+            displayEmpty
+            value={activity}
+            onChange={(e) => { setActivity(e.target.value); setPage(0); }}
+            input={<OutlinedInput notched label="Activity" />}
+          >
+            {ACTIVITY_OPTIONS.map((b) => <MenuItem key={b.v} value={b.v}>{b.label}</MenuItem>)}
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 150 }}>
+          <InputLabel id="signup-filter-label" shrink>Signed up</InputLabel>
+          <Select
+            labelId="signup-filter-label"
+            displayEmpty
+            value={signupDays}
+            onChange={(e) => { setSignupDays(e.target.value); setPage(0); }}
+            input={<OutlinedInput notched label="Signed up" />}
+          >
+            {SIGNUP_OPTIONS.map((b) => <MenuItem key={b.v} value={b.v}>{b.label}</MenuItem>)}
+          </Select>
+        </FormControl>
         <Box sx={{ flex: 1 }} />
         <Button variant="outlined" onClick={exportCsv}>Export CSV</Button>
       </Box>

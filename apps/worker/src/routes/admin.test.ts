@@ -4,6 +4,7 @@ import { writeAuditLog } from './admin';
 import { handleAdminMe } from './admin';
 import { buildUsersListQuery } from './admin';
 import { buildSignupsPerDayQuery, buildViralCoefWeeklyQuery } from './admin';
+import { buildRecipeSearchQuery } from './admin';
 
 describe('isAdminEmail', () => {
   it('returns true for an email in ADMIN_EMAILS (single value)', () => {
@@ -170,10 +171,10 @@ describe('buildUsersListQuery', () => {
     expect(sql).toMatch(/p\.deleted_at IS NOT NULL/);
   });
 
-  it('binds the search term as a LIKE param when provided', () => {
+  it('binds the search term as a LIKE param against email and display_name', () => {
     const { sql, params } = buildUsersListQuery({ limit: 50, offset: 0, search: 'sarah' });
-    expect(sql).toMatch(/email LIKE \?/i);
-    expect(params).toContain('%sarah%');
+    expect(sql).toMatch(/p\.email LIKE \? OR p\.display_name LIKE \?/i);
+    expect(params.filter((x) => x === '%sarah%')).toHaveLength(2);
   });
 
   it('applies recipe bucket filter for "0"', () => {
@@ -202,6 +203,88 @@ describe('buildUsersListQuery', () => {
   it('defaults to signup_desc', () => {
     const { sql } = buildUsersListQuery({ limit: 50, offset: 0 });
     expect(sql).toMatch(/ORDER BY p\.created_at DESC/i);
+  });
+});
+
+describe('buildRecipeSearchQuery', () => {
+  it('binds the title as a LIKE param', () => {
+    const { sql, params } = buildRecipeSearchQuery({ q: 'pad thai', limit: 1000 });
+    expect(sql).toMatch(/r\.title LIKE \?/i);
+    expect(params[0]).toBe('%pad thai%');
+  });
+
+  it('joins profiles for owner identity', () => {
+    const { sql } = buildRecipeSearchQuery({ q: 'x', limit: 1000 });
+    expect(sql).toMatch(/LEFT JOIN profiles p ON p\.user_id = r\.user_id/i);
+    expect(sql).toMatch(/p\.email\s+AS\s+owner_email/i);
+  });
+
+  it('selects the fields the page needs (id, source_url, created_at, hidden_at, shared_with_friends)', () => {
+    const { sql } = buildRecipeSearchQuery({ q: 'x', limit: 1000 });
+    for (const col of ['r.id', 'r.source_url', 'r.created_at', 'r.hidden_at', 'r.shared_with_friends']) {
+      expect(sql).toContain(col);
+    }
+  });
+
+  it('passes the limit as the last bound param', () => {
+    const { params } = buildRecipeSearchQuery({ q: 'x', limit: 1000 });
+    expect(params[params.length - 1]).toBe(1000);
+  });
+});
+
+describe('handleAdminSearchRecipes', () => {
+  it('returns 403 for non-admin', async () => {
+    const { handleAdminSearchRecipes } = await import('./admin');
+    const res = await handleAdminSearchRecipes({
+      env: { DB: {} as any },
+      user: { userId: 'u', email: 'intruder@x.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      url: new URL('http://x/admin/recipes/search?q=pad'),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('returns empty groups for a blank query without hitting the DB', async () => {
+    const { handleAdminSearchRecipes } = await import('./admin');
+    const db = { prepare: vi.fn() } as unknown as D1Database;
+    const res = await handleAdminSearchRecipes({
+      env: { DB: db },
+      user: { userId: 'u', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      url: new URL('http://x/admin/recipes/search?q=%20'),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ groups: [], page: { returned: 0, has_more: false } });
+    expect(db.prepare).not.toHaveBeenCalled();
+  });
+
+  it('groups copies that share a source_url and lists every owner', async () => {
+    const { handleAdminSearchRecipes } = await import('./admin');
+    const rows = [
+      { id: 'r1', user_id: 'u1', title: 'Pad Thai', source_url: 'https://x/pad', created_at: '2026-01-01', hidden_at: null, shared_with_friends: 1, owner_email: 'a@x.com', owner_display_name: 'Ann' },
+      { id: 'r2', user_id: 'u2', title: 'Pad Thai', source_url: 'https://x/pad', created_at: '2026-02-01', hidden_at: '2026-03-01', shared_with_friends: 1, owner_email: 'b@x.com', owner_display_name: null },
+      { id: 'r3', user_id: 'u3', title: 'Soup', source_url: '', created_at: '2026-01-15', hidden_at: null, shared_with_friends: 0, owner_email: 'c@x.com', owner_display_name: 'Cara' },
+    ];
+    const db = { prepare: vi.fn().mockReturnValue({ bind: vi.fn().mockReturnValue({ all: vi.fn().mockResolvedValue({ results: rows }) }) }) } as unknown as D1Database;
+    const res = await handleAdminSearchRecipes({
+      env: { DB: db },
+      user: { userId: 'u', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      url: new URL('http://x/admin/recipes/search?q=a'),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.groups).toHaveLength(2);
+    // Most-saved first: the 2-owner Pad Thai group.
+    const padThai = body.groups[0];
+    expect(padThai.title).toBe('Pad Thai');
+    expect(padThai.owner_count).toBe(2);
+    expect(padThai.hidden_count).toBe(1);
+    expect(padThai.owners.map((o: any) => o.user_id).sort()).toEqual(['u1', 'u2']);
+    // user-typed recipe (no source_url) groups by title and stays its own group.
+    const soup = body.groups[1];
+    expect(soup.source_url).toBeNull();
+    expect(soup.owner_count).toBe(1);
   });
 });
 
@@ -285,8 +368,9 @@ describe('handleAdminUserDrilldown', () => {
     const pendingReceived = [{ from_user_id: 'src1', from_email: 's@x.com', created_at: '2026-02-10' }];
 
     let callIdx = 0;
-    // New call order: profile.first, recipes.all, cook_events.all, conversions.all, inviteLink.first, pending_received.all
-    const stubs = [profile, { results: recipes }, { results: cookEvents }, { results: conversions }, inviteLink, { results: pendingReceived }];
+    // New call order: profile.first, recipes.all, cook_events.all, conversions.all, inviteLink.first, pending_received.all, shares.all
+    const shares = [{ recipe_id: 'r1', created_at: 1738368000000, recipient_id: 'inv1', recipe_title: 'Pie', recipe_source_url: null, recipient_name: 'Inv' }];
+    const stubs = [profile, { results: recipes }, { results: cookEvents }, { results: conversions }, inviteLink, { results: pendingReceived }, { results: shares }];
     const mockDb = {
       prepare: vi.fn().mockReturnValue({
         bind: vi.fn().mockReturnThis(),
@@ -306,6 +390,7 @@ describe('handleAdminUserDrilldown', () => {
     const body = await res.json();
     expect(body.profile.email).toBe('t@x.com');
     expect(body.recipes).toHaveLength(1);
+    expect(body.shares).toHaveLength(1);
     expect(Array.isArray(body.invite_conversions)).toBe(true);
     expect(body.invite_conversions).toHaveLength(1);
     expect(body.invite_link).toEqual({ token: 'tok-abc', created_at: '2026-01-10' });
@@ -322,6 +407,7 @@ describe('handleAdminUserDrilldown', () => {
       { results: [] }, // conversions .all()
       { token: 'tok', created_at: '2026-02-01' }, // invite link .first()
       { results: [] }, // pending received .all()
+      { results: [] }, // shares .all()
     ];
     const mockDb = {
       prepare: vi.fn((sql: string) => {
@@ -357,6 +443,7 @@ describe('handleAdminUserDrilldown', () => {
       { results: [] }, // conversions .all()
       { token: 'tok', created_at: '2026-02-01' }, // invite link .first()
       { results: [] }, // pending received .all()
+      { results: [] }, // shares .all()
     ];
     const mockDb = {
       prepare: vi.fn((sql: string) => {
@@ -384,6 +471,42 @@ describe('handleAdminUserDrilldown', () => {
     expect(cookSql).toMatch(/r\.source_url AS recipe_source_url/i);
   });
 
+  it('shares query joins recipes by id alone so re-shares resolve a title (not constrained to sharer)', async () => {
+    const captured: string[] = [];
+    let callIdx = 0;
+    const stubs = [
+      { user_id: 'target', email: 't@x.com', display_name: 'T', created_at: '2026-01-01', deleted_at: null }, // profile .first
+      { results: [] }, // recipes .all
+      { results: [] }, // cook_events .all
+      { results: [] }, // conversions .all
+      { token: 'tok', created_at: '2026-02-01' }, // invite link .first
+      { results: [] }, // pending received .all
+      { results: [] }, // shares .all
+    ];
+    const mockDb = {
+      prepare: vi.fn((sql: string) => {
+        captured.push(sql);
+        return {
+          bind: vi.fn().mockReturnThis(),
+          first: vi.fn().mockImplementation(() => Promise.resolve(stubs[callIdx++])),
+          all: vi.fn().mockImplementation(() => Promise.resolve(stubs[callIdx++])),
+        };
+      }),
+    } as unknown as D1Database;
+
+    const res = await handleAdminUserDrilldown({
+      env: { DB: mockDb, SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: undefined },
+      user: { userId: 'u', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 'target',
+    });
+    expect(res.status).toBe(200);
+    const sharesSql = captured.find((s) => /FROM recipe_shares/i.test(s));
+    expect(sharesSql).toBeDefined();
+    expect(sharesSql).toMatch(/LEFT JOIN recipes r ON r\.id = rs\.recipe_id/i);
+    expect(sharesSql).not.toMatch(/r\.user_id\s*=\s*rs\.sharer_id/i);
+  });
+
   it('invite conversions query reads open_invite_used joined to friends/profiles (not dormant friend_requests_sent)', async () => {
     const captured: string[] = [];
     let i = 0;
@@ -394,6 +517,7 @@ describe('handleAdminUserDrilldown', () => {
       { results: [] }, // conversions .all
       { token:'tok', created_at:'2026-02-01' }, // invite link .first
       { results: [] }, // pending_received .all
+      { results: [] }, // shares .all
     ];
     const mockDb = { prepare: vi.fn((sql:string)=>{ captured.push(sql); return {
       bind: vi.fn().mockReturnThis(),
