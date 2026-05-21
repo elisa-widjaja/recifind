@@ -6669,7 +6669,6 @@ function App() {
                         fullWidth
                         multiline
                         maxRows={2}
-                        autoFocus
                         onFocus={(e) => {
                           // Cursor at the end (not select-all), matching iOS.
                           const len = e.target.value.length;
