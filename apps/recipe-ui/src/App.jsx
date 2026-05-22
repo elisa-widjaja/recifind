@@ -1322,6 +1322,17 @@ function App() {
   useEffect(() => {
     if (currentView !== 'recipes') {
       setShowFloatingFab(false);
+      // Clear recipe filters whenever the user leaves the Recipes view. The
+      // filter state lives on this never-unmounting root component, so without
+      // an explicit reset it survives tab switches (and even logout/login).
+      // Resetting on leave — not on enter — keeps handleMealTypeSelect /
+      // handleCuisineSelect intact, since those set a filter then navigate INTO
+      // recipes (this branch never runs when arriving at recipes).
+      setSelectedMealType('');
+      setSelectedCuisine('');
+      setSelectedTags([]);
+      setShowFavoritesOnly(false);
+      setIngredientInput('');
       return;
     }
     // Always start hidden when entering Recipes — the IO callback will flip
@@ -1954,6 +1965,15 @@ function App() {
         setCurrentView('home');
         SharedAuthStore.clearJwt();
         setUserProfile(null);
+        // Belt-and-suspenders: don't carry the previous user's recipe filters
+        // into the next login. setCurrentView('home') above already triggers
+        // the leave-Recipes reset, but resetting here too keeps the intent if
+        // logout ever stops navigating away.
+        setSelectedMealType('');
+        setSelectedCuisine('');
+        setSelectedTags([]);
+        setShowFavoritesOnly(false);
+        setIngredientInput('');
       }
       if (window.gtag) {
         window.gtag('config', 'G-W2LEPNDMF0', { user_id: session?.user?.id ?? undefined });
