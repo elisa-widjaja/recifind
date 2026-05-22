@@ -736,6 +736,56 @@ function createImageFallbackHandler(title) {
   };
 }
 
+// Downscale a picked avatar file to a 256x256 square data URL before upload.
+// Center-crops to a square and re-encodes (WebP, JPEG fallback for older Safari)
+// so a multi-MB photo becomes ~10-30KB — keeps Supabase storage/egress small.
+// We decode via an <img> element rather than createImageBitmap so the browser
+// applies EXIF orientation automatically (phone selfies often arrive rotated).
+// Throws on decode failure; callers fall back to a raw upload (worker still caps
+// the payload at 5MB).
+const AVATAR_SIZE = 256;
+function downscaleAvatar(file) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const side = Math.min(img.naturalWidth, img.naturalHeight);
+        if (!side) {
+          reject(new Error('avatar has zero dimensions'));
+          return;
+        }
+        const sx = (img.naturalWidth - side) / 2;
+        const sy = (img.naturalHeight - side) / 2;
+        const canvas = document.createElement('canvas');
+        canvas.width = AVATAR_SIZE;
+        canvas.height = AVATAR_SIZE;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('canvas 2d context unavailable'));
+          return;
+        }
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, AVATAR_SIZE, AVATAR_SIZE);
+        let dataUrl = canvas.toDataURL('image/webp', 0.85);
+        // Older Safari can't encode WebP from canvas — it silently returns PNG.
+        if (!dataUrl.startsWith('data:image/webp')) {
+          dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        }
+        resolve(dataUrl);
+      } catch (err) {
+        reject(err);
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('failed to decode avatar image'));
+    };
+    img.src = objectUrl;
+  });
+}
+
 function RecipeThumbnail({ src, alt, onError }) {
   const [loaded, setLoaded] = useState(false);
   return (
@@ -5701,15 +5751,28 @@ function App() {
                   }
                   setAvatarUploading(true);
                   try {
-                    const dataUrl = await new Promise((resolve, reject) => {
+                    const readRaw = () => new Promise((resolve, reject) => {
                       const reader = new FileReader();
                       reader.onload = () => resolve(reader.result);
                       reader.onerror = () => reject(reader.error || new Error('read failed'));
                       reader.readAsDataURL(file);
                     });
+                    // Downscale to a 256x256 square before upload. If decoding the
+                    // image fails (exotic format, etc.) fall back to a raw upload —
+                    // the worker still enforces the 5MB cap.
+                    let dataUrl;
+                    try {
+                      dataUrl = await downscaleAvatar(file);
+                    } catch (resizeErr) {
+                      console.warn('avatar downscale failed, uploading original:', resizeErr);
+                      dataUrl = await readRaw();
+                    }
+                    const contentType = (typeof dataUrl === 'string' && dataUrl.startsWith('data:'))
+                      ? (dataUrl.slice(5, dataUrl.indexOf(';')) || file.type || 'image/jpeg')
+                      : (file.type || 'image/jpeg');
                     const res = await callRecipesApi('/profile/avatar', {
                       method: 'POST',
-                      body: JSON.stringify({ dataUrl, contentType: file.type || 'image/jpeg' }),
+                      body: JSON.stringify({ dataUrl, contentType }),
                     }, accessToken);
                     if (res?.avatarUrl) {
                       setUserProfile((prev) => prev ? { ...prev, avatarUrl: res.avatarUrl } : prev);
