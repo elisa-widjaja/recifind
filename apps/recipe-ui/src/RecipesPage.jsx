@@ -30,6 +30,7 @@ import FavoriteIcon from '@mui/icons-material/Favorite';
 import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import RecipeListCard from './components/RecipeListCard';
 import RecipeThumbnail from './components/RecipeThumbnail';
 
@@ -67,11 +68,13 @@ export default function RecipesPage({
   buildEmbedUrl,
   sentinelRef,
   availableMealTypes = [],
-  selectedMealType = '',
-  onMealTypeSelect = () => {},
+  selectedMealTypes = [],
+  onMealTypeToggle = () => {},
+  onClearMealTypes = () => {},
   availableCuisines = [],
-  selectedCuisine = '',
-  onCuisineSelect = () => {},
+  selectedCuisines = [],
+  onCuisineToggle = () => {},
+  onClearCuisines = () => {},
   availableTags = [],
   selectedTags = [],
   onTagToggle = () => {},
@@ -88,19 +91,19 @@ export default function RecipesPage({
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
   const filterChipsRef = useRef(null);
-  // Read the latest selectedMealType inside an effect that only depends on
+  // Read the latest selectedMealTypes inside an effect that only depends on
   // `filterDrawerOpen`. Without this, changing selection while the drawer is
   // open would re-trigger the scroll-into-view and visibly nudge the chip.
-  const selectedMealTypeRef = useRef(selectedMealType);
-  selectedMealTypeRef.current = selectedMealType;
+  const selectedMealTypesRef = useRef(selectedMealTypes);
+  selectedMealTypesRef.current = selectedMealTypes;
 
   // Center the selected chip into view whenever the drawer transitions open
   // (matches the old hamburger filter behavior). Custom RAF easing because
   // browser-native `behavior: 'smooth'` runs ~250ms regardless of distance.
   useEffect(() => {
     if (!filterDrawerOpen) return;
-    const sel = selectedMealTypeRef.current;
-    if (!sel) return;
+    const sel = selectedMealTypesRef.current;
+    if (!sel || sel.length === 0) return;
     let rafId = null;
     const startDelay = 350;
     const scrollDuration = 700;
@@ -148,12 +151,24 @@ export default function RecipesPage({
   const visibleSuggestions = suggestions.filter((r) => !dismissedSuggestionIds.includes(r.id));
   const isFilteringOrSearching = Boolean(
     (normalizedIngredients && normalizedIngredients.length > 0) ||
-    selectedMealType ||
-    selectedCuisine ||
+    selectedMealTypes.length > 0 ||
+    selectedCuisines.length > 0 ||
     (selectedTags && selectedTags.length > 0) ||
     showFavoritesOnly
   );
   const showSuggestionShelf = totalRecipes < 5 && visibleSuggestions.length > 0 && !isFilteringOrSearching;
+
+  // Used by both the results-row "Clear filters" link and the drawer header.
+  const hasActiveFilters = Boolean(
+    selectedMealTypes.length > 0 || selectedCuisines.length > 0 || selectedTags.length > 0 || showFavoritesOnly || normalizedIngredients.length > 0
+  );
+  const clearAllFilters = () => {
+    if (selectedMealTypes.length > 0) onClearMealTypes();
+    if (selectedCuisines.length > 0) onClearCuisines();
+    if (selectedTags.length > 0) onClearTags();
+    if (showFavoritesOnly) onToggleFavoritesOnly();
+    if (normalizedIngredients.length > 0) setIngredientInput('');
+  };
 
   const renderRecipeCard = (recipe, isSuggestion = false) => {
     const displayImageUrl = resolveRecipeImageUrl(recipe.title, recipe.imageUrl);
@@ -324,16 +339,6 @@ export default function RecipesPage({
           </Typography>
         ) : (
           (() => {
-            const hasActiveFilters = Boolean(
-              selectedMealType || selectedCuisine || selectedTags.length > 0 || showFavoritesOnly || normalizedIngredients.length > 0
-            );
-            const clearAllFilters = () => {
-              if (selectedMealType) onMealTypeSelect('');
-              if (selectedCuisine) onCuisineSelect('');
-              if (selectedTags.length > 0) onClearTags();
-              if (showFavoritesOnly) onToggleFavoritesOnly();
-              if (normalizedIngredients.length > 0) setIngredientInput('');
-            };
             return (
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Typography variant="caption" color="text.secondary">
@@ -449,7 +454,7 @@ export default function RecipesPage({
             No recipes found.
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Try switching to <strong>Match any</strong>, remove filters, or adjust your search terms.
+            Try removing a filter or two, or adjust your search terms.
           </Typography>
         </Box>
       ) : (
@@ -528,6 +533,31 @@ export default function RecipesPage({
             </Box>
           </Box>
           <Typography sx={{ fontWeight: 700, fontSize: 16 }}>Filters</Typography>
+          {/* Right-aligned clear action, mirroring the X on the left. Only
+              shown once at least one filter is active. The 36px flex box pins
+              its vertical center to y=38, matching the X and the title. */}
+          {hasActiveFilters && (
+            <Box sx={{ position: 'absolute', right: '16px', top: '20px', height: 36, display: 'flex', alignItems: 'center' }}>
+              <Box
+                component="button"
+                onClick={clearAllFilters}
+                sx={(theme) => ({
+                  background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                  fontFamily: 'inherit', fontSize: 13, fontWeight: 500,
+                  color: theme.palette.mode === 'dark'
+                    ? theme.palette.primary.light
+                    : theme.palette.primary.main,
+                  textDecoration: 'underline',
+                  textUnderlineOffset: '2px',
+                  WebkitTapHighlightColor: 'transparent',
+                  '&:focus': { outline: 'none' },
+                  '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2, borderRadius: 2 },
+                })}
+              >
+                Clear filters
+              </Box>
+            </Box>
+          )}
         </Box>
 
         <Box sx={{ px: 2, py: 2 }}>
@@ -549,20 +579,14 @@ export default function RecipesPage({
             {availableMealTypes.map((type) => {
               const label = MEAL_TYPE_LABELS[type] || type.replace(/^\w/, (c) => c.toUpperCase());
               const icon = MEAL_TYPE_ICONS[type];
-              const selected = selectedMealType === type;
+              const selected = selectedMealTypes.includes(type);
               return (
                 <Box
                   key={type}
                   component="button"
                   role="button"
                   aria-pressed={selected}
-                  onClick={() => {
-                    onMealTypeSelect(type);
-                    // Auto-dismiss the drawer after tap. Held a bit longer so
-                    // the user can see the chip flip to selected state before
-                    // the panel slides away.
-                    setTimeout(() => setFilterDrawerOpen(false), 750);
-                  }}
+                  onClick={() => onMealTypeToggle(type)}
                   sx={(theme) => ({
                     display: 'inline-flex', alignItems: 'center', gap: '6px',
                     height: 36, px: 1.5, border: 'none', borderRadius: '999px',
@@ -612,17 +636,14 @@ export default function RecipesPage({
               >
                 {availableCuisines.map((c) => {
                   const label = CUISINE_LABELS[c] || c.replace(/^\w/, (ch) => ch.toUpperCase());
-                  const selected = selectedCuisine === c;
+                  const selected = selectedCuisines.includes(c);
                   return (
                     <Box
                       key={c}
                       component="button"
                       role="button"
                       aria-pressed={selected}
-                      onClick={() => {
-                        onCuisineSelect(c);
-                        setTimeout(() => setFilterDrawerOpen(false), 750);
-                      }}
+                      onClick={() => onCuisineToggle(c)}
                       sx={(theme) => ({
                         display: 'inline-flex', alignItems: 'center',
                         height: 36, px: 1.75, border: 'none', borderRadius: '999px',
@@ -726,6 +747,30 @@ export default function RecipesPage({
               Favorites
             </Box>
           </Box>
+        </Box>
+
+        {/* Filters apply live (the result count behind the sheet updates as you
+            tap chips), so this is just a quiet confirm + dismiss — kept subtle
+            as a text link rather than a prominent CTA. X in the header cancels. */}
+        <Box sx={{ px: 2, pt: 0.5, pb: 1.5, display: 'flex', justifyContent: 'center' }}>
+          <Button
+            variant="text"
+            onClick={() => setFilterDrawerOpen(false)}
+            disableRipple
+            endIcon={<ArrowForwardIcon sx={{ fontSize: 16 }} />}
+            sx={{
+              textTransform: 'none',
+              fontWeight: 500,
+              fontSize: 14,
+              color: 'text.secondary',
+              '& .MuiButton-endIcon': { ml: 0.5 },
+              '&:hover': { bgcolor: 'transparent', color: 'text.primary' },
+            }}
+          >
+            {filteredRecipes.length === 0
+              ? 'No recipes found'
+              : `Show ${filteredRecipes.length} ${filteredRecipes.length === 1 ? 'recipe' : 'recipes'}`}
+          </Button>
         </Box>
       </Drawer>
     </Stack>

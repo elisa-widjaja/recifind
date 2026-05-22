@@ -1325,11 +1325,11 @@ function App() {
       // Clear recipe filters whenever the user leaves the Recipes view. The
       // filter state lives on this never-unmounting root component, so without
       // an explicit reset it survives tab switches (and even logout/login).
-      // Resetting on leave — not on enter — keeps handleMealTypeSelect /
-      // handleCuisineSelect intact, since those set a filter then navigate INTO
+      // Resetting on leave — not on enter — keeps handleMealTypeToggle /
+      // handleCuisineToggle intact, since those set a filter then navigate INTO
       // recipes (this branch never runs when arriving at recipes).
-      setSelectedMealType('');
-      setSelectedCuisine('');
+      setSelectedMealTypes([]);
+      setSelectedCuisines([]);
       setSelectedTags([]);
       setShowFavoritesOnly(false);
       setIngredientInput('');
@@ -1396,8 +1396,8 @@ function App() {
     if (!isRemoteEnabled) return INITIAL_RECIPES;
     return []; // Start empty, will load after auth check
   });
-  const [selectedMealType, setSelectedMealType] = useState('');
-  const [selectedCuisine, setSelectedCuisine] = useState('');
+  const [selectedMealTypes, setSelectedMealTypes] = useState([]);
+  const [selectedCuisines, setSelectedCuisines] = useState([]);
   const [selectedTags, setSelectedTags] = useState([]);
   const [ingredientInput, setIngredientInput] = useState('');
   const [activeRecipe, setActiveRecipe] = useState(null);
@@ -1969,8 +1969,8 @@ function App() {
         // into the next login. setCurrentView('home') above already triggers
         // the leave-Recipes reset, but resetting here too keeps the intent if
         // logout ever stops navigating away.
-        setSelectedMealType('');
-        setSelectedCuisine('');
+        setSelectedMealTypes([]);
+        setSelectedCuisines([]);
         setSelectedTags([]);
         setShowFavoritesOnly(false);
         setIngredientInput('');
@@ -3148,18 +3148,21 @@ function App() {
           return null;
         }
 
-        if (selectedMealType) {
+        // Faceted filtering: OR within a facet, AND across facets. A recipe
+        // must match at least one of the selected meal types AND at least one
+        // of the selected cuisines AND at least one of the selected tags.
+        if (selectedMealTypes.length > 0) {
           const matchesMealType = recipe.mealTypes.some(
-            (type) => type.toLowerCase() === selectedMealType.toLowerCase()
+            (type) => selectedMealTypes.some((s) => s.toLowerCase() === type.toLowerCase())
           );
           if (!matchesMealType) {
             return null;
           }
         }
 
-        if (selectedCuisine) {
+        if (selectedCuisines.length > 0) {
           const matchesCuisine = (recipe.cuisines || []).some(
-            (c) => c.toLowerCase() === selectedCuisine.toLowerCase()
+            (c) => selectedCuisines.some((s) => s.toLowerCase() === c.toLowerCase())
           );
           if (!matchesCuisine) return null;
         }
@@ -3189,7 +3192,7 @@ function App() {
         }
 
         const createdAt = recipe.createdAt ? new Date(recipe.createdAt).getTime() : 0;
-        const score = ingredientScore + (selectedMealType ? 1 : 0) + (selectedCuisine ? 1 : 0);
+        const score = ingredientScore + (selectedMealTypes.length ? 1 : 0) + (selectedCuisines.length ? 1 : 0);
         return { recipe, score, createdAt };
       })
       .filter(Boolean)
@@ -3202,7 +3205,7 @@ function App() {
       .map((entry) => entry.recipe);
 
     return scored;
-  }, [recipes, selectedMealType, selectedCuisine, selectedTags, normalizedIngredients, showFavoritesOnly, favorites]);
+  }, [recipes, selectedMealTypes, selectedCuisines, selectedTags, normalizedIngredients, showFavoritesOnly, favorites]);
 
   const pendingRecipesRef = useRef(null);
 
@@ -3368,7 +3371,7 @@ function App() {
 
   useEffect(() => {
     setVisibleCount(RESULTS_PAGE_SIZE);
-  }, [selectedMealType, normalizedIngredientsKey, recipes]);
+  }, [selectedMealTypes, normalizedIngredientsKey, recipes]);
 
   // Capture Chrome/Android install prompt
   useEffect(() => {
@@ -3615,13 +3618,13 @@ function App() {
     [newRecipeForm.title, newRecipeForm.imageUrl]
   );
 
-  const handleMealTypeSelect = (value) => {
-    setSelectedMealType((prev) => (prev === value ? '' : value));
+  const handleMealTypeToggle = (value) => {
+    setSelectedMealTypes((prev) => (prev.includes(value) ? prev.filter((x) => x !== value) : [...prev, value]));
     setCurrentView('recipes');
   };
 
-  const handleCuisineSelect = (value) => {
-    setSelectedCuisine((prev) => (prev === value ? '' : value));
+  const handleCuisineToggle = (value) => {
+    setSelectedCuisines((prev) => (prev.includes(value) ? prev.filter((x) => x !== value) : [...prev, value]));
     setCurrentView('recipes');
   };
 
@@ -5038,7 +5041,7 @@ function App() {
 
     const resetFormState = (message) => {
       setCurrentView('recipes');
-      setSelectedMealType('');
+      setSelectedMealTypes([]);
       setIngredientInput('');
       setVisibleCount(RESULTS_PAGE_SIZE);
       setNewRecipeForm({ ...NEW_RECIPE_TEMPLATE });
@@ -5622,11 +5625,13 @@ function App() {
                 buildEmbedUrl={buildEmbedUrl}
                 sentinelRef={sentinelRef}
                 availableMealTypes={availableMealTypes}
-                selectedMealType={selectedMealType}
-                onMealTypeSelect={(type) => handleMealTypeSelect(type)}
+                selectedMealTypes={selectedMealTypes}
+                onMealTypeToggle={(type) => handleMealTypeToggle(type)}
+                onClearMealTypes={() => setSelectedMealTypes([])}
                 availableCuisines={availableCuisines}
-                selectedCuisine={selectedCuisine}
-                onCuisineSelect={(c) => handleCuisineSelect(c)}
+                selectedCuisines={selectedCuisines}
+                onCuisineToggle={(c) => handleCuisineToggle(c)}
+                onClearCuisines={() => setSelectedCuisines([])}
                 availableTags={availableTags}
                 selectedTags={selectedTags}
                 onTagToggle={(t) => setSelectedTags((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t])}

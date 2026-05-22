@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import RecipesPage from './RecipesPage';
 
 const noop = () => {};
@@ -35,8 +35,16 @@ const baseProps = {
   buildEmbedUrl: () => null,
   sentinelRef: { current: null },
   availableMealTypes: ['breakfast', 'lunch', 'dinner'],
-  selectedMealType: '',
-  onMealTypeSelect: vi.fn(),
+  selectedMealTypes: [],
+  onMealTypeToggle: vi.fn(),
+  onClearMealTypes: vi.fn(),
+  availableCuisines: [],
+  selectedCuisines: [],
+  onCuisineToggle: vi.fn(),
+  onClearCuisines: vi.fn(),
+  selectedTags: [],
+  onTagToggle: vi.fn(),
+  onClearTags: vi.fn(),
   showFavoritesOnly: false,
   onToggleFavoritesOnly: vi.fn(),
 };
@@ -61,20 +69,80 @@ describe('RecipesPage filter drawer', () => {
     expect(screen.getByRole('button', { name: /dinner/i })).toBeInTheDocument();
   });
 
-  it('calls onMealTypeSelect when a chip inside the drawer is tapped', () => {
-    const onMealTypeSelect = vi.fn();
-    render(<RecipesPage {...baseProps} onMealTypeSelect={onMealTypeSelect} />);
+  it('calls onMealTypeToggle when a meal-type chip inside the drawer is tapped', () => {
+    const onMealTypeToggle = vi.fn();
+    render(<RecipesPage {...baseProps} onMealTypeToggle={onMealTypeToggle} />);
     fireEvent.click(screen.getByRole('button', { name: /filters/i }));
     fireEvent.click(screen.getByRole('button', { name: /lunch/i }));
-    expect(onMealTypeSelect).toHaveBeenCalledWith('lunch');
+    expect(onMealTypeToggle).toHaveBeenCalledWith('lunch');
   });
 
-  it('shows selectedMealType chip as aria-pressed=true inside the drawer', () => {
-    render(<RecipesPage {...baseProps} selectedMealType="dinner" />);
-    // Anchor the name — when a filter is active a "Clear filters" link also
-    // renders, and /filters/i would match both buttons (ambiguous).
+  it('marks every selected meal type as aria-pressed=true (multi-select)', () => {
+    render(<RecipesPage {...baseProps} selectedMealTypes={['lunch', 'dinner']} />);
     fireEvent.click(screen.getByRole('button', { name: /^filters$/i }));
+    expect(screen.getByRole('button', { name: /lunch/i })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: /dinner/i })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /breakfast/i })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('keeps the drawer open after a meal-type chip is tapped (no auto-dismiss)', () => {
+    vi.useFakeTimers();
+    try {
+      render(<RecipesPage {...baseProps} />);
+      act(() => { fireEvent.click(screen.getByRole('button', { name: /filters/i })); });
+      act(() => { vi.runOnlyPendingTimers(); }); // flush drawer open transition
+      fireEvent.click(screen.getByRole('button', { name: /lunch/i }));
+      // Old behavior auto-dismissed after 750ms; new behavior must stay open.
+      act(() => { vi.advanceTimersByTime(1500); });
+      expect(screen.getByRole('button', { name: /lunch/i })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('renders cuisine chips and toggles them (multi-select)', () => {
+    const onCuisineToggle = vi.fn();
+    render(
+      <RecipesPage
+        {...baseProps}
+        availableCuisines={['italian', 'mexican']}
+        selectedCuisines={['italian']}
+        onCuisineToggle={onCuisineToggle}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^filters$/i }));
+    expect(screen.getByRole('button', { name: /italian/i })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /mexican/i })).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(screen.getByRole('button', { name: /mexican/i }));
+    expect(onCuisineToggle).toHaveBeenCalledWith('mexican');
+  });
+
+  it('renders a "Show N recipes" button that closes the drawer', async () => {
+    render(<RecipesPage {...baseProps} filteredRecipes={[{ id: '1' }, { id: '2' }]} />);
+    fireEvent.click(screen.getByRole('button', { name: /^filters$/i }));
+    const showBtn = screen.getByRole('button', { name: /show 2 recipes/i });
+    expect(showBtn).toBeInTheDocument();
+    fireEvent.click(showBtn);
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /breakfast/i })).not.toBeInTheDocument();
+    });
+  });
+
+  it('hides the drawer-header Clear filters link when no filter is active', () => {
+    render(<RecipesPage {...baseProps} />);
+    fireEvent.click(screen.getByRole('button', { name: /^filters$/i }));
+    expect(screen.queryByRole('button', { name: /clear filters/i })).not.toBeInTheDocument();
+  });
+
+  it('shows a Clear filters link in the drawer header when a filter is active', () => {
+    const onClearMealTypes = vi.fn();
+    render(<RecipesPage {...baseProps} selectedMealTypes={['lunch']} onClearMealTypes={onClearMealTypes} />);
+    fireEvent.click(screen.getByRole('button', { name: /^filters$/i }));
+    // The results-row link is aria-hidden behind the open drawer, so the only
+    // accessible "Clear filters" is the drawer-header one. Clicking it clears.
+    const clearLink = screen.getByRole('button', { name: /clear filters/i });
+    fireEvent.click(clearLink);
+    expect(onClearMealTypes).toHaveBeenCalled();
   });
 
   it('renders favorites toggle inside the drawer with active state', () => {
