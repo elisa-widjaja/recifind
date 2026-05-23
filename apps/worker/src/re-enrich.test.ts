@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleReEnrichRecipe } from './index';
+import { handleReEnrichRecipe, handleAdminReEnrichRecipe } from './index';
 import type { Env } from './index';
 
 function makeRow(overrides: Partial<Record<string, any>> = {}) {
@@ -117,5 +117,51 @@ describe('handleReEnrichRecipe', () => {
     expect(update).toBeDefined();
     expect(update!.sql).not.toMatch(/image_url/i);
     expect(update!.binds).not.toContain('https://gemini-fake.jpg');
+  });
+});
+
+describe('handleAdminReEnrichRecipe', () => {
+  const admin = { userId: 'admin-1', email: 'admin@x.com', claims: {} } as any;
+
+  it('403 when the caller is not an admin', async () => {
+    const { db } = makeDb(makeRow());
+    const env = {
+      DB: db as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'x',
+      ADMIN_EMAILS: 'someone-else@x.com',
+    } as Env;
+    const res = await handleAdminReEnrichRecipe(env, admin, 'recipe-1', {
+      runEnrichmentChain: baseFakeChain({ ...EMPTY, ingredients: ['x'], steps: ['y'] }) as any,
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('404 when the recipe does not exist', async () => {
+    const { db } = makeDb(null);
+    const env = {
+      DB: db as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'x',
+      ADMIN_EMAILS: 'admin@x.com',
+    } as Env;
+    await expect(handleAdminReEnrichRecipe(env, admin, 'missing'))
+      .rejects.toMatchObject({ status: 404 });
+  });
+
+  it("re-enriches as the recipe's owner (not the admin) and updates the row", async () => {
+    const { db, runCalls } = makeDb(makeRow({ user_id: 'owner-xyz' }));
+    const env = {
+      DB: db as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'x',
+      ADMIN_EMAILS: 'admin@x.com',
+    } as Env;
+    const chain = baseFakeChain({
+      ...EMPTY, ingredients: ['real-ing'], steps: ['real-step'], provenance: 'extracted',
+    });
+    const res = await handleAdminReEnrichRecipe(env, admin, 'recipe-1', { runEnrichmentChain: chain as any });
+    const body = await res.json() as { recipe: { ingredients: string[]; provenance: string } };
+    expect(body.recipe.ingredients).toEqual(['real-ing']);
+    expect(body.recipe.provenance).toBe('extracted');
+    const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
+    expect(update).toBeDefined();
+    // The UPDATE must be scoped to the OWNER's id, never the admin's.
+    expect(update!.binds).toContain('owner-xyz');
+    expect(update!.binds).not.toContain('admin-1');
   });
 });

@@ -512,6 +512,17 @@ export default {
         return await handleAdminMigrateImages(request, env, user);
       }
 
+      // Admin re-enrich: re-run the enrichment chain on any user's recipe to
+      // replace stale/hallucinated content. Reuses the owner-scoped handler.
+      const adminReEnrichMatch = url.pathname.match(/^\/admin\/recipes\/([^/]+)\/re-enrich$/);
+      if (adminReEnrichMatch && request.method === 'POST') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const targetId = decodeURIComponent(adminReEnrichMatch[1]);
+        return await handleAdminReEnrichRecipe(env, user, targetId);
+      }
+
       if (url.pathname === '/admin/metrics/timeseries' && request.method === 'GET') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');
@@ -3041,6 +3052,43 @@ export async function handleReEnrichRecipe(
     updatedAt: now,
   };
   return json({ recipe: refreshed });
+}
+
+// Admin-only re-enrich: lets an admin re-run the enrichment chain on ANY user's
+// recipe (e.g. to fix hallucinated content from the old implementation). Reuses
+// handleReEnrichRecipe unchanged by resolving the recipe's owner and acting as
+// them, so the shared enrichment functions and the import flow are untouched.
+export async function handleAdminReEnrichRecipe(
+  env: Env,
+  user: AuthenticatedUser,
+  recipeId: string,
+  deps: { runEnrichmentChain?: typeof runEnrichmentChain } = {}
+): Promise<Response> {
+  const { isAdminEmail, writeAuditLog } = await import('./routes/admin');
+  if (!isAdminEmail(user.email, env.ADMIN_EMAILS)) {
+    return json({ code: 'FORBIDDEN', message: 'Not an admin' }, 403);
+  }
+
+  const ownerRow = await env.DB.prepare(
+    'SELECT user_id FROM recipes WHERE id = ?'
+  ).bind(recipeId).first<{ user_id: string }>();
+  if (!ownerRow?.user_id) {
+    throw new HttpError(404, 'Recipe not found');
+  }
+  const ownerId = String(ownerRow.user_id);
+
+  // Act as the owner so handleReEnrichRecipe's owner-scoped loadRecipe/UPDATE resolve.
+  const ownerUser: AuthenticatedUser = { userId: ownerId, claims: {} };
+  const response = await handleReEnrichRecipe(env, ownerUser, recipeId, deps);
+
+  await writeAuditLog(env.DB, {
+    adminEmail: user.email || 'unknown',
+    action: 're-enrich',
+    targetUserId: ownerId,
+    targetRecipeId: recipeId,
+  });
+
+  return response;
 }
 
 async function handleImageRequest(
