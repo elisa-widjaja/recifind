@@ -210,6 +210,60 @@ describe('captionExtract', () => {
     })
   };
 
+  const longCaptionForCache = 'Recipe by chef:\n\nGreat dish.\n\nIngredients:\n- 1 cup flour\n- 2 eggs\n\nInstructions:\n1. Mix\n2. Bake for 20 min';
+  const validGeminiFetch = () => vi.fn(async () => ({
+    ok: true,
+    json: async () => ({
+      candidates: [{ content: { parts: [{ text: JSON.stringify({
+        ingredients: ['1 cup flour', '2 eggs'], steps: ['Mix', 'Bake'],
+        mealTypes: [], durationMinutes: null, notes: '', title: 'Great dish'
+      }) }] } }]
+    })
+  })) as unknown as typeof fetch;
+
+  it('uses a cached caption and skips the IG fetch (preserves re-enrich/auto-fill re-run)', async () => {
+    const cacheGet = vi.fn(async () => longCaptionForCache);
+    const cachePut = vi.fn(async () => {});
+    const env = { AI_PICKS_CACHE: { get: cacheGet, put: cachePut } } as unknown as Env;
+    const fetchOembedCaption = vi.fn(async () => 'SHOULD NOT BE CALLED');
+    const deps = { ...baseDeps, fetchOembedCaption, fetchImpl: validGeminiFetch() };
+
+    const result = await captionExtract(env, 'https://www.instagram.com/reel/ABC/', '', deps);
+
+    expect(cacheGet).toHaveBeenCalledWith('caption:https://www.instagram.com/reel/ABC/');
+    expect(fetchOembedCaption).not.toHaveBeenCalled();      // IG fetch skipped on cache hit
+    expect(cachePut).not.toHaveBeenCalled();                // came from cache, no re-write
+    expect(result.ingredients).toEqual(['1 cup flour', '2 eggs']); // Gemini still ran
+  });
+
+  it('caches a freshly-fetched usable caption for reuse', async () => {
+    const cacheGet = vi.fn(async () => null);
+    const cachePut = vi.fn(async () => {});
+    const env = { AI_PICKS_CACHE: { get: cacheGet, put: cachePut } } as unknown as Env;
+    const fetchOembedCaption = vi.fn(async () => longCaptionForCache);
+    const deps = { ...baseDeps, fetchOembedCaption, fetchImpl: validGeminiFetch() };
+
+    await captionExtract(env, 'https://www.instagram.com/reel/XYZ/', '', deps);
+
+    expect(fetchOembedCaption).toHaveBeenCalled();
+    expect(cachePut).toHaveBeenCalledWith(
+      'caption:https://www.instagram.com/reel/XYZ/',
+      longCaptionForCache,
+      expect.objectContaining({ expirationTtl: expect.any(Number) })
+    );
+  });
+
+  it('does not cache a null/too-short caption (lets the next attempt retry IG)', async () => {
+    const cachePut = vi.fn(async () => {});
+    const env = { AI_PICKS_CACHE: { get: vi.fn(async () => null), put: cachePut } } as unknown as Env;
+    const deps = { ...baseDeps, fetchOembedCaption: async () => null, fetchImpl: vi.fn() as unknown as typeof fetch };
+
+    const result = await captionExtract(env, 'https://www.instagram.com/reel/NUL/', '', deps);
+
+    expect(cachePut).not.toHaveBeenCalled();
+    expect(result.ingredients).toEqual([]);
+  });
+
   it('returns empty result when caption fetch returns null', async () => {
     const deps = {
       ...baseDeps,

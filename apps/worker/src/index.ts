@@ -5321,6 +5321,11 @@ const ALLOWED_SOURCE_HOSTS = [
   // still works (matches e.g. cooking.nytimes.com exactly, but not nytimes.com).
   'cooking.nytimes.com',
   'freshoffthegrid.com',
+  // docs.google.com only — a link-shared Google Doc serves og:title/og:image/
+  // og:description that the existing parser + Gemini enrichment read directly.
+  // Scoped to the docs subdomain on purpose: bare `google.com` would admit the
+  // `google.com/url?q=` open redirect and reopen the phishing hole this list closes.
+  'docs.google.com',
 ] as const;
 
 function isAllowedSourceHost(hostname: string): boolean {
@@ -5543,11 +5548,31 @@ async function captionExtract(
   const startedAt = Date.now();
   const captionFetcher = deps.fetchOembedCaption ?? fetchOembedCaption;
   let caption: string | null = null;
+  let captionFromCache = false;
+
+  // Caption cache: the IG fetch is the rate-limited bottleneck and captions are
+  // immutable per post, so cache the fetched caption per-URL. Repeat import /
+  // edit auto-fill / re-enrich of the same reel then skip the IG hit. Gemini
+  // extraction still runs every time (we cache the IG layer, not the extraction
+  // result), so re-enrich and edit auto-fill keep re-running fresh.
+  const captionCacheKey = `caption:${sourceUrl}`;
   try {
-    caption = await captionFetcher(sourceUrl, { fetchImpl: deps.fetchImpl });
-  } catch (err) {
-    console.log('[enrich]', { strategy: 'caption-extract', url: sourceUrl, outcome: 'error', duration_ms: Date.now() - startedAt, error: String(err) });
-    return EMPTY_ENRICHMENT;
+    const cached = await env.AI_PICKS_CACHE?.get(captionCacheKey);
+    if (typeof cached === 'string' && cached) {
+      caption = cached;
+      captionFromCache = true;
+    }
+  } catch {
+    // Best-effort cache read; fall through to a live fetch.
+  }
+
+  if (caption === null) {
+    try {
+      caption = await captionFetcher(sourceUrl, { fetchImpl: deps.fetchImpl });
+    } catch (err) {
+      console.log('[enrich]', { strategy: 'caption-extract', url: sourceUrl, outcome: 'error', duration_ms: Date.now() - startedAt, error: String(err) });
+      return EMPTY_ENRICHMENT;
+    }
   }
 
   if (!caption || caption.length < 50) {
@@ -5555,13 +5580,23 @@ async function captionExtract(
     return EMPTY_ENRICHMENT;
   }
 
+  // Cache a usable, freshly-fetched caption (>=50 chars, immutable per post).
+  // Skip cache hits (no pointless re-write) and short/empty captions, so a
+  // transient IG-stripped response never gets locked in for the full TTL.
+  if (!captionFromCache) {
+    try {
+      await env.AI_PICKS_CACHE?.put(captionCacheKey, caption, { expirationTtl: 7 * 24 * 60 * 60 });
+    } catch {
+      // Best-effort cache write.
+    }
+  }
+
   try {
-    const completion = await callGemini(env, buildExtractOnlyPrompt(caption), {
+    const parsed = await callGeminiExtract(env, buildExtractOnlyPrompt(caption), {
       fetchImpl: deps.fetchImpl,
       getAccessToken: deps.getAccessToken,
       getServiceAccount: deps.getServiceAccount,
     });
-    const parsed = parseGeminiRecipeJson(completion);
     const base = parsed ? parsedToEnrichmentResult(parsed) : EMPTY_ENRICHMENT;
     const isEmpty = base.ingredients.length === 0 && base.steps.length === 0;
     const result: EnrichmentResult = { ...base, provenance: isEmpty ? null : 'extracted' };
@@ -5706,12 +5741,11 @@ async function textInference(
     // returning honest-empty + a clean title is safer than fabricating
     // ingredients (allergy / dietary-restriction stakes). Title-only
     // promotion happens in the orchestrator.
-    const extractCompletion = await callGemini(env, buildExtractOnlyPrompt(rawText), {
+    const extractParsed = await callGeminiExtract(env, buildExtractOnlyPrompt(rawText), {
       fetchImpl: deps.fetchImpl,
       getAccessToken: deps.getAccessToken,
       getServiceAccount: deps.getServiceAccount,
     });
-    const extractParsed = parseGeminiRecipeJson(extractCompletion);
     const extractBase = extractParsed ? parsedToEnrichmentResult(extractParsed) : EMPTY_ENRICHMENT;
     const extractIsEmpty = extractBase.ingredients.length === 0 && extractBase.steps.length === 0;
     console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, rawTextLength: rawText.length, pass: 'extract', outcome: extractIsEmpty ? 'empty' : 'extracted', duration_ms: Date.now() - startedAt });
@@ -5861,6 +5895,36 @@ async function fetchRawRecipeText(sourceUrl: string | undefined) {
   if (!sourceUrl) {
     return null;
   }
+
+  // Google Docs: the r.jina.ai path below returns the editor chrome ("Tab",
+  // "Request edit access", avatar) with a 200 — not the doc body — so it would
+  // win the response.ok check and starve Gemini of real text. A link-shared
+  // doc's plain-text export endpoint returns the full recipe (title,
+  // ingredients, instructions) instead. Scoped to docs.google.com and run
+  // before the generic path, so every other host falls straight through to the
+  // existing r.jina.ai + oEmbed flow unchanged.
+  try {
+    const docUrl = new URL(sourceUrl);
+    if (docUrl.hostname === 'docs.google.com' || docUrl.hostname.endsWith('.docs.google.com')) {
+      const match = docUrl.pathname.match(/\/document\/d\/([^/]+)/);
+      if (match) {
+        const exportUrl = `https://docs.google.com/document/d/${match[1]}/export?format=txt`;
+        const exportResponse = await fetch(exportUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)' },
+        });
+        // Only trust a plain-text body. A private/unshared doc redirects to a
+        // Google sign-in HTML page (also 200) that must never reach Gemini.
+        const contentType = exportResponse.headers.get('content-type') || '';
+        if (exportResponse.ok && contentType.includes('text/plain')) {
+          const text = (await exportResponse.text()).trim();
+          if (text) return text;
+        }
+      }
+    }
+  } catch {
+    // Fall through to the generic r.jina.ai path below.
+  }
+
   const proxied = `https://r.jina.ai/${sourceUrl}`;
   const response = await fetch(proxied, {
     headers: {
@@ -6141,6 +6205,27 @@ Recipe text from the provided URL (truncated to 8k chars):
 ${truncated}`;
 }
 
+// Calls the Gemini extract prompt and parses its JSON, retrying once when the
+// model returns malformed JSON (parseGeminiRecipeJson -> null). JSON mode makes
+// malformations rare, but the residual `]`->`"` slip is intermittent, so a
+// single retry recovers nearly all of them. Returns the parsed object, or null
+// if every attempt failed to parse. Shared by captionExtract + textInference, so
+// import, edit auto-fill, and re-enrich all benefit identically.
+export async function callGeminiExtract(
+  env: Env,
+  prompt: string,
+  deps: CallGeminiDeps = {},
+  maxAttempts = 2
+): Promise<any | null> {
+  let parsed: any = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const completion = await callGemini(env, prompt, deps);
+    parsed = parseGeminiRecipeJson(completion);
+    if (parsed) return parsed;
+  }
+  return parsed;
+}
+
 async function callGemini(env: Env, prompt: string, deps: CallGeminiDeps = {}) {
   const {
     fetchImpl = fetch,
@@ -6174,6 +6259,12 @@ async function callGemini(env: Env, prompt: string, deps: CallGeminiDeps = {}) {
         generationConfig: {
           temperature: 0.2,
           maxOutputTokens: 4096,
+          // JSON mode: constrains the model to emit syntactically valid JSON.
+          // Fixes the malformed-JSON failures (stray `]`->`"`, hallucinated
+          // tokens) that made parseGeminiRecipeJson return null and silently
+          // drop ingredients/steps. All three callGemini callers are recipe
+          // extraction calls that already expect JSON, so this is uniform.
+          responseMimeType: 'application/json',
           thinkingConfig: {
             thinkingBudget: 0
           }
