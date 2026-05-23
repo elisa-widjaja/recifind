@@ -28,6 +28,7 @@ export default function Recipes() {
   const [expanded, setExpanded] = useState({}); // key -> bool
   const [toast, setToast] = useState('');
   const [confirm, setConfirm] = useState(null); // { recipeId, title }
+  const [reEnrichTarget, setReEnrichTarget] = useState(null); // { recipeId, title }
 
   const load = () => {
     const q = search.trim();
@@ -56,6 +57,20 @@ export default function Recipes() {
   const doUnhide = (rid) =>
     post(`/admin/recipes/${rid}/unhide`).then(() => { setToast('Recipe unhidden'); load(); })
       .catch((e) => setToast(`Unhide failed: ${e.message}`));
+  const doReEnrich = (rid) =>
+    post(`/admin/recipes/${rid}/re-enrich`)
+      .then((d) => {
+        const r = d?.recipe || {};
+        const ing = (r.ingredients || []).length;
+        const steps = (r.steps || []).length;
+        if (ing === 0 && steps === 0) {
+          setToast('Source returned nothing — content unchanged');
+        } else {
+          setToast(`Re-enriched (${ing} ingredients, provenance: ${r.provenance || 'n/a'})`);
+        }
+        load();
+      })
+      .catch((e) => setToast(`Re-enrich failed: ${e.message}`));
 
   const toggle = (key) => setExpanded((m) => ({ ...m, [key]: !m[key] }));
 
@@ -101,6 +116,7 @@ export default function Recipes() {
                   onToggle={() => toggle(g.key)}
                   onHide={(rid) => setConfirm({ recipeId: rid, title: g.title })}
                   onUnhide={doUnhide}
+                  onReEnrich={(rid) => setReEnrichTarget({ recipeId: rid, title: g.title })}
                 />
               ))}
             </TableBody>
@@ -122,12 +138,20 @@ export default function Recipes() {
         onConfirm={() => { doHide(confirm.recipeId); setConfirm(null); }}
         onClose={() => setConfirm(null)}
       />
+      <ConfirmModal
+        open={!!reEnrichTarget}
+        title={`Re-enrich "${reEnrichTarget?.title}"?`}
+        body="Re-runs enrichment on the source URL and replaces this recipe's ingredients and steps. If the source can't be parsed, the current content is kept."
+        confirmLabel="Re-enrich"
+        onConfirm={() => { doReEnrich(reEnrichTarget.recipeId); setReEnrichTarget(null); }}
+        onClose={() => setReEnrichTarget(null)}
+      />
       <Snackbar open={!!toast} autoHideDuration={3000} message={toast} onClose={() => setToast('')} />
     </Box>
   );
 }
 
-function RecipeGroupRow({ g, open, onToggle, onHide, onUnhide }) {
+function RecipeGroupRow({ g, open, onToggle, onHide, onUnhide, onReEnrich }) {
   return (
     <>
       <TableRow
@@ -178,7 +202,7 @@ function RecipeGroupRow({ g, open, onToggle, onHide, onUnhide }) {
                     <TableCell>Recipe ID</TableCell>
                     <TableCell>Saved</TableCell>
                     <TableCell>Visibility</TableCell>
-                    <TableCell sx={{ width: 88 }} />
+                    <TableCell sx={{ width: 168 }} />
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -206,7 +230,8 @@ function RecipeGroupRow({ g, open, onToggle, onHide, onUnhide }) {
                           <Chip size="small" variant="outlined" label="private" />
                         )}
                       </TableCell>
-                      <TableCell align="right" sx={{ width: 88 }}>
+                      <TableCell align="right" sx={{ width: 168 }}>
+                        <Button size="small" onClick={() => onReEnrich(o.id)}>Re-enrich</Button>
                         {o.hidden_at ? (
                           <Button size="small" onClick={() => onUnhide(o.id)}>Unhide</Button>
                         ) : (
