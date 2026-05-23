@@ -5,6 +5,7 @@ import { handleAdminMe } from './admin';
 import { buildUsersListQuery } from './admin';
 import { buildSignupsPerDayQuery, buildViralCoefWeeklyQuery } from './admin';
 import { buildRecipeSearchQuery } from './admin';
+import { deriveImageStatus } from './admin';
 
 describe('isAdminEmail', () => {
   it('returns true for an email in ADMIN_EMAILS (single value)', () => {
@@ -967,5 +968,35 @@ describe('handleAdminAuditLog', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.entries).toHaveLength(1);
+  });
+});
+
+describe('deriveImageStatus', () => {
+  it("returns 'none' for empty, null, undefined, or whitespace", () => {
+    expect(deriveImageStatus('')).toBe('none');
+    expect(deriveImageStatus(null)).toBe('none');
+    expect(deriveImageStatus(undefined)).toBe('none');
+    expect(deriveImageStatus('   ')).toBe('none');
+  });
+
+  it("returns 'hosted' for a Supabase public storage URL", () => {
+    expect(
+      deriveImageStatus(
+        'https://jpjuaaxwfpemecbwwthk.supabase.co/storage/v1/object/public/recipe-previews/preview/u/r/x.jpg'
+      )
+    ).toBe('hosted');
+  });
+
+  it("returns 'stale' for an external CDN URL", () => {
+    expect(
+      deriveImageStatus('https://scontent-sjc6-1.cdninstagram.com/v/t51.jpg?oh=abc&oe=def')
+    ).toBe('stale');
+  });
+});
+
+describe('buildRecipeSearchQuery image_url', () => {
+  it('selects r.image_url so image status can be derived', () => {
+    const { sql } = buildRecipeSearchQuery({ q: 'pie', limit: 10 });
+    expect(sql).toContain('r.image_url');
   });
 });

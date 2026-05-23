@@ -8,6 +8,18 @@ export function isAdminEmail(email: string | undefined, adminEmails: string | un
     .includes(target);
 }
 
+export type ImageStatus = 'none' | 'hosted' | 'stale';
+
+// Classify a recipe's image_url for the admin UI. The Supabase public-URL marker
+// is a stable substring, so no env is needed. Used to gate the per-recipe
+// "Re-host" button (only meaningful for a 'stale' external image).
+export function deriveImageStatus(imageUrl: string | null | undefined): ImageStatus {
+  const u = (imageUrl || '').trim();
+  if (!u) return 'none';
+  if (u.includes('/storage/v1/object/public/')) return 'hosted';
+  return 'stale';
+}
+
 export interface AuditLogEntry {
   adminEmail: string;
   action: string;
@@ -354,7 +366,7 @@ export async function handleAdminUserDrilldown(args: {
 
   // 2. Recipes
   const recipes = await args.env.DB.prepare(
-    `SELECT id, title, source_url, created_at, hidden_at, shared_with_friends
+    `SELECT id, title, source_url, image_url, created_at, hidden_at, shared_with_friends
      FROM recipes WHERE user_id = ? ORDER BY created_at DESC`
   ).bind(args.userId).all();
 
@@ -436,7 +448,7 @@ export async function handleAdminUserDrilldown(args: {
 
   return json(200, {
     profile,
-    recipes: recipes.results || [],
+    recipes: (recipes.results || []).map((r: any) => ({ ...r, image_status: deriveImageStatus(r.image_url) })),
     cook_events: cookEvents.results || [],
     shares: shares.results || [],
     invite_conversions: enrichedConversions,
@@ -860,6 +872,7 @@ export function buildRecipeSearchQuery(p: { q: string; limit: number }): BuiltQu
       r.user_id             AS user_id,
       r.title               AS title,
       r.source_url          AS source_url,
+      r.image_url           AS image_url,
       r.created_at          AS created_at,
       r.hidden_at           AS hidden_at,
       r.shared_with_friends AS shared_with_friends,
@@ -912,6 +925,7 @@ export async function handleAdminSearchRecipes(args: {
       created_at: r.created_at,
       shared_with_friends: r.shared_with_friends,
       hidden_at: r.hidden_at || null,
+      image_status: deriveImageStatus(r.image_url),
     });
     g.owner_count += 1;
     if (r.hidden_at) g.hidden_count += 1;

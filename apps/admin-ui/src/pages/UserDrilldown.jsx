@@ -90,6 +90,28 @@ export default function UserDrilldown({ id }) {
   const doUnhideRecipe = (rid) =>
     post(`/admin/recipes/${rid}/unhide`, {}).then(() => { setToast('Recipe unhidden'); reload(); })
       .catch((e) => setToast(`Unhide failed: ${e.message}`));
+  const doReHostRecipe = (rid) =>
+    fetchAdmin('/admin/migrate-images', { method: 'POST', body: JSON.stringify({ recipeIds: [rid], dryRun: false }) })
+      .then((d) => {
+        const r = (d.results || [])[0];
+        const st = r?.status;
+        if (st === 'rehosted') setToast('Image re-hosted');
+        else if (st === 'cleared') setToast(`Image cleared — ${r?.reason || 'source had no image'}`);
+        else setToast(`Re-host failed — ${r?.reason || 'unknown'}`);
+        reload();
+      })
+      .catch((e) => setToast(`Re-host failed: ${e.message}`));
+  const doReEnrichRecipe = (rid) =>
+    post(`/admin/recipes/${rid}/re-enrich`, {})
+      .then((d) => {
+        const r = d?.recipe || {};
+        const ing = (r.ingredients || []).length;
+        const steps = (r.steps || []).length;
+        if (ing === 0 && steps === 0) setToast('Source returned nothing — content unchanged');
+        else setToast(`Re-enriched (${ing} ingredients, provenance: ${r.provenance || 'n/a'})`);
+        reload();
+      })
+      .catch((e) => setToast(`Re-enrich failed: ${e.message}`));
 
   if (error) return <Typography color="error">{error}</Typography>;
   if (!data) return <CircularProgress />;
@@ -344,11 +366,25 @@ export default function UserDrilldown({ id }) {
                           </TableCell>
                           <TableCell>{new Date(r.created_at).toLocaleDateString()}</TableCell>
                           <TableCell align="right">
-                            {!r.hidden_at ? (
-                              <Button size="small" onClick={() => setConfirm({ kind: 'hide_recipe', recipeId: r.id, title: r.title })}>Hide</Button>
-                            ) : (
-                              <Button size="small" color="primary" onClick={() => doUnhideRecipe(r.id)}>Unhide</Button>
-                            )}
+                            <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
+                              <Button
+                                size="small"
+                                sx={{ whiteSpace: 'nowrap', minWidth: 'auto' }}
+                                disabled={r.image_status !== 'stale'}
+                                title={r.image_status === 'stale' ? 'Re-host this image onto Supabase' : `Image is ${r.image_status || 'none'} — nothing to re-host`}
+                                onClick={() => setConfirm({ kind: 'rehost_recipe', recipeId: r.id, title: r.title })}
+                              >Re-host</Button>
+                              <Button
+                                size="small"
+                                sx={{ whiteSpace: 'nowrap', minWidth: 'auto' }}
+                                onClick={() => setConfirm({ kind: 'reenrich_recipe', recipeId: r.id, title: r.title })}
+                              >Re-enrich</Button>
+                              {!r.hidden_at ? (
+                                <Button size="small" sx={{ minWidth: 'auto' }} onClick={() => setConfirm({ kind: 'hide_recipe', recipeId: r.id, title: r.title })}>Hide</Button>
+                              ) : (
+                                <Button size="small" color="primary" sx={{ minWidth: 'auto' }} onClick={() => doUnhideRecipe(r.id)}>Unhide</Button>
+                              )}
+                            </Box>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -463,6 +499,22 @@ export default function UserDrilldown({ id }) {
         destructive
         confirmLabel="Hide"
         onConfirm={() => { doHideRecipe(confirm.recipeId); setConfirm(null); }}
+        onClose={() => setConfirm(null)}
+      />
+      <ConfirmModal
+        open={confirm?.kind === 'rehost_recipe'}
+        title={`Re-host image for "${confirm?.title}"?`}
+        body="Re-fetches the image from the source URL and stores it on Supabase. If the source no longer has an image, the current image is cleared."
+        confirmLabel="Re-host"
+        onConfirm={() => { doReHostRecipe(confirm.recipeId); setConfirm(null); }}
+        onClose={() => setConfirm(null)}
+      />
+      <ConfirmModal
+        open={confirm?.kind === 'reenrich_recipe'}
+        title={`Re-enrich "${confirm?.title}"?`}
+        body="Re-runs enrichment on the source URL and replaces this recipe's ingredients and steps. If the source can't be parsed, the current content is kept."
+        confirmLabel="Re-enrich"
+        onConfirm={() => { doReEnrichRecipe(confirm.recipeId); setConfirm(null); }}
         onClose={() => setConfirm(null)}
       />
       <Dialog open={editName.open} onClose={() => setEditName({ ...editName, open: false })}>

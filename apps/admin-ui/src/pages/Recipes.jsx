@@ -29,6 +29,7 @@ export default function Recipes() {
   const [toast, setToast] = useState('');
   const [confirm, setConfirm] = useState(null); // { recipeId, title }
   const [reEnrichTarget, setReEnrichTarget] = useState(null); // { recipeId, title }
+  const [reHostTarget, setReHostTarget] = useState(null); // { recipeId, title }
 
   const load = () => {
     const q = search.trim();
@@ -71,6 +72,17 @@ export default function Recipes() {
         load();
       })
       .catch((e) => setToast(`Re-enrich failed: ${e.message}`));
+  const doReHost = (rid) =>
+    fetchAdmin('/admin/migrate-images', { method: 'POST', body: JSON.stringify({ recipeIds: [rid], dryRun: false }) })
+      .then((d) => {
+        const r = (d.results || [])[0];
+        const st = r?.status;
+        if (st === 'rehosted') setToast('Image re-hosted');
+        else if (st === 'cleared') setToast(`Image cleared — ${r?.reason || 'source had no image'}`);
+        else setToast(`Re-host failed — ${r?.reason || 'unknown'}`);
+        load();
+      })
+      .catch((e) => setToast(`Re-host failed: ${e.message}`));
 
   const toggle = (key) => setExpanded((m) => ({ ...m, [key]: !m[key] }));
 
@@ -117,6 +129,7 @@ export default function Recipes() {
                   onHide={(rid) => setConfirm({ recipeId: rid, title: g.title })}
                   onUnhide={doUnhide}
                   onReEnrich={(rid) => setReEnrichTarget({ recipeId: rid, title: g.title })}
+                  onReHost={(rid) => setReHostTarget({ recipeId: rid, title: g.title })}
                 />
               ))}
             </TableBody>
@@ -146,12 +159,20 @@ export default function Recipes() {
         onConfirm={() => { doReEnrich(reEnrichTarget.recipeId); setReEnrichTarget(null); }}
         onClose={() => setReEnrichTarget(null)}
       />
+      <ConfirmModal
+        open={!!reHostTarget}
+        title={`Re-host image for "${reHostTarget?.title}"?`}
+        body="Re-fetches the image from the source URL and stores it on Supabase. If the source no longer has an image, the current image is cleared."
+        confirmLabel="Re-host"
+        onConfirm={() => { doReHost(reHostTarget.recipeId); setReHostTarget(null); }}
+        onClose={() => setReHostTarget(null)}
+      />
       <Snackbar open={!!toast} autoHideDuration={3000} message={toast} onClose={() => setToast('')} />
     </Box>
   );
 }
 
-function RecipeGroupRow({ g, open, onToggle, onHide, onUnhide, onReEnrich }) {
+function RecipeGroupRow({ g, open, onToggle, onHide, onUnhide, onReEnrich, onReHost }) {
   return (
     <>
       <TableRow
@@ -202,7 +223,7 @@ function RecipeGroupRow({ g, open, onToggle, onHide, onUnhide, onReEnrich }) {
                     <TableCell>Recipe ID</TableCell>
                     <TableCell>Saved</TableCell>
                     <TableCell>Visibility</TableCell>
-                    <TableCell sx={{ width: 200 }} />
+                    <TableCell sx={{ width: 280 }} />
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -230,8 +251,15 @@ function RecipeGroupRow({ g, open, onToggle, onHide, onUnhide, onReEnrich }) {
                           <Chip size="small" variant="outlined" label="private" />
                         )}
                       </TableCell>
-                      <TableCell align="right" sx={{ width: 200 }}>
+                      <TableCell align="right" sx={{ width: 280 }}>
                         <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
+                          <Button
+                            size="small"
+                            sx={{ whiteSpace: 'nowrap', minWidth: 'auto' }}
+                            disabled={o.image_status !== 'stale'}
+                            title={o.image_status === 'stale' ? 'Re-host this image onto Supabase' : `Image is ${o.image_status || 'none'} — nothing to re-host`}
+                            onClick={() => onReHost(o.id)}
+                          >Re-host</Button>
                           <Button size="small" sx={{ whiteSpace: 'nowrap', minWidth: 'auto' }} onClick={() => onReEnrich(o.id)}>Re-enrich</Button>
                           {o.hidden_at ? (
                             <Button size="small" sx={{ minWidth: 'auto' }} onClick={() => onUnhide(o.id)}>Unhide</Button>
