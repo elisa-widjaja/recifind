@@ -202,7 +202,7 @@ function RecipeGroupRow({ g, open, onToggle, onHide, onUnhide, onReEnrich }) {
                     <TableCell>Recipe ID</TableCell>
                     <TableCell>Saved</TableCell>
                     <TableCell>Visibility</TableCell>
-                    <TableCell sx={{ width: 168 }} />
+                    <TableCell sx={{ width: 200 }} />
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -230,13 +230,15 @@ function RecipeGroupRow({ g, open, onToggle, onHide, onUnhide, onReEnrich }) {
                           <Chip size="small" variant="outlined" label="private" />
                         )}
                       </TableCell>
-                      <TableCell align="right" sx={{ width: 168 }}>
-                        <Button size="small" onClick={() => onReEnrich(o.id)}>Re-enrich</Button>
-                        {o.hidden_at ? (
-                          <Button size="small" onClick={() => onUnhide(o.id)}>Unhide</Button>
-                        ) : (
-                          <Button size="small" onClick={() => onHide(o.id)}>Hide</Button>
-                        )}
+                      <TableCell align="right" sx={{ width: 200 }}>
+                        <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
+                          <Button size="small" sx={{ whiteSpace: 'nowrap', minWidth: 'auto' }} onClick={() => onReEnrich(o.id)}>Re-enrich</Button>
+                          {o.hidden_at ? (
+                            <Button size="small" sx={{ minWidth: 'auto' }} onClick={() => onUnhide(o.id)}>Unhide</Button>
+                          ) : (
+                            <Button size="small" sx={{ minWidth: 'auto' }} onClick={() => onHide(o.id)}>Hide</Button>
+                          )}
+                        </Box>
                       </TableCell>
                     </TableRow>
                   ))}
