@@ -17,6 +17,11 @@ export default defineConfig({
     },
   },
   build: {
-    sourcemap: true,
+    // No production source maps: nothing consumes them (no Sentry / map upload),
+    // and `true` emitted a ~3.8 MB index.js.map that `cap copy` bundled into the
+    // iOS app for no runtime benefit. `false` (not 'hidden', which still writes
+    // the .map to dist) strips it. Dev source maps are unaffected — the Vite dev
+    // server generates its own regardless of this build-only setting.
+    sourcemap: false,
   },
 });
