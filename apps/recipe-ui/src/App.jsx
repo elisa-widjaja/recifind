@@ -2550,7 +2550,7 @@ function App() {
         saveRecipesToCache(updated, session?.user?.id || null, serverVersionRef.current);
         return updated;
       });
-      setSnackbarState({ open: true, message: `"${recipe.title}" saved to your collection!`, severity: 'success' });
+      setSnackbarState({ open: true, message: `"${recipe.title}" saved to your collection!`, severity: 'success', duration: 2000 });
       dismissSuggestion(recipe.id);
     } catch {
       setSnackbarState({ open: true, message: 'Failed to save recipe', severity: 'error' });
@@ -4005,6 +4005,7 @@ function App() {
                 open: true,
                 message: `"${recipe.title}" saved to your recipes!`,
                 severity: 'success',
+                duration: 2000,
                 anchorOrigin: { vertical: 'top', horizontal: 'center' }
               });
             });
@@ -4113,7 +4114,8 @@ function App() {
     setSnackbarState({
       open: true,
       message: `Deleted "${deletedTitle}".`,
-      severity: 'info'
+      severity: 'info',
+      duration: 2000
     });
   };
 
@@ -4169,7 +4171,8 @@ function App() {
     setSnackbarState({
       open: true,
       message: `Saved "${activeRecipeDraft.title}".`,
-      severity: 'success'
+      severity: 'success',
+      duration: 2000
     });
 
     setActiveRecipe(updatedRecipe);
@@ -7562,7 +7565,22 @@ function App() {
         onClose={handleSnackbarClose}
         anchorOrigin={snackbarState.anchorOrigin}
       >
-        <Alert onClose={handleSnackbarClose} severity={snackbarState.severity} sx={{ width: '100%' }}>
+        <Alert
+          onClose={handleSnackbarClose}
+          severity={snackbarState.severity}
+          sx={{
+            width: '100%',
+            // Long recipe titles are embedded in save/delete messages; clamp the
+            // message to two lines so a long title can't balloon the snackbar.
+            '& .MuiAlert-message': {
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              wordBreak: 'break-word',
+            },
+          }}
+        >
           {snackbarState.message}
         </Alert>
       </Snackbar>
