@@ -121,7 +121,7 @@ import SourcesWorkflowRow from './components/SourcesWorkflowRow';
 import { FriendPicker } from './components/FriendPicker';
 import { ShareSheet } from './components/ShareSheet';
 import { shareRecipe } from './lib/shareRecipe';
-import { buildRecipeShareUrl } from './lib/shareUrl';
+import { buildRecipeShareUrl, buildRecipeAppDeepLink } from './lib/shareUrl';
 import { CUISINE_LABELS, CUISINE_ORDER } from './lib/cuisines';
 // === [/S04] ===
 // === [S09] Capacitor auth ===
@@ -7676,7 +7676,19 @@ function App() {
               const onLeave = () => { handedOff = true; };
               document.addEventListener('visibilitychange', onLeave, { once: true });
               window.addEventListener('pagehide', onLeave, { once: true });
-              window.location.href = 'recifriend://recipes';
+              // Deep-link to the recipe currently being viewed so the app opens
+              // its DETAIL page (not the listing). Mirror the cold-load parser:
+              // id from the `/recipes/{id}` path or legacy `?recipe=` query,
+              // owner from `?user=`. Falls back to the recipes list off-recipe.
+              const loc = new URL(window.location.href);
+              let deepRecipeId = loc.searchParams.get('recipe');
+              if (!deepRecipeId) {
+                const dm = loc.pathname.match(/^\/recipes\/([^/?#]+)\/?$/);
+                if (dm) {
+                  try { deepRecipeId = decodeURIComponent(dm[1]); } catch { deepRecipeId = dm[1]; }
+                }
+              }
+              window.location.href = buildRecipeAppDeepLink(deepRecipeId, loc.searchParams.get('user'));
               setTimeout(() => {
                 document.removeEventListener('visibilitychange', onLeave);
                 window.removeEventListener('pagehide', onLeave);
