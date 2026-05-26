@@ -1098,12 +1098,11 @@ const trackEvent = (name, params = {}) => {
     : null;
   if (flagFor) {
     try {
-      const raw = Object.keys(localStorage)
-        .find((k) => k.startsWith('sb-') && k.endsWith('-auth-token'));
-      if (raw) {
-        const userId = JSON.parse(localStorage.getItem(raw))?.user?.id;
-        if (userId) localStorage.setItem(`onboarding_${flagFor}_${userId}`, '1');
-      }
+      // storageKey matches supabaseClient.js — custom 'recifriend-auth' instead
+      // of the default 'sb-{ref}-auth-token', so don't fall back to the sb- prefix.
+      const raw = localStorage.getItem('recifriend-auth');
+      const userId = raw ? JSON.parse(raw)?.user?.id : null;
+      if (userId) localStorage.setItem(`onboarding_${flagFor}_${userId}`, '1');
     } catch { /* swallow — never block tracking on a parse error */ }
   }
 };
@@ -3448,7 +3447,7 @@ function App() {
   }, [onboardingDrawerOpen]);
 
 
-  // Show "See this in app" prompt on iOS Mobile Safari after a 90s dwell.
+  // Show "See this in app" prompt on iOS Mobile Safari after a 0.5s dwell.
   // Skipped inside the Capacitor app (we're already in it), in standalone
   // PWA mode, when the user has permanently dismissed it, or after they've
   // chosen "Continue in browser" earlier this session.
@@ -3462,7 +3461,7 @@ function App() {
     if (sessionStorage.getItem('pending_invite_token')) return;
     if (sessionStorage.getItem('invite_entry')) return;
     if (onboardingDrawerOpen) return;
-    const timer = setTimeout(() => setShowInstallBanner(true), 15000);
+    const timer = setTimeout(() => setShowInstallBanner(true), 500);
     return () => clearTimeout(timer);
   }, [isAuthChecked, session, onboardingDrawerOpen]);
 
@@ -3756,7 +3755,7 @@ function App() {
       if (isStandalone || isPwaInstalled()) return;
       if (localStorage.getItem('recifriend-install-banner-dismissed')) return;
       if (sessionStorage.getItem('recifriend-app-prompt-dismissed')) return;
-      setTimeout(() => setShowInstallBanner(true), 1000);
+      setTimeout(() => setShowInstallBanner(true), 500);
     };
 
     // Handle share token URLs (preferred method for shared recipes)
@@ -5223,9 +5222,11 @@ function App() {
 
   const shareLoggedOutDirect = async (recipe, anchorPosition) => {
     const url = buildRecipeShareUrl(recipe.id, recipe.userId);
+    const subject = `A recipe was shared with you on ReciFriend.`;
+    const body = `A recipe was shared with you on ReciFriend.\n\n${recipe.title}\n\n${url}`;
     if (navigator.share) {
       try {
-        await navigator.share({ title: recipe.title, text: `Check out this recipe on ReciFriend: ${recipe.title}`, url });
+        await navigator.share({ title: subject, text: body, url });
         trackEvent('share_recipe', { method: 'native_share' });
         return;
       } catch (err) {
@@ -5255,10 +5256,13 @@ function App() {
       const ownerId = recipe.userId || session?.user?.id || null;
       const recipeId = typeof recipe.id === 'string' && !recipe.id.startsWith('recipe-') ? recipe.id : null;
       const shareUrl = buildRecipeShareUrl(recipeId, ownerId);
+      const sharerName = userProfile?.displayName || 'A friend';
+      const subject = `${sharerName} shared a recipe with you on ReciFriend.`;
+      const body = `${sharerName} shared a recipe with you on ReciFriend.\n\n${recipe.title}\n\n${shareUrl}`;
 
       if (navigator.share) {
         try {
-          await navigator.share({ title: recipe.title, text: `Check out this recipe on ReciFriend: ${recipe.title}`, url: shareUrl });
+          await navigator.share({ title: subject, text: body, url: shareUrl });
           trackEvent('share_recipe', { method: 'native_share' });
           return;
         } catch (err) {
@@ -5296,6 +5300,7 @@ function App() {
       // to the user even though every selected friend now has access.
       const count = recipientUserIds.length;
       setSnackbarState({ open: true, message: `Shared with ${count} friend${count === 1 ? '' : 's'}`, severity: 'success' });
+      trackEvent('share_recipe', { method: 'in_app_friends' });
     } else {
       const code = result?.error?.code;
       // HttpError responses use { error: "<message>" } instead of { code }; surface either.
@@ -5323,6 +5328,7 @@ function App() {
       // ?share={token} links still resolve server-side for backward compat.
       const shareUrl = buildRecipeShareUrl(pickerRecipeId, session?.user?.id || null);
       navigator.clipboard.writeText(shareUrl);
+      trackEvent('share_recipe', { method: 'in_app_copy_link' });
     }
   };
   // === [/S04] ===
@@ -5853,9 +5859,12 @@ function App() {
         <MenuItem onClick={async () => {
           const { url, title } = shareMenuState;
           setShareMenuState(null);
+          const sharerName = userProfile?.displayName || 'A friend';
+          const subject = `${sharerName} shared a recipe with you on ReciFriend.`;
+          const body = `${sharerName} shared a recipe with you on ReciFriend.\n\n${title}\n\n${url}`;
           if (navigator.share) {
             try {
-              await navigator.share({ title, text: `Check out this recipe on ReciFriend: ${title}`, url });
+              await navigator.share({ title: subject, text: body, url });
               trackEvent('share_recipe', { method: 'native_share' });
               return;
             } catch (err) {
@@ -5874,8 +5883,9 @@ function App() {
         <MenuItem onClick={() => {
           const { url, title } = shareMenuState;
           setShareMenuState(null);
-          const subject = encodeURIComponent(`Check out this recipe: ${title}`);
-          const body = encodeURIComponent(`Check out this recipe on ReciFriend: ${title}\n\n${url}`);
+          const sharerName = userProfile?.displayName || 'A friend';
+          const subject = encodeURIComponent(`${sharerName} shared a recipe with you on ReciFriend.`);
+          const body = encodeURIComponent(`${sharerName} shared a recipe with you on ReciFriend.\n\n${title}\n\n${url}`);
           window.location.href = `mailto:?subject=${subject}&body=${body}`;
           trackEvent('share_recipe', { method: 'email' });
         }}>
@@ -5885,7 +5895,8 @@ function App() {
         <MenuItem onClick={() => {
           const { url, title } = shareMenuState;
           setShareMenuState(null);
-          const body = encodeURIComponent(`Check out this recipe: ${title}\n\n${url}`);
+          const sharerName = userProfile?.displayName || 'A friend';
+          const body = encodeURIComponent(`${sharerName} shared a recipe with you on ReciFriend.\n\n${title}\n\n${url}`);
           window.open(`sms:?body=${body}`);
           trackEvent('share_recipe', { method: 'sms' });
         }}>

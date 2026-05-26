@@ -2469,7 +2469,7 @@ async function handleCreateRecipe(
       sendPushToUser(env as any, f.friend_id, {
         title: 'ReciFriend',
         body: `${saverName} saved ${recipe.title}`,
-        deepLink: `https://recifriend.com/recipes/${recipe.id}`,
+        deepLink: `https://recifriend.com/recipes/${recipe.id}?user=${user.userId}`,
       }).catch(() => { /* silent — push is best-effort */ });
       // === [/S05] ===
     }
@@ -2489,7 +2489,7 @@ async function handleCreateRecipe(
     sendPushToUser(env as any, originalUserId!, {
       title: 'ReciFriend',
       body: `${saverName} saved your recipe ${recipe.title}`,
-      deepLink: `https://recifriend.com/recipes/${recipe.id}`,
+      deepLink: `https://recifriend.com/recipes/${recipe.id}?user=${user.userId}`,
     }).catch(() => { /* silent — push is best-effort */ });
   }
 

@@ -129,11 +129,14 @@ export async function handleShareRecipe(args: {
     'SELECT display_name FROM profiles WHERE user_id = ?'
   ).bind(sharerId).first<{ display_name?: string }>();
   const recipeRow = await env.DB.prepare(
-    'SELECT title FROM recipes WHERE id = ?'
-  ).bind(recipeId).first<{ title?: string }>();
+    'SELECT title, image_url FROM recipes WHERE id = ?'
+  ).bind(recipeId).first<{ title?: string; image_url?: string }>();
   const sharerName = sharer?.display_name ?? 'A friend';
   const recipeTitle = recipeRow?.title ?? 'a recipe';
-  const deepLink = `https://recifriend.com/recipes/${recipeId}`;
+  const recipeImage = recipeRow?.image_url ?? '';
+  // ?user= lets the recipient's app resolve the recipe via the public lookup
+  // endpoint (the recipe isn't in their local list yet).
+  const deepLink = `https://recifriend.com/recipes/${recipeId}?user=${recipe!.user_id}`;
 
   // 6. Push notifications (best-effort, delivered only if the recipient has
   //    a registered device token).
@@ -192,18 +195,49 @@ export async function handleShareRecipe(args: {
       const unsub = secret
         ? `https://api.recifriend.com/unsubscribe?userId=${encodeURIComponent(rid)}&token=${await computeHmac(secret, rid)}`
         : 'https://recifriend.com';
-      const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
-        <p style="font-size:16px;color:#1a1a1a;">${sharerName} shared a recipe with you on ReciFriend:</p>
-        <p style="font-size:20px;font-weight:700;color:#1a1a1a;margin:8px 0 20px;">${recipeTitle}</p>
-        <a href="${deepLink}" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;font-weight:600;padding:12px 24px;border-radius:999px;">View recipe</a>
-        <p style="margin-top:32px;font-size:12px;color:#999;">
-          <a href="${unsub}" style="color:#999;">Unsubscribe</a>
-        </p>
-      </div>`;
+      // Card layout: 80x80 thumbnail + 2-line-clamped title inside a rounded
+      // theme-aware container; View recipe button lives below the card, aligned
+      // with its left edge. Tables instead of flexbox for email-client
+      // compatibility (Outlook etc.). -webkit-line-clamp + prefers-color-scheme
+      // work in Apple Mail / Gmail web; Outlook will wrap text and stay on
+      // light defaults — acceptable graceful degradation.
+      const thumbnailCell = recipeImage
+        ? `<td width="80" valign="top" style="width:80px;padding:0 16px 0 0;">
+            <a href="${deepLink}" style="display:block;text-decoration:none;">
+              <img src="${recipeImage}" alt="${recipeTitle}" width="80" height="80" style="display:block;width:80px;height:80px;object-fit:cover;border-radius:8px;border:0;" />
+            </a>
+          </td>`
+        : '';
+      const html = `<!DOCTYPE html><html><head><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><style>
+        @media (prefers-color-scheme: dark) {
+          .rf-card { background-color: #2a2a2a !important; }
+          .rf-title { color: #fafafa !important; }
+          .rf-unsub, .rf-unsub a { color: #777 !important; }
+        }
+      </style></head><body style="margin:0;padding:0;">
+        <div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
+          <div class="rf-card" style="background-color:#f5f5f5;border-radius:12px;padding:12px;">
+            <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;width:100%;">
+              <tr>
+                ${thumbnailCell}
+                <td valign="middle">
+                  <p class="rf-title" style="font-size:16px;color:#1a1a1a;margin:0;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${recipeTitle}</p>
+                </td>
+              </tr>
+            </table>
+          </div>
+          <div style="margin-top:16px;">
+            <a href="${deepLink}" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;font-weight:600;padding:10px 20px;border-radius:999px;font-size:14px;">View recipe</a>
+          </div>
+          <p class="rf-unsub" style="margin-top:32px;font-size:12px;color:#999;">
+            <a href="${unsub}" style="color:#999;">Unsubscribe</a>
+          </p>
+        </div>
+      </body></html>`;
       await sendEmailNotification(
         env as any,
         profile.email,
-        `${sharerName} shared ${recipeTitle} with you`,
+        `${sharerName} shared a recipe with you on ReciFriend.`,
         html,
       );
     }

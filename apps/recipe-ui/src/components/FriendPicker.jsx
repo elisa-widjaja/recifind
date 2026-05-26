@@ -165,8 +165,7 @@ export function FriendPicker({ open, friends, onClose, onSend, darkMode = false 
         </Box>
 
         {friends.length > 0 && (
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1.5, borderTop: 1, borderColor: 'divider' }}>
-            <Button onClick={handleCopyLink}>Copy link</Button>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', px: 2, py: 1.5, borderTop: 1, borderColor: 'divider' }}>
             <Button
               onClick={handleSend}
               variant="contained"
