@@ -502,6 +502,36 @@ export default {
         return await handleTestNudgeEmail({ env, user, adminEmails: env.ADMIN_EMAILS, request });
       }
 
+      // Dev-only push tester. Bypasses friend/canView checks so we can verify
+      // APNs end-to-end without setting up a real share. Gated to DEV_API_KEY
+      // callers only (user.userId === 'dev-user'). Removable once push is
+      // confirmed working.
+      if (url.pathname === '/admin/push-test' && request.method === 'POST') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        if (user.userId !== 'dev-user') throw new HttpError(403, 'DEV_API_KEY required');
+        const body = await request.json() as { user_id?: string; title?: string; body?: string };
+        if (!body.user_id || typeof body.user_id !== 'string') {
+          throw new HttpError(400, 'user_id required');
+        }
+        const tokenCheck = await env.DB.prepare(
+          'SELECT COUNT(*) AS n FROM device_tokens WHERE user_id = ?'
+        ).bind(body.user_id).first<{ n: number }>();
+        const tokenCount = Number(tokenCheck?.n ?? 0);
+        if (tokenCount === 0) {
+          return json({ ok: false, tokenCount: 0, message: 'No device tokens registered for this user.' }, 200, withCors());
+        }
+        try {
+          const results = await sendPushToUser(env as any, body.user_id, {
+            title: body.title || 'ReciFriend',
+            body: body.body || 'Test push',
+            deepLink: 'https://recifriend.com/recipes',
+          });
+          return json({ ok: true, tokenCount, results }, 200, withCors());
+        } catch (e) {
+          return json({ ok: false, tokenCount, error: (e as Error).message }, 500, withCors());
+        }
+      }
+
       // One-shot backfill: re-host stale external image_urls onto Supabase.
       // Body: { dryRun?: boolean, batchSize?: number, hostnames?: string[] }.
       // Idempotent and batched — call repeatedly until totalRemaining hits 0.
@@ -1795,14 +1825,14 @@ export async function getTrendingRecipes(
   // on which rows belong to Editor's Picks this week.
   const editorsIds = new Set(
     all
-      .map((r) => ({ id: String(r.id), key: fnv1a32(`${String(r.id)}:${week}`) }))
+      .map((r) => ({ id: String(r.id), key: fnv1a32(`${week}:${String(r.id)}`) }))
       .sort((a, b) => a.key - b.key)
       .slice(0, EDITORS_PICK_WEEKLY_LIMIT)
       .map((x) => x.id)
   );
   const ranked = all
     .filter((r) => !editorsIds.has(String(r.id)))
-    .map((r) => ({ row: r, key: fnv1a32(`trending:${String(r.id)}:${week}`) }))
+    .map((r) => ({ row: r, key: fnv1a32(`${week}:trending:${String(r.id)}`) }))
     .sort((a, b) => a.key - b.key)
     .slice(0, TRENDING_WEEKLY_LIMIT);
   return ranked.map(({ row: r }) => ({
@@ -1911,8 +1941,12 @@ export async function getEditorsPick(
   // week). Same week → same 7 picks; new week → new set, but always a stable
   // ordering within the week.
   const week = currentWeekIndex(now);
+  // Week-AT-START so the fnv1a32 cascade fully mixes per week. With week at
+  // the end (`${id}:${week}`), changing only the last input char shifts every
+  // recipe's hash by ±0x01000193 (the FNV prime), preserving relative ordering
+  // and producing near-identical top-7 week-over-week.
   const ranked = all
-    .map((r) => ({ row: r, key: fnv1a32(`${String(r.id)}:${week}`) }))
+    .map((r) => ({ row: r, key: fnv1a32(`${week}:${String(r.id)}`) }))
     .sort((a, b) => a.key - b.key)
     .slice(0, EDITORS_PICK_WEEKLY_LIMIT);
   return ranked.map(({ row: r }) => ({

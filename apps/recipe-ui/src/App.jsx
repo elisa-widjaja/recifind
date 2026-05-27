@@ -2319,12 +2319,26 @@ function App() {
   const [softPromptContext, setSoftPromptContext] = useState(null);
 
   const pushApi = {
-    register: ({ apns_token }) =>
-      fetch(`${API_BASE_URL}/devices/register`, {
+    // Read accessToken via ref so this closure always uses the latest token —
+    // the bare `accessToken` const is captured per-render and may be stale (or
+    // null on first render), causing the POST to send `Bearer null` and 401
+    // silently. Also check `res.ok` so a 401/4xx surfaces instead of being
+    // swallowed by `.then(r => r.json())`.
+    register: async ({ apns_token }) => {
+      const jwt = accessTokenRef.current;
+      if (!jwt) throw new Error('no accessToken at /devices/register');
+      const res = await fetch(`${API_BASE_URL}/devices/register`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ apns_token }),
-      }).then(r => r.json()),
+      });
+      if (!res.ok) {
+        let detail = '';
+        try { detail = JSON.stringify(await res.json()); } catch { /* ignore */ }
+        throw new Error(`/devices/register ${res.status}${detail ? ` ${detail}` : ''}`);
+      }
+      return await res.json();
+    },
   };
 
   async function triggerSoftPromptIfNeeded(context) {

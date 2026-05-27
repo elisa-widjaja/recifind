@@ -82,18 +82,25 @@ async function defaultGetJwt(env: ApnsEnv): Promise<string> {
   return token;
 }
 
+export type ApnsSendResult = {
+  token: string; // first 8 chars + "…"
+  status: number;
+  reason?: string;
+  host: string;
+};
+
 export async function sendPushToUser(
   env: ApnsEnv,
   userId: string,
   msg: { title: string; body: string; deepLink: string },
   _getJwt: JwtSigner = defaultGetJwt
-): Promise<void> {
+): Promise<ApnsSendResult[]> {
   const rows = await env.DB.prepare(
     'SELECT apns_token FROM device_tokens WHERE user_id = ?'
   ).bind(userId).all<{ apns_token: string }>();
 
   const tokens = rows.results ?? [];
-  if (tokens.length === 0) return;
+  if (tokens.length === 0) return [];
 
   const jwt = await _getJwt(env);
   const host = env.APNS_HOST ?? 'api.push.apple.com';
@@ -102,7 +109,7 @@ export async function sendPushToUser(
     deep_link: msg.deepLink,
   };
 
-  await Promise.all(tokens.map(async ({ apns_token }) => {
+  return await Promise.all(tokens.map(async ({ apns_token }): Promise<ApnsSendResult> => {
     const res = await fetch(`https://${host}/3/device/${apns_token}`, {
       method: 'POST',
       headers: {
@@ -115,20 +122,21 @@ export async function sendPushToUser(
       body: JSON.stringify(payload),
     });
 
-    if (res.status === 410 || res.status === 400) {
-      // BadDeviceToken or Unregistered — clean up
-      let reason = '';
-      try { reason = (await res.json() as { reason?: string }).reason ?? ''; } catch { /* ignore */ }
-      if (
-        reason === 'BadDeviceToken' ||
-        reason === 'Unregistered' ||
-        reason === 'DeviceTokenNotForTopic'
-      ) {
-        await env.DB.prepare(
-          'DELETE FROM device_tokens WHERE apns_token = ?'
-        ).bind(apns_token).run();
-      }
+    let reason: string | undefined;
+    if (res.status !== 200) {
+      try { reason = (await res.json() as { reason?: string }).reason; } catch { /* ignore */ }
     }
-    // Non-410/400 errors: log and move on (silent failure is fine; next push will retry)
+
+    if ((res.status === 410 || res.status === 400) && reason && (
+      reason === 'BadDeviceToken' ||
+      reason === 'Unregistered' ||
+      reason === 'DeviceTokenNotForTopic'
+    )) {
+      await env.DB.prepare(
+        'DELETE FROM device_tokens WHERE apns_token = ?'
+      ).bind(apns_token).run();
+    }
+
+    return { token: apns_token.slice(0, 8) + '…', status: res.status, reason, host };
   }));
 }

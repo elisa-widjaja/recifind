@@ -46,4 +46,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
     }
 
+    // Bridge UIKit APNs callbacks to Capacitor's PushNotifications plugin.
+    // Without these, iOS receives the token from APNs but the JS 'registration'
+    // event never fires (the plugin listens on these NotificationCenter posts).
+    // See: https://capacitorjs.com/docs/apis/push-notifications#ios-1
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
+    }
+
 }

@@ -12,26 +12,55 @@ let currentToken = null;
  */
 export async function ensureRegistered({ api, jwt }) {
   const { receive } = await PushNotifications.checkPermissions();
-  if (receive === 'granted') {
-    await _register(api);
-    return;
-  }
-  if (receive === 'denied') return; // user already said no
+  console.log('[push] ensureRegistered: iOS permission =', receive);
 
-  // prompt-able
-  const prompted = await hasPromptedForPermission();
-  if (prompted) return;
-  const { receive: afterPrompt } = await PushNotifications.requestPermissions();
-  await Preferences.set({ key: 'push_prompted', value: 'true' });
-  if (afterPrompt === 'granted') await _register(api);
+  // Permission-prompting still gates on prior state — Apple's policy only lets
+  // the native dialog appear once. After that, we *always* call _register so
+  // the app surfaces in Settings → Notifications, regardless of permission
+  // outcome. iOS won't deliver pushes until granted, but the app being in
+  // Settings lets the user toggle it on later. Skipping register() here was
+  // the dead-end that left a user unable to re-grant after dismissing the
+  // first dialog.
+  if (receive !== 'granted' && receive !== 'denied') {
+    const prompted = await hasPromptedForPermission();
+    console.log('[push] hasPromptedForPermission =', prompted);
+    if (!prompted) {
+      console.log('[push] requesting iOS permission…');
+      const { receive: afterPrompt } = await PushNotifications.requestPermissions();
+      console.log('[push] after prompt =', afterPrompt);
+      await Preferences.set({ key: 'push_prompted', value: 'true' });
+    }
+  } else if (receive === 'denied') {
+    console.warn('[push] iOS permission denied — pushes will not deliver until enabled in Settings → Notifications → ReciFriend');
+  }
+
+  await _register(api);
 }
 
 async function _register(api) {
-  await PushNotifications.register();
+  // Listeners must be added BEFORE register() — Capacitor's PushNotifications
+  // docs are explicit on this. If we register first, iOS can fire the
+  // 'registration' event before the listener is attached, and the APNs
+  // token is lost permanently (no retry path).
   await PushNotifications.addListener('registration', async ({ value }) => {
+    console.log('[push] APNs token received', value?.slice(0, 8) + '…');
     currentToken = value;
-    await api.register({ apns_token: value });
+    try {
+      await api.register({ apns_token: value });
+      console.log('[push] /devices/register OK');
+    } catch (err) {
+      console.error('[push] /devices/register failed:', err?.message || err);
+    }
   });
+  await PushNotifications.addListener('registrationError', ({ error }) => {
+    console.error('[push] APNs registration error:', error);
+  });
+  try {
+    await PushNotifications.register();
+    console.log('[push] PushNotifications.register() resolved — awaiting token…');
+  } catch (err) {
+    console.error('[push] PushNotifications.register() threw:', err?.message || err);
+  }
 }
 
 export async function hasPromptedForPermission() {
