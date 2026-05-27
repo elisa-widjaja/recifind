@@ -1295,6 +1295,13 @@ async function handleGetProfile(env: Env, user: AuthenticatedUser) {
   const onboardingRow = await env.DB.prepare(
     'SELECT onboarding_seen FROM profiles WHERE user_id = ?'
   ).bind(user.userId).first<{ onboarding_seen: number | null }>();
+  // Server-side derivation for the "Share a recipe" onboarding step so it
+  // survives app reinstall (the localStorage flag gets wiped with WebView
+  // data on reinstall). Mirrors the `friends.length > 0` fallback the
+  // invite step already has.
+  const sharedRow = await env.DB.prepare(
+    'SELECT 1 FROM recipe_shares WHERE sharer_id = ? LIMIT 1'
+  ).bind(user.userId).first<{ '1': number } | undefined>();
   return json({
     displayName: profile.displayName,
     email: profile.email,
@@ -1305,6 +1312,7 @@ async function handleGetProfile(env: Env, user: AuthenticatedUser) {
     dietaryPrefs: profile.dietaryPrefs,
     avatarUrl: profile.avatarUrl,
     onboardingSeen: Boolean(onboardingRow?.onboarding_seen),
+    hasSharedRecipe: Boolean(sharedRow),
   });
 }
 

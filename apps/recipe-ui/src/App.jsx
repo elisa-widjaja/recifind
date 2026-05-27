@@ -5594,9 +5594,14 @@ function App() {
                   const hasInvitedFriend =
                     Boolean(userId && localStorage.getItem(`onboarding_invited_${userId}`)) ||
                     friends.length > 0;
-                  const hasSharedRecipe = Boolean(
-                    userId && localStorage.getItem(`onboarding_shared_${userId}`)
-                  );
+                  // Server-derived fallback (`userProfile.hasSharedRecipe`)
+                  // covers the reinstall case where localStorage is wiped but
+                  // the user actually did share recipes (data lives in D1's
+                  // recipe_shares). Mirrors the friends.length fallback on
+                  // hasInvitedFriend.
+                  const hasSharedRecipe =
+                    Boolean(userId && localStorage.getItem(`onboarding_shared_${userId}`)) ||
+                    Boolean(userProfile?.hasSharedRecipe);
                   const allDoneFlag = userId ? `onboarding_complete_${userId}` : null;
                   const allDoneCached = Boolean(allDoneFlag && localStorage.getItem(allDoneFlag));
                   const allDoneNow = hasRecipe && hasInvitedFriend && hasSharedRecipe;
