@@ -2341,16 +2341,39 @@ function App() {
     },
   };
 
+  // After the user taps "Not now" on the soft prompt, suppress it for this
+  // many ms. Re-shows on the next contextual moment (share recipe / send
+  // friend request) once the window expires.
+  const PUSH_SOFT_PROMPT_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
   async function triggerSoftPromptIfNeeded(context) {
     if (!Capacitor.isNativePlatform()) return;
     if (await hasPromptedForPermission()) return;
+    // Cooldown: skip if user dismissed within the last 7 days.
+    const { value: dismissedAtRaw } = await Preferences.get({ key: 'push_prompt_dismissed_at' });
+    if (dismissedAtRaw) {
+      const dismissedAt = Number(dismissedAtRaw);
+      if (Number.isFinite(dismissedAt) && Date.now() - dismissedAt < PUSH_SOFT_PROMPT_COOLDOWN_MS) {
+        return;
+      }
+    }
     setSoftPromptContext(context);
     setSoftPromptOpen(true);
   }
 
   async function handleSoftPromptAccept() {
     setSoftPromptOpen(false);
+    // Clear any prior dismiss so future re-prompts (if iOS permission still
+    // 'prompt' after the native dialog) aren't suppressed by stale cooldown.
+    try { await Preferences.remove({ key: 'push_prompt_dismissed_at' }); } catch { /* ignore */ }
     await ensureRegistered({ api: pushApi, jwt: accessToken });
+  }
+
+  async function handleSoftPromptDismiss() {
+    setSoftPromptOpen(false);
+    try {
+      await Preferences.set({ key: 'push_prompt_dismissed_at', value: String(Date.now()) });
+    } catch { /* ignore — non-fatal */ }
   }
 
   // Wire notification taps; silently re-register on sign-in if permission was
@@ -5467,7 +5490,7 @@ function App() {
         open={softPromptOpen}
         context={softPromptContext}
         onAccept={handleSoftPromptAccept}
-        onDismiss={() => setSoftPromptOpen(false)}
+        onDismiss={handleSoftPromptDismiss}
       />
       {/* === [/S11] === */}
 
