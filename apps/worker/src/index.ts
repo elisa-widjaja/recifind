@@ -2184,10 +2184,14 @@ export async function getFriendActivity(
   // (fromUserId) — the latter so the activity feed can show the requester's
   // avatar. friend_request still renders its NAME from item.message (the
   // dedup keys depend on that), so we only use fromUserId for the avatar.
+  // friend_accepted notifications are the outlier: handleAcceptFriendRequest
+  // writes the accepter's id under `friendId` (not fromUserId), so include
+  // it here too — without this, the activity row falls back to the colored
+  // initial even when the accepter has an avatar in their profile.
   const actorIds = [...new Set(
     parsed.flatMap(item => {
       const d = item.data as Record<string, unknown>;
-      return [d.saverId, d.sharerId, d.cookerId, d.fromUserId]
+      return [d.saverId, d.sharerId, d.cookerId, d.fromUserId, d.friendId]
         .filter((v): v is string => typeof v === 'string' && v.length > 0);
     })
   )];
@@ -2225,15 +2229,20 @@ export async function getFriendActivity(
       const saverId = typeof d.saverId === 'string' ? d.saverId : undefined;
       const sharerId = typeof d.sharerId === 'string' ? d.sharerId : undefined;
       const cookerId = typeof d.cookerId === 'string' ? d.cookerId : undefined;
+      // friend_accepted stores the accepter under `friendId` rather than the
+      // recipe-actor keys above; include it so the avatar + tap-to-open-drawer
+      // both resolve for that type.
+      const friendIdFromData = typeof d.friendId === 'string' ? d.friendId : undefined;
       // Live name by recipe-actor id first; fall back to the baked name,
       // then the first word of the baked message (friend_request path).
       const actorId = saverId ?? sharerId ?? cookerId;
       const friendName: string | null =
         (actorId ? actorNameById.get(actorId) : undefined)
+        ?? (friendIdFromData ? actorNameById.get(friendIdFromData) : undefined)
         ?? (d.friendName as string | undefined)
         ?? item.message.split(' ')[0]
         ?? null;
-      const friendUserId = fromUserId ?? saverId ?? sharerId ?? cookerId;
+      const friendUserId = fromUserId ?? saverId ?? sharerId ?? cookerId ?? friendIdFromData;
       // Avatar by friendUserId so friend_request (fromUserId) resolves too,
       // not just recipe actors.
       const avatarUrl = friendUserId ? (actorAvatarById.get(friendUserId) ?? null) : null;
@@ -3622,13 +3631,19 @@ async function handleAcceptFriendRequest(_request: Request, env: Env, user: Auth
     createdAt: now
   });
 
+  // border-radius works in Gmail / Apple Mail / iOS Mail / Outlook 365 web; classic
+  // Outlook desktop (Word renderer) will fall back to a square. Image hosted on
+  // Supabase public bucket so no auth needed in the email client.
+  const avatarImg = userProfile.avatarUrl
+    ? `<img src="${userProfile.avatarUrl}" width="28" height="28" alt="" style="width: 28px; height: 28px; border-radius: 50%; vertical-align: middle; margin-right: 8px; object-fit: cover;" />`
+    : '';
   ctx.waitUntil(sendEmailNotification(
     env,
     fromProfile.email,
     `${userProfile.displayName} accepted your friend request on ReciFriend`,
     `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
       <h2 style="margin: 0 0 16px; font-size: 20px; color: #1a1a1a;">You're now connected!</h2>
-      <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;"><strong>${userProfile.displayName}</strong> accepted your friend request. You can now share recipes with each other on ReciFriend.</p>
+      <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;">${avatarImg}<strong>${userProfile.displayName}</strong> accepted your friend request. You can now share recipes with each other on ReciFriend.</p>
       <a href="https://recifriend.com" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Open ReciFriend</a>
       <p style="margin: 24px 0 0; font-size: 13px; color: #999;">You received this because your friend request was accepted on ReciFriend.</p>
     </div>`
