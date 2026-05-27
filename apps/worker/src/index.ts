@@ -3317,6 +3317,28 @@ async function handleDismissSuggestion(request: Request, env: Env, user: Authent
   return json({ ok: true }, 200, withCors());
 }
 
+// Renders a 28px avatar for email bodies. If avatarUrl is set, emits an
+// <img>; otherwise emits a colored circle with the first letter, picking
+// the color via the same hash → palette mapping as the in-app avatar
+// (apps/recipe-ui/src/lib/avatarColor.js) so the email matches the app UI.
+// Span-based fallback works in Gmail / Apple Mail / iOS Mail / Outlook 365;
+// classic Outlook desktop falls back to a square.
+const EMAIL_AVATAR_PALETTE = ['#7c3aed', '#10b981', '#f59e0b', '#ef4444', '#06b6d4'];
+function emailAvatarColor(id: string): string {
+  if (!id) return EMAIL_AVATAR_PALETTE[0];
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  return EMAIL_AVATAR_PALETTE[Math.abs(hash) % EMAIL_AVATAR_PALETTE.length];
+}
+function renderEmailAvatar(opts: { displayName: string; avatarUrl?: string | null; userId?: string }): string {
+  if (opts.avatarUrl) {
+    return `<img src="${opts.avatarUrl}" width="28" height="28" alt="" style="width: 28px; height: 28px; border-radius: 50%; vertical-align: middle; margin-right: 8px; object-fit: cover;" />`;
+  }
+  const letter = (opts.displayName || '?').charAt(0).toUpperCase();
+  const color = emailAvatarColor(opts.userId || '');
+  return `<span style="display: inline-block; width: 28px; height: 28px; line-height: 28px; border-radius: 50%; background-color: ${color}; color: #fff; text-align: center; font-weight: 600; font-size: 13px; vertical-align: middle; margin-right: 8px;">${letter}</span>`;
+}
+
 async function handleSendFriendRequest(request: Request, env: Env, user: AuthenticatedUser, ctx: ExecutionContext) {
   const body = await readJsonBody(request);
   let email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
@@ -3403,13 +3425,18 @@ async function handleSendFriendRequest(request: Request, env: Env, user: Authent
     createdAt: now
   });
 
+  const senderAvatar = renderEmailAvatar({
+    displayName: senderProfile.displayName,
+    avatarUrl: senderProfile.avatarUrl,
+    userId: user.userId,
+  });
   ctx.waitUntil(sendEmailNotification(
     env,
     email,
     `${senderProfile.displayName}'s request to add you on ReciFriend`,
     `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
       <h2 style="margin: 0 0 16px; font-size: 20px; color: #1a1a1a;">${senderProfile.displayName}'s request to add you</h2>
-      <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;"><strong>${senderProfile.displayName}</strong> wants to add you as a friend on <a href="https://recifriend.com" style="color: #6200EA; text-decoration: none;">ReciFriend</a> and share recipes together.</p>
+      <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;">${senderAvatar}<strong>${senderProfile.displayName}</strong> wants to add you as a friend on <a href="https://recifriend.com" style="color: #6200EA; text-decoration: none;">ReciFriend</a> and share recipes together.</p>
       <a href="https://recifriend.com/friend-requests?accept_friend=${encodeURIComponent(user.userId)}" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Accept</a>
       <p style="margin: 24px 0 0; font-size: 13px; color: #999;">You received this because someone sent you a friend request on ReciFriend.</p>
     </div>`
@@ -3633,10 +3660,14 @@ async function handleAcceptFriendRequest(_request: Request, env: Env, user: Auth
 
   // border-radius works in Gmail / Apple Mail / iOS Mail / Outlook 365 web; classic
   // Outlook desktop (Word renderer) will fall back to a square. Image hosted on
-  // Supabase public bucket so no auth needed in the email client.
-  const avatarImg = userProfile.avatarUrl
-    ? `<img src="${userProfile.avatarUrl}" width="28" height="28" alt="" style="width: 28px; height: 28px; border-radius: 50%; vertical-align: middle; margin-right: 8px; object-fit: cover;" />`
-    : '';
+  // Supabase public bucket so no auth needed in the email client. When the
+  // accepter has no avatar, fall back to a colored initial that matches the
+  // in-app avatar palette (renderEmailAvatar).
+  const avatarImg = renderEmailAvatar({
+    displayName: userProfile.displayName,
+    avatarUrl: userProfile.avatarUrl,
+    userId: user.userId,
+  });
   ctx.waitUntil(sendEmailNotification(
     env,
     fromProfile.email,
