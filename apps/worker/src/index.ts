@@ -509,7 +509,7 @@ export default {
       if (url.pathname === '/admin/push-test' && request.method === 'POST') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
         if (user.userId !== 'dev-user') throw new HttpError(403, 'DEV_API_KEY required');
-        const body = await request.json() as { user_id?: string; title?: string; body?: string };
+        const body = await request.json() as { user_id?: string; title?: string; body?: string; deep_link?: string };
         if (!body.user_id || typeof body.user_id !== 'string') {
           throw new HttpError(400, 'user_id required');
         }
@@ -524,7 +524,7 @@ export default {
           const results = await sendPushToUser(env as any, body.user_id, {
             title: body.title || 'ReciFriend',
             body: body.body || 'Test push',
-            deepLink: 'https://recifriend.com/recipes',
+            deepLink: body.deep_link || 'https://recifriend.com/recipes',
           });
           return json({ ok: true, tokenCount, results }, 200, withCors());
         } catch (e) {

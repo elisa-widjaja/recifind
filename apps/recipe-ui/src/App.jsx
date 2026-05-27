@@ -1088,22 +1088,27 @@ function loadInitialCache() {
   }
 }
 
+// Module-scope userId, kept in sync from inside App via the effect below.
+// trackEvent runs at module scope and the prior implementation tried to read
+// the userId from localStorage — but on iOS native the Supabase session lives
+// in iOS Keychain (see lib/keychainStorage.js), not localStorage, so the
+// lookup always returned null and the onboarding flag was never written. A
+// mutable module-scope var avoids the cross-storage problem entirely.
+let currentUserIdForTracking = null;
+export function setCurrentUserIdForTracking(id) {
+  currentUserIdForTracking = id || null;
+}
+
 const trackEvent = (name, params = {}) => {
   if (window.gtag) window.gtag('event', name, params);
   // Side-effect: mark onboarding steps done as their corresponding events fire.
-  // userId is read from supabase's session in localStorage so this works
-  // without React state (trackEvent is module-scope).
   const flagFor = name === 'invite_friend' ? 'invited'
     : name === 'share_recipe' ? 'shared'
     : null;
-  if (flagFor) {
+  if (flagFor && currentUserIdForTracking) {
     try {
-      // storageKey matches supabaseClient.js — custom 'recifriend-auth' instead
-      // of the default 'sb-{ref}-auth-token', so don't fall back to the sb- prefix.
-      const raw = localStorage.getItem('recifriend-auth');
-      const userId = raw ? JSON.parse(raw)?.user?.id : null;
-      if (userId) localStorage.setItem(`onboarding_${flagFor}_${userId}`, '1');
-    } catch { /* swallow — never block tracking on a parse error */ }
+      localStorage.setItem(`onboarding_${flagFor}_${currentUserIdForTracking}`, '1');
+    } catch { /* swallow — never block tracking on a write error */ }
   }
 };
 
@@ -3755,6 +3760,14 @@ function App() {
     acceptFriendRequestRef.current = acceptFriendRequest;
     accessTokenRef.current = accessToken;
   }, [acceptFriendRequest, accessToken]);
+
+  // Keep the module-scope userId in sync for trackEvent's onboarding-flag
+  // side-effect — see comment near trackEvent definition. Without this, the
+  // 'Share a recipe' / 'Invite a friend' steps never tick off on iOS (where
+  // Supabase auth lives in Keychain, not localStorage).
+  useEffect(() => {
+    setCurrentUserIdForTracking(session?.user?.id || null);
+  }, [session]);
 
   useEffect(() => {
     setIsInferredCaveatOpen(false);
