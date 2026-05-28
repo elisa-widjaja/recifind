@@ -4518,16 +4518,30 @@ export async function getRecommendedRecipes(
     const validPrefs = allPrefs.filter(p => p && p !== 'None / all good');
 
     if (validPrefs.length > 0) {
+      // Primary pool is the curator's account (Elisa's) restricted to Supabase-
+      // re-hosted images so thumbnails actually load in email clients. Then we
+      // pass each candidate through isCleanDiscoveryRow for the same title +
+      // ingredients/steps quality bar the public discovery shelves use.
+      // Overfetch (LIMIT 20) so the in-memory clean filter has slack before
+      // slicing to `limit`.
       const likeClauses = validPrefs.map(() => '(r.meal_types LIKE ? OR r.ingredients LIKE ?)').join(' OR ');
       const likeBinds = validPrefs.flatMap(pref => [`%${pref}%`, `%${pref}%`]);
       const rows = await db.prepare(
-        `SELECT id, user_id, title, duration_minutes, meal_types, image_url FROM recipes r
-         WHERE r.user_id != ? AND r.shared_with_friends = 1 AND r.hidden_at IS NULL AND (${likeClauses})
-         ORDER BY RANDOM() LIMIT ?`
-      ).bind(userId, ...likeBinds, limit).all();
+        `SELECT id, user_id, title, duration_minutes, meal_types, image_url, ingredients, steps FROM recipes r
+         WHERE r.user_id = ?
+           AND r.shared_with_friends = 1
+           AND r.hidden_at IS NULL
+           AND r.image_url LIKE 'https://%supabase%'
+           AND (${likeClauses})
+         ORDER BY RANDOM() LIMIT 20`
+      ).bind(EDITORS_PICK_USER_ID, ...likeBinds).all();
 
-      if (rows.results.length > 0) {
-        rawRecipes = rows.results.map((r: Record<string, unknown>) => ({
+      const cleanRows = (rows.results as Array<Record<string, unknown>>)
+        .filter(isCleanDiscoveryRow)
+        .slice(0, limit);
+
+      if (cleanRows.length > 0) {
+        rawRecipes = cleanRows.map((r) => ({
           id: String(r.id),
           userId: String(r.user_id),
           title: String(r.title),
@@ -4539,10 +4553,13 @@ export async function getRecommendedRecipes(
     }
   }
 
-  // Fallback: curated community recipes
+  // Fallback: curated community recipes. Emails can't resolve relative
+  // image URLs (e.g. `/images/recipes/foo.jpg` works in-app but not in
+  // Gmail/Apple Mail), so restrict to Supabase-re-hosted absolute URLs.
   if (rawRecipes.length === 0) {
     const fallback = await getTrendingRecipes(db);
-    rawRecipes = fallback.sort(() => Math.random() - 0.5).slice(0, limit).map(r => ({
+    const emailSafe = fallback.filter(r => r.imageUrl.startsWith('https://') && r.imageUrl.includes('supabase'));
+    rawRecipes = emailSafe.sort(() => Math.random() - 0.5).slice(0, limit).map(r => ({
       id: r.id,
       userId: r.userId,
       title: r.title,
@@ -4686,7 +4703,7 @@ export function buildNudgeEmailHtml(
   </div>
 
   <div style="text-align:center;padding:20px 24px 32px;">
-    <a href="https://recifriend.com/?add=1" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:14px 36px;border-radius:999px;font-size:16px;font-weight:700;">Save Your First Recipe →</a>
+    <a href="https://recifriend.com/recipes" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:14px 36px;border-radius:999px;font-size:16px;font-weight:700;">Save Your First Recipe →</a>
   </div>
 
   <div style="border-top:1px solid #eee;margin:0 24px;"></div>
@@ -4713,7 +4730,7 @@ export function buildNudgeEmailHtml(
       <p style="font-size:14px;opacity:0.9;margin:12px 0 16px;line-height:1.5;">
         Invite 5 friends and when each friend adds 5 recipes, you'll earn a <strong>gift card</strong> and a <strong>mystery goody bag</strong>!
       </p>
-      <a href="https://recifriend.com" style="display:inline-block;background:#fff;color:#764ba2;text-decoration:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:700;">Invite Friends →</a>
+      <a href="https://recifriend.com/friends" style="display:inline-block;background:#fff;color:#764ba2;text-decoration:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:700;">Invite Friends →</a>
     </div>
   </div>
 

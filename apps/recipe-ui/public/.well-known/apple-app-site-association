@@ -6,8 +6,10 @@
         "appID": "7C6PMUN99K.com.recifriend.app",
         "paths": [
           "/auth/callback",
+          "/recipes",
           "/recipes/*",
           "/friend-requests",
+          "/friends",
           "/add-recipe"
         ]
       }
