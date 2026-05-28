@@ -121,7 +121,7 @@ import SourcesWorkflowRow from './components/SourcesWorkflowRow';
 import { FriendPicker } from './components/FriendPicker';
 import { ShareSheet } from './components/ShareSheet';
 import { shareRecipe } from './lib/shareRecipe';
-import { buildRecipeShareUrl, buildRecipeAppDeepLink } from './lib/shareUrl';
+import { SHARE_PUBLIC_URL, buildRecipeShareUrl, buildRecipeAppDeepLink } from './lib/shareUrl';
 import { CUISINE_LABELS, CUISINE_ORDER } from './lib/cuisines';
 // === [/S04] ===
 // === [S09] Capacitor auth ===
@@ -2543,7 +2543,7 @@ function App() {
     if (!accessToken) { openAuthDialog(); return null; }
     const res = await callRecipesApi('/friends/open-invite', { method: 'POST' }, accessToken);
     if (!res?.token) return null;
-    return `${window.location.origin}?invite=${res.token}`;
+    return `${SHARE_PUBLIC_URL}?invite=${res.token}`;
   };
 
   const openInviteSheet = async () => {
@@ -5273,7 +5273,7 @@ function App() {
   const shareLoggedOutDirect = async (recipe, anchorPosition) => {
     const url = buildRecipeShareUrl(recipe.id, recipe.userId);
     const subject = `A recipe was shared with you on ReciFriend.`;
-    const body = `A recipe was shared with you on ReciFriend.\n\n${recipe.title}\n\n${url}`;
+    const body = `A recipe was shared with you on ReciFriend.\n\n${recipe.title}`;
     if (navigator.share) {
       try {
         await navigator.share({ title: subject, text: body, url });
@@ -5308,7 +5308,7 @@ function App() {
       const shareUrl = buildRecipeShareUrl(recipeId, ownerId);
       const sharerName = userProfile?.displayName || 'A friend';
       const subject = `${sharerName} shared a recipe with you on ReciFriend.`;
-      const body = `${sharerName} shared a recipe with you on ReciFriend.\n\n${recipe.title}\n\n${shareUrl}`;
+      const body = `${sharerName} shared a recipe with you on ReciFriend.\n\n${recipe.title}`;
 
       if (navigator.share) {
         try {
@@ -5427,7 +5427,7 @@ function App() {
             if (!token) return;
           }
           const subject = encodeURIComponent('Join me on ReciFriend!');
-          const body = encodeURIComponent(`Hey! I'd love to share recipes with you on ReciFriend.\n\nJoin me here: ${window.location.origin}?invite=${token}`);
+          const body = encodeURIComponent(`Hey! I'd love to share recipes with you on ReciFriend.\n\nJoin me here: ${SHARE_PUBLIC_URL}?invite=${token}`);
           window.location.href = `mailto:?subject=${subject}&body=${body}`;
           trackEvent('invite_friend', { method: 'email' });
         }}
@@ -5442,18 +5442,18 @@ function App() {
             } finally { setOpenInviteLinkLoading(false); }
             if (!token) return;
           }
-          const inviteUrl = `${window.location.origin}?invite=${token}`;
-          const text = `Hey! I'd love to share recipes with you on ReciFriend. Join me here: ${inviteUrl}`;
+          const inviteUrl = `${SHARE_PUBLIC_URL}?invite=${token}`;
+          const message = `Hey! I'd love to share recipes with you on ReciFriend. Join me here: ${inviteUrl}`;
           if (navigator.share) {
             try {
-              await navigator.share({ text, url: inviteUrl });
+              await navigator.share({ text: message });
               trackEvent('invite_friend', { method: 'native_share' });
               return;
             } catch (err) {
               if (err.name === 'AbortError') return;
             }
           }
-          window.open(`sms:?body=${encodeURIComponent(text)}`);
+          window.open(`sms:?body=${encodeURIComponent(message)}`);
           trackEvent('invite_friend', { method: 'sms' });
         }}
         onShareCopyLink={async (existingToken) => {
@@ -5470,7 +5470,7 @@ function App() {
             } finally { setOpenInviteLinkLoading(false); }
             if (!token) return;
           }
-          navigator.clipboard.writeText(`${window.location.origin}?invite=${token}`);
+          navigator.clipboard.writeText(`${SHARE_PUBLIC_URL}?invite=${token}`);
           setSnackbarState({ open: true, message: 'Invite link copied!', severity: 'success' });
           trackEvent('invite_friend', { method: 'copy_link' });
         }}
@@ -5916,7 +5916,7 @@ function App() {
           setShareMenuState(null);
           const sharerName = userProfile?.displayName || 'A friend';
           const subject = `${sharerName} shared a recipe with you on ReciFriend.`;
-          const body = `${sharerName} shared a recipe with you on ReciFriend.\n\n${title}\n\n${url}`;
+          const body = `${sharerName} shared a recipe with you on ReciFriend.\n\n${title}`;
           if (navigator.share) {
             try {
               await navigator.share({ title: subject, text: body, url });
@@ -7331,7 +7331,7 @@ function App() {
                             if (!token) return;
                           }
                           const subject = encodeURIComponent('Join me on ReciFriend!');
-                          const body = encodeURIComponent(`Hey! I'd love to share recipes with you on ReciFriend.\n\nJoin me here: ${window.location.origin}?invite=${token}`);
+                          const body = encodeURIComponent(`Hey! I'd love to share recipes with you on ReciFriend.\n\nJoin me here: ${SHARE_PUBLIC_URL}?invite=${token}`);
                           window.location.href = `mailto:?subject=${subject}&body=${body}`;
                           trackEvent('invite_friend', { method: 'email' });
                         },
@@ -7350,18 +7350,18 @@ function App() {
                             } finally { setOpenInviteLinkLoading(false); }
                             if (!token) return;
                           }
-                          const inviteUrl = `${window.location.origin}?invite=${token}`;
-                          const text = `Hey! I'd love to share recipes with you on ReciFriend. Join me here: ${inviteUrl}`;
+                          const inviteUrl = `${SHARE_PUBLIC_URL}?invite=${token}`;
+                          const message = `Hey! I'd love to share recipes with you on ReciFriend. Join me here: ${inviteUrl}`;
                           if (navigator.share) {
                             try {
-                              await navigator.share({ text, url: inviteUrl });
+                              await navigator.share({ text: message });
                               trackEvent('invite_friend', { method: 'native_share' });
                               return;
                             } catch (err) {
                               if (err.name === 'AbortError') return;
                             }
                           }
-                          window.open(`sms:?body=${encodeURIComponent(text)}`);
+                          window.open(`sms:?body=${encodeURIComponent(message)}`);
                           trackEvent('invite_friend', { method: 'sms' });
                         },
                       },
@@ -7382,7 +7382,7 @@ function App() {
                             } finally { setOpenInviteLinkLoading(false); }
                             if (!token) return;
                           }
-                          navigator.clipboard.writeText(`${window.location.origin}?invite=${token}`);
+                          navigator.clipboard.writeText(`${SHARE_PUBLIC_URL}?invite=${token}`);
                           setSnackbarState({ open: true, message: 'Invite link copied!', severity: 'success' });
                           trackEvent('invite_friend', { method: 'copy_link' });
                         },
