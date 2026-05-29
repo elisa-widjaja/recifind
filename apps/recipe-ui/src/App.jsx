@@ -4387,10 +4387,13 @@ function App() {
       });
     } catch (error) {
       console.error('Unable to enhance recipe with AI.', error);
+      const message = error instanceof Error ? error.message : 'Unable to enhance this recipe.';
       setSnackbarState({
         open: true,
-        message: error instanceof Error ? error.message : 'Unable to enhance this recipe.',
-        severity: 'error'
+        message,
+        severity: 'error',
+        // The supported-platforms list must show in full, not clamped to 2 lines.
+        noClamp: /supported/i.test(message),
       });
     } finally {
       setIsActiveRecipeEnhancing(false);
@@ -4525,10 +4528,13 @@ function App() {
       });
     } catch (error) {
       console.error('Unable to enhance recipe with AI.', error);
+      const message = error instanceof Error ? error.message : 'Unable to enhance this recipe.';
       setSnackbarState({
         open: true,
-        message: error instanceof Error ? error.message : 'Unable to enhance this recipe.',
-        severity: 'error'
+        message,
+        severity: 'error',
+        // The supported-platforms list must show in full, not clamped to 2 lines.
+        noClamp: /supported/i.test(message),
       });
     } finally {
       setIsNewRecipeEnhancing(false);
@@ -6714,11 +6720,29 @@ function App() {
         <DialogTitle id="delete-recipe-dialog-title">Delete recipe?</DialogTitle>
         <DialogContent>
           <Typography variant="body1">
-            Are you sure you want to delete{' '}
-            <Typography component="span" variant="body1" sx={{ fontWeight: 600 }}>
-              {activeRecipeDraft?.title || activeRecipe?.title || 'this recipe'}
-            </Typography>
-            ? This action cannot be undone.
+            Are you sure you want to delete
+          </Typography>
+          <Typography
+            variant="body1"
+            sx={{
+              fontWeight: 600,
+              // Long titles otherwise balloon the dialog; clamp to two lines.
+              // Zero vertical padding + a hard max-height keep overflow:hidden
+              // from leaking a sliver of a third line.
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              wordBreak: 'break-word',
+              lineHeight: 1.43,
+              maxHeight: '2.86em',
+              my: 1.5,
+            }}
+          >
+            {activeRecipeDraft?.title || activeRecipe?.title || 'this recipe'}
+          </Typography>
+          <Typography variant="body1">
+            This action cannot be undone.
           </Typography>
         </DialogContent>
         <DialogActions sx={{ px: '24px' }}>
@@ -7627,24 +7651,52 @@ function App() {
 
       <Snackbar
         open={snackbarState.open}
-        autoHideDuration={snackbarState.duration ?? 4000}
+        // The full supported-platforms list runs 3–4 lines; give it 8s to read
+        // (matches the friend-connect success messages) instead of the 4s default.
+        autoHideDuration={snackbarState.duration ?? (/are supported right now/i.test(snackbarState.message || '') ? 8000 : 4000)}
         onClose={handleSnackbarClose}
         anchorOrigin={snackbarState.anchorOrigin}
+        sx={
+          // Bottom-anchored snackbars otherwise pin to bottom:0 on mobile, so the
+          // 64px bottom nav + home-indicator safe area clip the lower edge. Raise
+          // them to clear the nav bar (matches the FAB offset). Top-anchored ones
+          // (friend-connect, etc.) keep their default position.
+          snackbarState.anchorOrigin?.vertical === 'top'
+            ? undefined
+            : { bottom: { xs: 'calc(64px + env(safe-area-inset-bottom) + 16px)' } }
+        }
       >
         <Alert
           onClose={handleSnackbarClose}
           severity={snackbarState.severity}
           sx={{
             width: '100%',
+            // Center the icon/text/close vertically now that the message has no
+            // vertical padding of its own (see below).
+            alignItems: 'center',
             // Long recipe titles are embedded in save/delete messages; clamp the
             // message to two lines so a long title can't balloon the snackbar.
-            '& .MuiAlert-message': {
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-              wordBreak: 'break-word',
-            },
+            // Exception: the supported-platforms list (and any message flagged
+            // `noClamp`) must show in full, so skip the clamp for those. Keying
+            // off the message text covers every code path that surfaces this
+            // worker error (auto-parse, enrich buttons, and save) without having
+            // to flag each call site.
+            '& .MuiAlert-message': (snackbarState.noClamp || /are supported right now/i.test(snackbarState.message || ''))
+              ? { wordBreak: 'break-word' }
+              : {
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                  wordBreak: 'break-word',
+                  // MUI's default `padding: 8px 0` on the message means overflow:hidden
+                  // clips at the padding edge, so the bottom 8px reveals a sliver of
+                  // the truncated third line. Zero the vertical padding and hard-cap
+                  // the height to exactly two lines so nothing peeks through.
+                  py: 0,
+                  lineHeight: 1.43,
+                  maxHeight: '2.86em',
+                },
           }}
         >
           {snackbarState.message}
