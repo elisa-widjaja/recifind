@@ -4482,19 +4482,6 @@ interface RecommendedRecipe {
   shareUrl: string;
 }
 
-async function getOrCreateShareToken(db: D1Database, recipeUserId: string, recipeId: string): Promise<string> {
-  const existing = await db.prepare(
-    'SELECT token FROM share_links WHERE user_id = ? AND recipe_id = ?'
-  ).bind(recipeUserId, recipeId).first<{ token: string }>();
-  if (existing) return existing.token;
-
-  const token = generateShareToken();
-  await db.prepare(
-    'INSERT INTO share_links (token, user_id, recipe_id, created_at) VALUES (?, ?, ?, ?)'
-  ).bind(token, recipeUserId, recipeId, new Date().toISOString()).run();
-  return token;
-}
-
 export async function getRecommendedRecipes(
   db: D1Database,
   userId: string,
@@ -4569,16 +4556,16 @@ export async function getRecommendedRecipes(
     }));
   }
 
-  // Generate share links for each recipe
-  const results: RecommendedRecipe[] = [];
-  for (const r of rawRecipes) {
-    const token = await getOrCreateShareToken(db, r.userId, r.id);
-    results.push({
-      ...r,
-      shareUrl: `https://recifriend.com/?share=${token}`,
-    });
-  }
-  return results;
+  // Universal-Link path form (`/recipes/{id}?user={owner}`) so iOS opens the
+  // recipe detail directly in the app when installed (AASA claims /recipes/*).
+  // Same canonical format as buildRecipeShareUrl on the frontend. Recipients
+  // are usually new users who aren't friends with the owner yet; the
+  // shared_with_friends=1 filter upstream plus the /public/recipe/{owner}/{id}
+  // endpoint make the recipe viewable without auth or friendship.
+  return rawRecipes.map(r => ({
+    ...r,
+    shareUrl: `https://recifriend.com/recipes/${encodeURIComponent(r.id)}?user=${encodeURIComponent(r.userId)}`,
+  }));
 }
 
 async function getRecipesForUser(
