@@ -1015,3 +1015,32 @@ describe('Facebook link-shim rejection', () => {
     expect(isFacebookLinkShim(new URL('https://www.instagram.com/reel/ABC/?u=x'))).toBe(false);
   });
 });
+
+describe('fetchOembedCaption for Facebook', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('reads og:description from facebook reel HTML', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      text: async () =>
+        `<html><head><meta property="og:description" content="Garlic butter shrimp. Ingredients: 1 lb shrimp, 3 tbsp butter. Steps: 1. Melt butter 2. Add shrimp" /></head></html>`,
+    })) as unknown as typeof fetch;
+
+    const caption = await fetchOembedCaption('https://www.facebook.com/reel/123', { fetchImpl });
+    expect(caption).not.toBeNull();
+    expect(caption).toContain('Facebook creator');
+    expect(caption).toContain('Garlic butter shrimp');
+  });
+
+  it('returns null when facebook serves a login wall with no og tags', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      text: async () => '<html><head><title>Facebook</title></head><body>Log in</body></html>',
+    })) as unknown as typeof fetch;
+
+    const caption = await fetchOembedCaption('https://www.facebook.com/reel/123', { fetchImpl });
+    expect(caption).toBeNull();
+  });
+});

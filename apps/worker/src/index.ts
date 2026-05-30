@@ -5530,12 +5530,14 @@ async function fetchOembedCaption(
   let isInstagram = false;
   let isTikTok = false;
   let isYouTube = false;
+  let isFacebook = false;
   try {
     parsed = new URL(sourceUrl);
     isInstagram = parsed.hostname.includes('instagram.com');
     isTikTok = parsed.hostname.includes('tiktok.com');
     isYouTube = parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be');
-    if (!isInstagram && !isTikTok && !isYouTube) return null;
+    isFacebook = parsed.hostname.includes('facebook.com') || parsed.hostname === 'fb.watch' || parsed.hostname.endsWith('.fb.watch');
+    if (!isInstagram && !isTikTok && !isYouTube && !isFacebook) return null;
   } catch {
     return null;
   }
@@ -5589,7 +5591,7 @@ async function fetchOembedCaption(
         continue;
       }
 
-      const author = isInstagram ? 'Instagram creator' : isTikTok ? 'TikTok creator' : 'YouTube creator';
+      const author = isInstagram ? 'Instagram creator' : isTikTok ? 'TikTok creator' : isFacebook ? 'Facebook creator' : 'YouTube creator';
       return `Recipe by ${author}:\n\n${caption}`;
     } catch (err) {
       console.log('[enrich]', { strategy: 'social-caption', url: sourceUrl, outcome: 'error', error: String(err) });
