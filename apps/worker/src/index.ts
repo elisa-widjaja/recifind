@@ -5429,11 +5429,14 @@ function resolveExternalUrl(value: string, baseUrl: string): string {
 const ALLOWED_SOURCE_HOSTS = [
   'tiktok.com',
   'instagram.com',
-  // Facebook reels: fb.watch is the short-link host that 302-redirects to a
-  // canonical facebook.com/reel/... or /watch URL. Handled like Instagram --
-  // title + thumbnail reliable, caption content best-effort.
-  'facebook.com',
-  'fb.watch',
+  // Facebook (facebook.com / fb.watch) is intentionally NOT allowlisted yet:
+  // Facebook hard login-walls Cloudflare datacenter IPs, so the worker gets no
+  // og:title/og:description/og:image and cannot parse or enrich FB reels. The
+  // FB plumbing below (resolveSourceUrl fb.watch resolution, isFacebookLinkShim,
+  // fetchOembedCaption + extractRecipeDetailsFromHtml FB branches) is kept ready
+  // but stays unreachable until the follow-up adds on-device (residential-IP)
+  // fetching in the iOS Share Extension's DeviceMetadataFetcher. Re-add
+  // 'facebook.com' + 'fb.watch' here when that lands.
   'youtube.com',
   'youtu.be',
   'pinterest.com',

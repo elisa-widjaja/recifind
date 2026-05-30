@@ -978,10 +978,13 @@ describe('Facebook allowlist + resolution', () => {
     vi.restoreAllMocks();
   });
 
-  it('accepts facebook.com, www.facebook.com, and fb.watch', () => {
-    expect(isAllowedSourceHost('facebook.com')).toBe(true);
-    expect(isAllowedSourceHost('www.facebook.com')).toBe(true);
-    expect(isAllowedSourceHost('fb.watch')).toBe(true);
+  // Facebook is intentionally NOT allowlisted yet — the worker is login-walled
+  // by FB from datacenter IPs, so FB reels can't be parsed/enriched server-side.
+  // Re-enable (and flip these back to true) when on-device fetching ships.
+  it('does NOT allowlist facebook.com / fb.watch yet (login-wall follow-up)', () => {
+    expect(isAllowedSourceHost('facebook.com')).toBe(false);
+    expect(isAllowedSourceHost('www.facebook.com')).toBe(false);
+    expect(isAllowedSourceHost('fb.watch')).toBe(false);
   });
 
   it('still rejects a spoofed facebook subdomain attack', () => {
