@@ -12,6 +12,11 @@ final class ShareFormViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var needsSignIn: Bool = false
     @Published var isSigningIn: Bool = false
+    // Set when the worker rejects the link (HTTP 400 — not an allowlisted
+    // source). Shows the server's friendly message in the sheet and blocks Save,
+    // WITHOUT redirecting to the app (which would otherwise open a blank-title
+    // placeholder drawer for a link we already know we can't save).
+    @Published var isUnsupportedSource: Bool = false
 
     let sourceURL: URL
     private let onFinish: (ShareViewController.Outcome) -> Void
@@ -40,14 +45,30 @@ final class ShareFormViewModel: ObservableObject {
         // fall back to the URL host (today's behavior). Total budget
         // stays under the share-extension's 4s deadline because both
         // requests run concurrently and use ~3.5s per-request timeouts.
-        async let workerPreview: ParsePreview? = {
-            do { return try await WorkerClient.parseRecipe(sourceUrl: sourceURL.absoluteString) }
-            catch { return nil }
-        }()
+        // On-device fetch runs concurrently with the worker parse.
         async let devicePreview: ParsePreview? = DeviceMetadataFetcher.fetchSocialPreview(sourceUrl: sourceURL)
 
-        let workerResult = await workerPreview
+        // Worker parse, capturing an "unsupported source" rejection (HTTP 400)
+        // so we can show the server's friendly message in the sheet instead of
+        // falling back to the app with a blank-title placeholder drawer.
+        var workerResult: ParsePreview? = nil
+        var unsupportedMessage: String? = nil
+        do {
+            workerResult = try await WorkerClient.parseRecipe(sourceUrl: sourceURL.absoluteString)
+        } catch WorkerClientError.unsupportedSource(let msg) {
+            unsupportedMessage = msg
+        } catch {
+            // Transient parse failure — fall through to the device/host fallback.
+        }
         let deviceResult = await devicePreview
+
+        // Unsupported source: surface the friendly message, block Save, and do
+        // NOT redirect to the app. The user dismisses with the ✕.
+        if let msg = unsupportedMessage {
+            isUnsupportedSource = true
+            errorMessage = msg
+            return
+        }
 
         // Prefer the worker's result when it has a usable title — it
         // benefits from the KV cache + structured-data extraction. Fall
@@ -158,6 +179,13 @@ final class ShareFormViewModel: ObservableObject {
                 await MainActor.run {
                     self.needsSignIn = true
                     self.errorMessage = nil
+                }
+            } catch WorkerClientError.unsupportedSource(let msg) {
+                // Worker rejected the link — show the friendly message in-sheet
+                // and block Save; do NOT redirect to the app.
+                await MainActor.run {
+                    self.isUnsupportedSource = true
+                    self.errorMessage = msg
                 }
             } catch let err as WorkerClientError {
                 await self.surfaceAndFallback(reason: "worker \(err)")
@@ -338,7 +366,8 @@ struct ShareFormView: View {
     }
 
     private var saveDisabled: Bool {
-        viewModel.title.trimmingCharacters(in: .whitespaces).isEmpty
+        viewModel.isUnsupportedSource
+            || viewModel.title.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     // MARK: - Recipe card

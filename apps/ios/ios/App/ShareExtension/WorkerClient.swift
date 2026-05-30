@@ -36,9 +36,28 @@ enum WorkerClientError: Error {
     case transport(Error)
     case timeout
     case unauthenticated
+    // The worker rejected the link itself (HTTP 400) — host not on the source
+    // allowlist, malformed URL, or a Facebook redirect shim. Carries the
+    // server's user-facing message so the share sheet can show it directly
+    // instead of falling back to the app.
+    case unsupportedSource(String)
 }
 
 enum WorkerClient {
+    /// Fallback shown when the worker rejects a link (400) without a message body.
+    static let defaultUnsupportedMessage =
+        "That link isn't a supported recipe source. ReciFriend works with TikTok, Instagram, YouTube, Pinterest, AllRecipes, and NYT Cooking."
+
+    /// Pulls the `{"error": "..."}` message out of a worker error response body.
+    private static func serverErrorMessage(from data: Data) -> String? {
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let msg = json["error"] as? String,
+            !msg.isEmpty
+        else { return nil }
+        return msg
+    }
+
     /// Fetches og:title + og:image preview. 4s wall-clock deadline.
     static func parseRecipe(sourceUrl: String) async throws -> ParsePreview {
         let url = apiBase.appendingPathComponent("recipes/parse")
@@ -61,7 +80,11 @@ enum WorkerClient {
 
         let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw WorkerClientError.badResponse((response as? HTTPURLResponse)?.statusCode ?? -1)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            if status == 400 {
+                throw WorkerClientError.unsupportedSource(Self.serverErrorMessage(from: data) ?? Self.defaultUnsupportedMessage)
+            }
+            throw WorkerClientError.badResponse(status)
         }
         guard
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -184,6 +207,9 @@ enum WorkerClient {
             throw WorkerClientError.badResponse(-1)
         }
         if http.statusCode == 401 { throw WorkerClientError.unauthenticated }
+        if http.statusCode == 400 {
+            throw WorkerClientError.unsupportedSource(Self.serverErrorMessage(from: data) ?? Self.defaultUnsupportedMessage)
+        }
         guard (200...299).contains(http.statusCode) else { throw WorkerClientError.badResponse(http.statusCode) }
 
         guard
