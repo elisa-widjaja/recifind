@@ -2756,6 +2756,7 @@ async function handleEnrichRecipe(request: Request, env: Env) {
   const ogImagePromise = fetchOgImage(resolvedUrl);
 
   const { result, winningStrategy } = await runEnrichmentChain(env, resolvedUrl, title, {
+    structuredHtml,
     captionExtract,
     youtubeVideo,
     textInference,
@@ -3045,6 +3046,7 @@ export async function handleReEnrichRecipe(
   const resolvedUrl = await resolveSourceUrl(existing.sourceUrl);
   const runChain = deps.runEnrichmentChain ?? runEnrichmentChain;
   const { result, winningStrategy } = await runChain(env, resolvedUrl, existing.title, {
+    structuredHtml,
     captionExtract,
     youtubeVideo,
     textInference,
@@ -5920,6 +5922,7 @@ async function textInference(
 }
 
 type ChainStrategies = {
+  structuredHtml: (env: Env, url: string, title: string) => Promise<EnrichmentResult>;
   captionExtract: (env: Env, url: string, title: string) => Promise<EnrichmentResult>;
   youtubeVideo: (env: Env, url: string, title: string) => Promise<EnrichmentResult>;
   textInference: (env: Env, url: string, title: string) => Promise<EnrichmentResult>;
@@ -5930,7 +5933,7 @@ async function runEnrichmentChain(
   resolvedUrl: string,
   title: string,
   strategies: ChainStrategies
-): Promise<{ result: EnrichmentResult; winningStrategy: 'caption-extract' | 'youtube-video' | 'text-inference' | null }> {
+): Promise<{ result: EnrichmentResult; winningStrategy: 'structured-html' | 'caption-extract' | 'youtube-video' | 'text-inference' | null }> {
   const hasIngredientsOrSteps = (r: EnrichmentResult) => r.ingredients.length > 0 || r.steps.length > 0;
 
   // Track the best dish title we get from any strategy, in case all of them
@@ -5940,6 +5943,10 @@ async function runEnrichmentChain(
   // strictly safer than the prior behavior of falling through to inference
   // mode and fabricating ingredients.
   let firstNonEmptyTitle = '';
+
+  const structuredResult = await strategies.structuredHtml(env, resolvedUrl, title);
+  if (hasIngredientsOrSteps(structuredResult)) return { result: structuredResult, winningStrategy: 'structured-html' };
+  if (!firstNonEmptyTitle && structuredResult.title) firstNonEmptyTitle = structuredResult.title;
 
   const captionResult = await strategies.captionExtract(env, resolvedUrl, title);
   if (hasIngredientsOrSteps(captionResult)) return { result: captionResult, winningStrategy: 'caption-extract' };
@@ -5977,6 +5984,7 @@ export async function enrichAfterSave(
 
   const runChain = deps.runEnrichmentChain ?? runEnrichmentChain;
   const { result, winningStrategy } = await runChain(env, resolvedUrl, title, {
+    structuredHtml,
     captionExtract,
     youtubeVideo,
     textInference,

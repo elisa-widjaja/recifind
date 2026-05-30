@@ -631,7 +631,7 @@ describe('runEnrichmentChain', () => {
       {} as Env,
       'https://tiktok.com/x',
       'Pasta',
-      { captionExtract: captionStrat, youtubeVideo: videoStrat, textInference: textStrat }
+      { structuredHtml: async () => EMPTY_EXPECTED, captionExtract: captionStrat, youtubeVideo: videoStrat, textInference: textStrat }
     );
     expect(result.ingredients).toEqual(['flour']);
     expect(winningStrategy).toBe('caption-extract');
@@ -647,7 +647,7 @@ describe('runEnrichmentChain', () => {
       {} as Env,
       'https://example.com/x',
       'Recipe',
-      { captionExtract: captionStrat, youtubeVideo: videoStrat, textInference: textStrat }
+      { structuredHtml: async () => EMPTY_EXPECTED, captionExtract: captionStrat, youtubeVideo: videoStrat, textInference: textStrat }
     );
     expect(result.ingredients).toEqual(['inferred']);
     expect(winningStrategy).toBe('text-inference');
@@ -662,7 +662,7 @@ describe('runEnrichmentChain', () => {
       {} as Env,
       'https://example.com/x',
       '',
-      { captionExtract: empty, youtubeVideo: empty, textInference: empty }
+      { structuredHtml: empty, captionExtract: empty, youtubeVideo: empty, textInference: empty }
     );
     expect(result.ingredients).toEqual([]);
     expect(result.provenance).toBeNull();
@@ -682,7 +682,7 @@ describe('runEnrichmentChain', () => {
       {} as Env,
       'https://www.instagram.com/reel/abc/',
       'placeholder-title-from-og',
-      { captionExtract: captionStrat, youtubeVideo: videoStrat, textInference: textStrat }
+      { structuredHtml: async () => EMPTY_EXPECTED, captionExtract: captionStrat, youtubeVideo: videoStrat, textInference: textStrat }
     );
     expect(result.title).toBe('Banana Bread French Toast Bake');
     expect(result.ingredients).toEqual([]);
@@ -857,6 +857,52 @@ describe('handleEnrichRecipe response', () => {
     expect(body.enriched.provenance).toBe('extracted');
   });
 });
+
+describe('runEnrichmentChain with structuredHtml', () => {
+  const filled = (overrides: Partial<EnrichmentResultForTest> = {}) => ({
+    title: 'x', imageUrl: '', mealTypes: [], cuisines: [],
+    ingredients: ['a'], steps: ['b'], durationMinutes: null, notes: '',
+    provenance: 'extracted' as const, ...overrides,
+  });
+  const empty = () => ({
+    title: '', imageUrl: '', mealTypes: [], cuisines: [],
+    ingredients: [], steps: [], durationMinutes: null, notes: '', provenance: null,
+  });
+
+  it('lets structuredHtml win for a blog url', async () => {
+    const strategies = {
+      structuredHtml: vi.fn(async () => filled()),
+      captionExtract: vi.fn(async () => empty()),
+      youtubeVideo: vi.fn(async () => empty()),
+      textInference: vi.fn(async () => empty()),
+    };
+    const { result, winningStrategy } = await runEnrichmentChain(
+      {} as Env, 'https://www.allrecipes.com/r-123', '', strategies as any
+    );
+    expect(winningStrategy).toBe('structured-html');
+    expect(result.ingredients).toEqual(['a']);
+    expect(strategies.captionExtract).not.toHaveBeenCalled();
+  });
+
+  it('falls through to captionExtract when structuredHtml is empty (IG unchanged)', async () => {
+    const strategies = {
+      structuredHtml: vi.fn(async () => empty()),
+      captionExtract: vi.fn(async () => filled({ provenance: 'extracted' })),
+      youtubeVideo: vi.fn(async () => empty()),
+      textInference: vi.fn(async () => empty()),
+    };
+    const { winningStrategy } = await runEnrichmentChain(
+      {} as Env, 'https://www.instagram.com/reel/ABC/', '', strategies as any
+    );
+    expect(winningStrategy).toBe('caption-extract');
+  });
+});
+
+type EnrichmentResultForTest = {
+  title: string; imageUrl: string; mealTypes: string[]; cuisines: string[];
+  ingredients: string[]; steps: string[]; durationMinutes: number | null;
+  notes: string; provenance: 'extracted' | 'inferred' | 'title-only' | null;
+};
 
 describe('structuredHtml strategy', () => {
   afterEach(() => {
