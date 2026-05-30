@@ -4384,6 +4384,11 @@ function App() {
             ? "We couldn't find a structured recipe in this source — tap an ingredient row to add ingredients manually."
             : "Couldn't grab recipe details right now. Try again in a minute, or add the ingredients yourself.",
         severity: addedContent ? 'info' : 'warning',
+        // The auto-fill failure messages run 3–4 lines; show them in full instead
+        // of clamping to two lines (which cut off the bottom of the message).
+        // These are fixed strings with no embedded recipe title, so un-clamping
+        // can't balloon the snackbar the way a long save/delete title would.
+        noClamp: true,
       });
     } catch (error) {
       console.error('Unable to enhance recipe with AI.', error);
