@@ -2436,6 +2436,9 @@ async function handleCreateRecipe(
     if (!isAllowedSourceHost(parsedSource.hostname)) {
       throw new HttpError(400, 'Only TikTok, Instagram, YouTube, Pinterest, Allrecipes, NYT Cooking, and Fresh Off The Grid links are supported right now.');
     }
+    if (isFacebookLinkShim(parsedSource)) {
+      throw new HttpError(400, 'That Facebook link is a redirect, not a recipe. Paste the reel or video link directly.');
+    }
   }
 
   // Rapid-reshare dedup: return the existing recipe if (user_id, source_url) was
@@ -2606,6 +2609,9 @@ async function handleParseRecipe(request: Request, env: Env, ctx: ExecutionConte
   if (!isAllowedSourceHost(parsedUrl.hostname)) {
     throw new HttpError(400, 'Only TikTok, Instagram, YouTube, Pinterest, Allrecipes, NYT Cooking, and Fresh Off The Grid links are supported right now.');
   }
+  if (isFacebookLinkShim(parsedUrl)) {
+    throw new HttpError(400, 'That Facebook link is a redirect, not a recipe. Paste the reel or video link directly.');
+  }
 
   // Resolve iOS short URLs (vm.tiktok.com/xxx, youtu.be/xxx) to their
   // canonical form so oEmbed + og scraping work the same as when a user
@@ -2623,6 +2629,9 @@ async function handleParseRecipe(request: Request, env: Env, ctx: ExecutionConte
   // resolved URL inside the same allowlist before we save or fetch it.
   if (!isAllowedSourceHost(parsedUrl.hostname)) {
     throw new HttpError(400, 'That link redirected to an unsupported source.');
+  }
+  if (isFacebookLinkShim(parsedUrl)) {
+    throw new HttpError(400, 'That Facebook link is a redirect, not a recipe. Paste the reel or video link directly.');
   }
 
   // KV cache lookup. Instagram aggressively rate-limits Cloudflare's
@@ -2732,6 +2741,9 @@ async function handleEnrichRecipe(request: Request, env: Env) {
   if (!isAllowedSourceHost(parsedInput.hostname)) {
     throw new HttpError(400, 'Only TikTok, Instagram, YouTube, Pinterest, Allrecipes, NYT Cooking, and Fresh Off The Grid links are supported right now.');
   }
+  if (isFacebookLinkShim(parsedInput)) {
+    throw new HttpError(400, 'That Facebook link is a redirect, not a recipe. Paste the reel or video link directly.');
+  }
 
   if (!env.GEMINI_SERVICE_ACCOUNT_B64) {
     throw new HttpError(503, 'Enrichment service is not configured');
@@ -2743,6 +2755,9 @@ async function handleEnrichRecipe(request: Request, env: Env) {
     const resolvedHost = new URL(resolvedUrl).hostname;
     if (!isAllowedSourceHost(resolvedHost)) {
       throw new HttpError(400, 'That link redirected to an unsupported source.');
+    }
+    if (isFacebookLinkShim(new URL(resolvedUrl))) {
+      throw new HttpError(400, 'That Facebook link is a redirect, not a recipe. Paste the reel or video link directly.');
     }
   } catch (err) {
     if (err instanceof HttpError) throw err;
@@ -5406,6 +5421,11 @@ function resolveExternalUrl(value: string, baseUrl: string): string {
 const ALLOWED_SOURCE_HOSTS = [
   'tiktok.com',
   'instagram.com',
+  // Facebook reels: fb.watch is the short-link host that 302-redirects to a
+  // canonical facebook.com/reel/... or /watch URL. Handled like Instagram --
+  // title + thumbnail reliable, caption content best-effort.
+  'facebook.com',
+  'fb.watch',
   'youtube.com',
   'youtu.be',
   'pinterest.com',
@@ -5427,6 +5447,20 @@ function isAllowedSourceHost(hostname: string): boolean {
   return ALLOWED_SOURCE_HOSTS.some(d => host === d || host.endsWith('.' + d));
 }
 
+// Facebook's external-link shim (facebook.com/l.php?u=<arbitrary URL>, and any
+// facebook URL carrying a `u=` redirect target) is an open redirector. Even
+// though facebook.com is allowlisted for reels, allowing the shim would let a
+// crafted link bounce "View source" to an attacker page — the exact phishing
+// hole the allowlist closes (mirrors the docs.google.com / google.com note).
+// Real reels/videos/share links (/reel/, /watch, /share/...) carry no `u=`
+// param and a non-/l.php path, so they pass.
+function isFacebookLinkShim(parsedUrl: URL): boolean {
+  const host = parsedUrl.hostname.toLowerCase();
+  if (host !== 'facebook.com' && !host.endsWith('.facebook.com')) return false;
+  if (parsedUrl.pathname.toLowerCase() === '/l.php') return true;
+  return parsedUrl.searchParams.has('u');
+}
+
 // Resolve iOS Share Extension short URLs (vm.tiktok.com, tiktok.com/t/..., etc.)
 // to their canonical form and strip tracking params. r.jina.ai and oEmbed both
 // return better results when given the fully-expanded URL.
@@ -5444,7 +5478,10 @@ async function resolveSourceUrl(sourceUrl: string): Promise<string> {
       parsed.hostname === 'vm.tiktok.com' ||
       parsed.hostname === 'vt.tiktok.com' ||
       (parsed.hostname.endsWith('tiktok.com') && parsed.pathname.startsWith('/t/')) ||
-      parsed.hostname === 'youtu.be';
+      parsed.hostname === 'youtu.be' ||
+      parsed.hostname === 'fb.watch' ||
+      parsed.hostname.endsWith('.fb.watch') ||
+      (parsed.hostname.endsWith('facebook.com') && parsed.pathname.startsWith('/share/'));
 
     if (!needsResolve) return clean.toString();
 
@@ -6604,4 +6641,7 @@ export {
   handleCreateRecipe,
   handleUpdateRecipe,
   handleEnrichRecipe,
+  isAllowedSourceHost,
+  isFacebookLinkShim,
+  resolveSourceUrl,
 };

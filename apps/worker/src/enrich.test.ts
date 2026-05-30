@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, structuredHtml, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe } from './index';
+import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, structuredHtml, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe, isAllowedSourceHost, isFacebookLinkShim, resolveSourceUrl } from './index';
 import type { Env } from './index';
 
 describe('fetchRawRecipeText', () => {
@@ -970,5 +970,48 @@ describe('structuredHtml strategy', () => {
     );
     expect(result.ingredients).toEqual([]);
     expect(result.steps).toEqual([]);
+  });
+});
+
+describe('Facebook allowlist + resolution', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('accepts facebook.com, www.facebook.com, and fb.watch', () => {
+    expect(isAllowedSourceHost('facebook.com')).toBe(true);
+    expect(isAllowedSourceHost('www.facebook.com')).toBe(true);
+    expect(isAllowedSourceHost('fb.watch')).toBe(true);
+  });
+
+  it('still rejects a spoofed facebook subdomain attack', () => {
+    expect(isAllowedSourceHost('facebook.com.evil.com')).toBe(false);
+    expect(isAllowedSourceHost('fb.watch.evil.com')).toBe(false);
+  });
+
+  it('resolves an fb.watch short link to its canonical url via HEAD redirect', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      url: 'https://www.facebook.com/reel/123456789',
+    })) as unknown as typeof fetch);
+
+    const resolved = await resolveSourceUrl('https://fb.watch/abc123/');
+    expect(resolved).toBe('https://www.facebook.com/reel/123456789');
+  });
+});
+
+describe('Facebook link-shim rejection', () => {
+  it('flags facebook.com/l.php and u-param redirect shims', () => {
+    expect(isFacebookLinkShim(new URL('https://www.facebook.com/l.php?u=https://evil.com'))).toBe(true);
+    expect(isFacebookLinkShim(new URL('https://l.facebook.com/l.php?u=https://evil.com'))).toBe(true);
+    expect(isFacebookLinkShim(new URL('https://www.facebook.com/somepath?u=https://evil.com'))).toBe(true);
+  });
+  it('allows real facebook reel/watch/share urls', () => {
+    expect(isFacebookLinkShim(new URL('https://www.facebook.com/reel/123456789'))).toBe(false);
+    expect(isFacebookLinkShim(new URL('https://www.facebook.com/watch/?v=123'))).toBe(false);
+    expect(isFacebookLinkShim(new URL('https://www.facebook.com/share/r/abcDEF/'))).toBe(false);
+  });
+  it('ignores non-facebook hosts even with a u param', () => {
+    expect(isFacebookLinkShim(new URL('https://www.instagram.com/reel/ABC/?u=x'))).toBe(false);
   });
 });
