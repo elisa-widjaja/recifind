@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe } from './index';
+import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, structuredHtml, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe } from './index';
 import type { Env } from './index';
 
 describe('fetchRawRecipeText', () => {
@@ -855,5 +855,74 @@ describe('handleEnrichRecipe response', () => {
     const res = await handleEnrichRecipe(req, env);
     const body = await res.json() as { enriched: { provenance?: string | null } };
     expect(body.enriched.provenance).toBe('extracted');
+  });
+});
+
+describe('structuredHtml strategy', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const BLOG_JSONLD = `<html><head>
+    <script type="application/ld+json">
+    {"@context":"https://schema.org","@type":"Recipe","name":"Mushroom Soup",
+     "recipeIngredient":["2 Tbsp butter","8 oz mushrooms"],
+     "recipeInstructions":[{"@type":"HowToStep","text":"Melt butter."},
+                           {"@type":"HowToStep","text":"Add mushrooms."}]}
+    </script></head><body></body></html>`;
+
+  it('extracts ingredients and steps from blog JSON-LD', async () => {
+    const fetchRecipeHtml = vi.fn(async () => BLOG_JSONLD);
+    const result = await structuredHtml(
+      {} as Env,
+      'https://www.allrecipes.com/some-recipe-123',
+      '',
+      { fetchRecipeHtml }
+    );
+    expect(fetchRecipeHtml).toHaveBeenCalledTimes(1);
+    expect(result.ingredients).toContain('2 Tbsp butter');
+    expect(result.steps.length).toBeGreaterThan(0);
+    expect(result.provenance).toBe('extracted');
+  });
+
+  it('skips social/video hosts without fetching', async () => {
+    const fetchRecipeHtml = vi.fn(async () => BLOG_JSONLD);
+    for (const url of [
+      'https://www.instagram.com/reel/ABC/',
+      'https://www.tiktok.com/@x/video/123',
+      'https://www.youtube.com/watch?v=abc',
+      'https://youtu.be/abc',
+      'https://www.facebook.com/reel/123',
+      'https://fb.watch/abc/',
+    ]) {
+      const result = await structuredHtml({} as Env, url, '', { fetchRecipeHtml });
+      expect(result.ingredients).toEqual([]);
+      expect(result.steps).toEqual([]);
+    }
+    expect(fetchRecipeHtml).not.toHaveBeenCalled();
+  });
+
+  it('returns empty when blog HTML has no JSON-LD recipe', async () => {
+    const fetchRecipeHtml = vi.fn(async () => '<html><head><title>x</title></head><body></body></html>');
+    const result = await structuredHtml(
+      {} as Env,
+      'https://www.allrecipes.com/not-a-recipe',
+      '',
+      { fetchRecipeHtml }
+    );
+    expect(result.ingredients).toEqual([]);
+    expect(result.steps).toEqual([]);
+  });
+
+  it('returns empty when fetch yields no HTML', async () => {
+    const fetchRecipeHtml = vi.fn(async () => null);
+    const result = await structuredHtml(
+      {} as Env,
+      'https://www.allrecipes.com/some-recipe',
+      '',
+      { fetchRecipeHtml }
+    );
+    expect(result.ingredients).toEqual([]);
+    expect(result.steps).toEqual([]);
   });
 });

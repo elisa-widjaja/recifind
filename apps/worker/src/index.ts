@@ -5624,6 +5624,75 @@ function parsedToEnrichmentResult(parsed: any): EnrichmentResult {
   };
 }
 
+type StructuredHtmlDeps = {
+  fetchRecipeHtml?: typeof fetchRecipeHtml;
+};
+
+// Reads structured recipe data (JSON-LD schema.org/Recipe, falling back to
+// microdata/og inside extractRecipeDetailsFromHtml) straight from a recipe
+// blog's HTML. This is the SAME extractor the /recipes/parse fast path uses,
+// so enrich becomes as reliable as parse for blogs (AllRecipes, Fresh Off The
+// Grid, NYT Cooking, Google Docs, Pinterest).
+//
+// Host-gated: Instagram / TikTok / YouTube / Facebook are caption- or
+// video-based and have no usable JSON-LD recipe node, so we return empty
+// immediately WITHOUT fetching -- leaving their latency and winning strategy
+// byte-for-byte unchanged. The chain falls through to captionExtract /
+// youtubeVideo / textInference for those hosts exactly as before.
+async function structuredHtml(
+  _env: Env,
+  sourceUrl: string,
+  _title: string,
+  deps: StructuredHtmlDeps = {}
+): Promise<EnrichmentResult> {
+  const startedAt = Date.now();
+  const fetcher = deps.fetchRecipeHtml ?? fetchRecipeHtml;
+
+  let host: string;
+  try {
+    host = new URL(sourceUrl).hostname.toLowerCase();
+  } catch {
+    return EMPTY_ENRICHMENT;
+  }
+
+  const isSocialOrVideo =
+    host.includes('instagram.com') ||
+    host.includes('tiktok.com') ||
+    host.includes('youtube.com') ||
+    host === 'youtu.be' || host.endsWith('.youtu.be') ||
+    host.includes('facebook.com') ||
+    host === 'fb.watch' || host.endsWith('.fb.watch');
+  if (isSocialOrVideo) return EMPTY_ENRICHMENT;
+
+  let html: string | null = null;
+  try {
+    html = await fetcher(sourceUrl);
+  } catch (err) {
+    console.log('[enrich]', { strategy: 'structured-html', url: sourceUrl, outcome: 'error', duration_ms: Date.now() - startedAt, error: String(err) });
+    return EMPTY_ENRICHMENT;
+  }
+  if (!html) {
+    console.log('[enrich]', { strategy: 'structured-html', url: sourceUrl, outcome: 'empty', reason: 'no-html', duration_ms: Date.now() - startedAt });
+    return EMPTY_ENRICHMENT;
+  }
+
+  const parsed = extractRecipeDetailsFromHtml(html, sourceUrl);
+  if (!parsed) {
+    console.log('[enrich]', { strategy: 'structured-html', url: sourceUrl, outcome: 'empty', reason: 'no-parse', duration_ms: Date.now() - startedAt });
+    return EMPTY_ENRICHMENT;
+  }
+
+  const isEmpty = parsed.ingredients.length === 0 && parsed.steps.length === 0;
+  if (isEmpty) {
+    console.log('[enrich]', { strategy: 'structured-html', url: sourceUrl, outcome: 'empty', reason: 'no-content', duration_ms: Date.now() - startedAt });
+    return EMPTY_ENRICHMENT;
+  }
+
+  console.log('[enrich]', { strategy: 'structured-html', url: sourceUrl, outcome: 'extracted', duration_ms: Date.now() - startedAt });
+  const base = parsedToEnrichmentResult(parsed);
+  return { ...base, provenance: 'extracted' };
+}
+
 type CaptionExtractDeps = {
   fetchOembedCaption?: typeof fetchOembedCaption;
   fetchImpl?: typeof fetch;
@@ -6522,6 +6591,7 @@ export {
   captionExtract,
   youtubeVideo,
   textInference,
+  structuredHtml,
   runEnrichmentChain,
   handleCreateRecipe,
   handleUpdateRecipe,
