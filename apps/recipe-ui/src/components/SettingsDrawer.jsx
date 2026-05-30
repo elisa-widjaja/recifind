@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Drawer, Box, Typography, IconButton, TextField, Button, Stack, CircularProgress, Rating, Chip, Divider, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
+import { Drawer, Box, Typography, IconButton, TextField, Button, Stack, CircularProgress, Rating, Chip, Divider, Dialog, DialogTitle, DialogContent, DialogActions, Accordion, AccordionSummary, AccordionDetails } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { Capacitor } from '@capacitor/core';
 import { CUISINE_LABELS, CUISINE_ORDER } from '../lib/cuisines';
 
@@ -163,6 +164,13 @@ function P({ children }) {
 function UL({ children }) {
   return <Box component="ul" sx={{ pl: 2.5, mb: 2, '& li': { fontSize: 15, color: 'inherit', lineHeight: 1.6, mb: 1 } }}>{children}</Box>;
 }
+// Numbered list + sub-heading used inside the step-by-step guide accordion.
+function OL({ children }) {
+  return <Box component="ol" sx={{ pl: 2.5, mb: 2, '& li': { fontSize: 14.5, color: 'inherit', lineHeight: 1.6, mb: 0.75 } }}>{children}</Box>;
+}
+function GuideH({ children }) {
+  return <Typography sx={{ fontSize: 15, fontWeight: 700, color: 'inherit', mt: 2.5, mb: 0.75, '&:first-of-type': { mt: 0 } }}>{children}</Typography>;
+}
 function ExternalLink({ href, children }) {
   return <Box component="a" href={href} target="_blank" rel="noopener" sx={{ color: 'primary.main', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>{children}</Box>;
 }
@@ -196,13 +204,95 @@ function AboutContent({ onDeleteAccount }) {
       <P>ReciFriend is a recipe-saving and sharing app for home cooks. Save the recipes you love, share them with friends, and see what the people you cook with are making.</P>
 
       <H2>Who it's for</H2>
-      <P>Made for home cooks sharing with family and friends — not influencers, not audiences. If you've ever sent a recipe link in a group chat and wished it lived somewhere better, ReciFriend is for you.</P>
+      <P>Made for home cooks sharing with family and friends, not influencers, not audiences. If you've ever sent a recipe link in a group chat and wished it lived somewhere better, ReciFriend is for you.</P>
 
       <H2>How it works</H2>
-      <P>Paste a link to a TikTok, Instagram, YouTube, Pinterest, Allrecipes, or NYT Cooking recipe — or use the iOS share sheet — and we'll extract the ingredients and steps automatically. Add friends, share what you're cooking, and let the people you eat with inspire your next meal.</P>
+      <P>Paste a link to a TikTok, Instagram, YouTube, Pinterest, Allrecipes, or NYT Cooking recipe (or use the iOS share sheet), and we'll extract the ingredients and steps automatically. Add friends, share what you're cooking, and let the people you eat with inspire your next meal.</P>
+
+      <Accordion
+        disableGutters
+        elevation={0}
+        sx={{
+          mt: 1,
+          border: 1,
+          borderColor: 'divider',
+          borderRadius: 2,
+          bgcolor: 'transparent',
+          backgroundImage: 'none',
+          // MUI draws a top divider pseudo-element on accordions; remove it so
+          // the rounded border reads as a single clean card.
+          '&:before': { display: 'none' },
+          overflow: 'hidden',
+        }}
+      >
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography sx={{ fontSize: 15, fontWeight: 700, color: 'inherit' }}>Step-by-step guide</Typography>
+        </AccordionSummary>
+        <AccordionDetails sx={{ pt: 0 }}>
+          <GuideH>Supported sources</GuideH>
+          <UL>
+            <li><strong>TikTok</strong>: reels and videos</li>
+            <li><strong>Instagram</strong>: reels and posts</li>
+            <li><strong>YouTube</strong>: videos and shorts</li>
+            <li><strong>Pinterest</strong>: pins</li>
+            <li><strong>Recipe sites</strong>: AllRecipes, NYT Cooking, Fresh off the Grid</li>
+          </UL>
+          <P>Facebook isn't supported yet.</P>
+
+          <GuideH>Save from the iOS share sheet (fastest)</GuideH>
+          <OL>
+            <li>Open the reel or post in the TikTok or Instagram app.</li>
+            <li>Tap <strong>Share</strong>.</li>
+            <li>First time only: ReciFriend won't be in the top row yet, so scroll the app-icon row to the right and tap <strong>More</strong> to find it.</li>
+            <li>Tap <strong>ReciFriend</strong>. It opens, parses the recipe, and saves it.</li>
+          </OL>
+          <Box
+            component="img"
+            src="/guide-ios-share-sheet.png"
+            alt="ReciFriend in the iOS share sheet, in the favorites row next to Messages and Mail"
+            loading="lazy"
+            sx={{ display: 'block', width: '100%', maxWidth: 260, borderRadius: 2, border: 1, borderColor: 'divider', mt: 1, mb: 0.5 }}
+          />
+          <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mb: 1.5 }}>ReciFriend in your share sheet.</Typography>
+
+          <GuideH>Tip: pin ReciFriend to your Favorites</GuideH>
+          <P>So it shows in the second row next to Mail and Messages:</P>
+          <OL>
+            <li>On the share sheet, scroll the app row to the end and tap <strong>More</strong>.</li>
+            <li>Tap <strong>Edit</strong>.</li>
+            <li>Tap the green <strong>+</strong> next to ReciFriend to add it to Favorites.</li>
+            <li>Drag it up near Mail and Messages, then tap <strong>Done</strong>.</li>
+          </OL>
+          <Box
+            component="img"
+            src="/guide-ios-favorites.png"
+            alt="The Edit screen showing the green plus to add ReciFriend to Favorites"
+            loading="lazy"
+            sx={{ display: 'block', width: '100%', maxWidth: 260, borderRadius: 2, border: 1, borderColor: 'divider', mt: 1, mb: 0.5 }}
+          />
+          <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mb: 1.5 }}>Tap the green + to add ReciFriend to Favorites.</Typography>
+
+          <GuideH>Import by pasting a link</GuideH>
+          <OL>
+            <li>In TikTok or Instagram, tap <strong>Share</strong> → <strong>Copy link</strong>.</li>
+            <li>Open ReciFriend and tap the <strong>+</strong> Add Recipe button.</li>
+            <li>Paste the link and tap <strong>Save</strong>.</li>
+          </OL>
+
+          <GuideH>On web or Android</GuideH>
+          <P>Only the paste-the-link flow is available (same steps as above).</P>
+
+          <GuideH>Tips for best results</GuideH>
+          <UL>
+            <li>Reels where the creator lists ingredients in the <strong>caption</strong> parse the cleanest.</li>
+            <li>Save from the <strong>original creator's post</strong>, not a repost. Reposts often strip captions.</li>
+            <li>If something imports with missing pieces, you can edit any field manually.</li>
+          </UL>
+        </AccordionDetails>
+      </Accordion>
 
       <H2>Get in touch</H2>
-      <P>Questions, feedback, feature ideas, bugs — anything: <ExternalLink href="mailto:hello@recifriend.com">hello@recifriend.com</ExternalLink>.</P>
+      <P>Questions, feedback, feature ideas, bugs, anything: <ExternalLink href="mailto:hello@recifriend.com">hello@recifriend.com</ExternalLink>.</P>
 
       <H2>Delete account</H2>
       <P>This permanently removes your account, your saved recipes, friend connections, notifications, and any images you've uploaded. It can't be undone, and any recipes you saved that friends had already copied stay in their collections.</P>
@@ -269,11 +359,11 @@ function PrivacyContent() {
 
       <H2>2. Third-party services</H2>
       <UL>
-        <li><strong>Supabase</strong> — authentication (Google OAuth), user accounts, image storage. <ExternalLink href="https://supabase.com/privacy">supabase.com/privacy</ExternalLink></li>
-        <li><strong>Cloudflare</strong> — app hosting (Pages), API worker, database (D1), key-value (KV). <ExternalLink href="https://www.cloudflare.com/privacypolicy/">cloudflare.com/privacypolicy</ExternalLink></li>
-        <li><strong>Google Gemini</strong> — server-side recipe enrichment. Recipe URLs may be sent; no personal account data is shared.</li>
-        <li><strong>Resend</strong> — transactional email. Your email is passed to Resend only when sending you a notification. <ExternalLink href="https://resend.com/legal/privacy-policy">resend.com/legal/privacy-policy</ExternalLink></li>
-        <li><strong>Apple APNs</strong> — iOS push notifications. A device token is stored server-side, used only to deliver notifications relevant to your account.</li>
+        <li><strong>Supabase</strong>:authentication (Google OAuth), user accounts, image storage. <ExternalLink href="https://supabase.com/privacy">supabase.com/privacy</ExternalLink></li>
+        <li><strong>Cloudflare</strong>:app hosting (Pages), API worker, database (D1), key-value (KV). <ExternalLink href="https://www.cloudflare.com/privacypolicy/">cloudflare.com/privacypolicy</ExternalLink></li>
+        <li><strong>Google Gemini</strong>:server-side recipe enrichment. Recipe URLs may be sent; no personal account data is shared.</li>
+        <li><strong>Resend</strong>:transactional email. Your email is passed to Resend only when sending you a notification. <ExternalLink href="https://resend.com/legal/privacy-policy">resend.com/legal/privacy-policy</ExternalLink></li>
+        <li><strong>Apple APNs</strong>:iOS push notifications. A device token is stored server-side, used only to deliver notifications relevant to your account.</li>
       </UL>
       <P>We do not use advertising networks, tracking pixels, or third-party analytics beyond what is listed above.</P>
 
@@ -314,12 +404,12 @@ function NotificationsContent() {
       <Tagline>Stay in the loop with your cooking circle.</Tagline>
 
       <H2>Why turn them on</H2>
-      <P>Notifications are how ReciFriend keeps you connected to what your friends are cooking. We only send a handful — never spam.</P>
+      <P>Notifications are how ReciFriend keeps you connected to what your friends are cooking. We only send a handful, never spam.</P>
       <UL>
-        <li><strong>Friend requests</strong> — know the moment someone wants to connect.</li>
-        <li><strong>Recipes shared with you</strong> — when a friend sends a recipe your way, see it right away.</li>
-        <li><strong>Saves on your recipes</strong> — find out when a friend bookmarks something you posted.</li>
-        <li><strong>Friend activity highlights</strong> — occasional nudges about what your circle is cooking.</li>
+        <li><strong>Friend requests</strong>:know the moment someone wants to connect.</li>
+        <li><strong>Recipes shared with you</strong>:when a friend sends a recipe your way, see it right away.</li>
+        <li><strong>Saves on your recipes</strong>:find out when a friend bookmarks something you posted.</li>
+        <li><strong>Friend activity highlights</strong>:occasional nudges about what your circle is cooking.</li>
       </UL>
 
       <H2>How to manage</H2>
@@ -368,7 +458,7 @@ function FeedbackContent({
   return (
     <>
       <H1>Send feedback</H1>
-      <Tagline>What's working, what isn't, what's missing — tell us anything.</Tagline>
+      <Tagline>What's working, what isn't, what's missing: tell us anything.</Tagline>
 
       <Stack spacing={3.5}>
         <Box>
@@ -614,7 +704,7 @@ function PreferencesContent({ initial, onSave }) {
 
       <H2>Favorite cuisines</H2>
       <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 2 }}>
-        Pick all that apply — we'll surface more of what you're into.
+        Pick all that apply, and we'll surface more of what you're into.
       </Typography>
       <Box sx={{ mb: 4 }}>
         {[...CUISINE_ORDER, '__all__'].map((key, i, arr) => {
