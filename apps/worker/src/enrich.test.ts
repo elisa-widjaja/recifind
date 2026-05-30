@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, structuredHtml, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe, isAllowedSourceHost, isFacebookLinkShim, resolveSourceUrl } from './index';
+import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, structuredHtml, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe, isAllowedSourceHost, isFacebookLinkShim, resolveSourceUrl, extractRecipeDetailsFromHtml } from './index';
 import type { Env } from './index';
 
 describe('fetchRawRecipeText', () => {
@@ -1042,5 +1042,19 @@ describe('fetchOembedCaption for Facebook', () => {
 
     const caption = await fetchOembedCaption('https://www.facebook.com/reel/123', { fetchImpl });
     expect(caption).toBeNull();
+  });
+});
+
+describe('extractRecipeDetailsFromHtml Facebook title fallback', () => {
+  it('derives a title from og:description when og:title is generic "Facebook"', () => {
+    const html = `<html><head>
+      <meta property="og:title" content="Facebook" />
+      <meta property="og:description" content="Crispy garlic potatoes 🥔 the best side dish ever" />
+      <meta property="og:image" content="https://scontent.example/img.jpg" />
+    </head></html>`;
+    const result = extractRecipeDetailsFromHtml(html, 'https://www.facebook.com/reel/123');
+    expect(result).not.toBeNull();
+    expect(result!.title.toLowerCase()).toContain('crispy garlic potatoes');
+    expect(result!.title).not.toBe('Facebook');
   });
 });

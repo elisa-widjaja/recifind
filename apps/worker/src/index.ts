@@ -5013,6 +5013,7 @@ function extractRecipeDetailsFromHtml(html: string, sourceUrl: string): ParsedRe
   // a dish name from the caption's first line / pre-emoji segment).
   const isInstagram = /instagram\.com/i.test(sourceUrl);
   const isTikTok = /tiktok\.com/i.test(sourceUrl);
+  const isFacebook = /facebook\.com|fb\.watch/i.test(sourceUrl);
   if (isInstagram && (!fallbackTitle || /^instagram$/i.test(fallbackTitle))) {
     const ogDesc = extractMetaContent(html, 'property', 'og:description')
       || extractMetaContent(html, 'name', 'twitter:description');
@@ -5024,9 +5025,16 @@ function extractRecipeDetailsFromHtml(html: string, sourceUrl: string): ParsedRe
       if (prefixStripped) fallbackTitle = prefixStripped;
     }
   }
+  if (isFacebook && (!fallbackTitle || /^facebook$/i.test(fallbackTitle))) {
+    const ogDesc = extractMetaContent(html, 'property', 'og:description')
+      || extractMetaContent(html, 'name', 'twitter:description');
+    if (ogDesc) fallbackTitle = ogDesc.trim();
+  }
   if (isInstagram && fallbackTitle) {
     fallbackTitle = extractInstagramRecipeTitle(fallbackTitle);
   } else if (isTikTok && fallbackTitle) {
+    fallbackTitle = extractTikTokRecipeTitle(fallbackTitle);
+  } else if (isFacebook && fallbackTitle) {
     fallbackTitle = extractTikTokRecipeTitle(fallbackTitle);
   }
 
@@ -6646,4 +6654,5 @@ export {
   isAllowedSourceHost,
   isFacebookLinkShim,
   resolveSourceUrl,
+  extractRecipeDetailsFromHtml,
 };
