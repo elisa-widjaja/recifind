@@ -4993,6 +4993,20 @@ function extractTikTokRecipeTitle(ogTitle: string): string {
   return caption;
 }
 
+// Facebook og:description leads with engagement stats, e.g.
+// "562K views · 5K reactions · <caption>" or
+// "1.2M views, 45K likes, 320 comments, 89 shares <caption>".
+// Strip a leading run of "<number><K/M/B?> <views|reactions|likes|comments|shares>"
+// segments (separated by ·, commas, or whitespace) to leave the bare caption.
+// NOTE: kept in sync with the Swift copy in DeviceMetadataFetcher.swift —
+// update both when the on-device capture phase refines the real FB format.
+function stripFacebookEngagementPrefix(ogDescription: string): string {
+  return ogDescription
+    .trim()
+    .replace(/^(?:[\d.,]+[KMB]?\s+(?:views?|reactions?|likes?|comments?|shares?)\s*[·,]?\s*)+/i, '')
+    .trim();
+}
+
 function extractRecipeDetailsFromHtml(html: string, sourceUrl: string): ParsedRecipeDetails | null {
   if (!html) {
     return null;
@@ -5028,7 +5042,10 @@ function extractRecipeDetailsFromHtml(html: string, sourceUrl: string): ParsedRe
   if (isFacebook && (!fallbackTitle || /^facebook$/i.test(fallbackTitle))) {
     const ogDesc = extractMetaContent(html, 'property', 'og:description')
       || extractMetaContent(html, 'name', 'twitter:description');
-    if (ogDesc) fallbackTitle = ogDesc.trim();
+    if (ogDesc) {
+      const stripped = stripFacebookEngagementPrefix(ogDesc);
+      if (stripped) fallbackTitle = stripped;
+    }
   }
   if (isInstagram && fallbackTitle) {
     fallbackTitle = extractInstagramRecipeTitle(fallbackTitle);
@@ -5429,14 +5446,13 @@ function resolveExternalUrl(value: string, baseUrl: string): string {
 const ALLOWED_SOURCE_HOSTS = [
   'tiktok.com',
   'instagram.com',
-  // Facebook (facebook.com / fb.watch) is intentionally NOT allowlisted yet:
-  // Facebook hard login-walls Cloudflare datacenter IPs, so the worker gets no
-  // og:title/og:description/og:image and cannot parse or enrich FB reels. The
-  // FB plumbing below (resolveSourceUrl fb.watch resolution, isFacebookLinkShim,
-  // fetchOembedCaption + extractRecipeDetailsFromHtml FB branches) is kept ready
-  // but stays unreachable until the follow-up adds on-device (residential-IP)
-  // fetching in the iOS Share Extension's DeviceMetadataFetcher. Re-add
-  // 'facebook.com' + 'fb.watch' here when that lands.
+  // Facebook reels: parse/enrich are login-walled from the worker's datacenter
+  // IPs, but the iOS Share Extension fetches FB og data on-device (residential
+  // IP) for a clean title + thumbnail. Allowlisted so /recipes/create + /enrich
+  // accept FB links. The isFacebookLinkShim guard below still blocks the
+  // facebook.com/l.php?u= open redirector.
+  'facebook.com',
+  'fb.watch',
   'youtube.com',
   'youtu.be',
   'pinterest.com',
@@ -6656,6 +6672,7 @@ export {
   handleEnrichRecipe,
   isAllowedSourceHost,
   isFacebookLinkShim,
+  stripFacebookEngagementPrefix,
   resolveSourceUrl,
   extractRecipeDetailsFromHtml,
 };

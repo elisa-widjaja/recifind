@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, structuredHtml, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe, isAllowedSourceHost, isFacebookLinkShim, resolveSourceUrl, extractRecipeDetailsFromHtml } from './index';
+import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, structuredHtml, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe, isAllowedSourceHost, isFacebookLinkShim, resolveSourceUrl, extractRecipeDetailsFromHtml, stripFacebookEngagementPrefix } from './index';
 import type { Env } from './index';
 
 describe('fetchRawRecipeText', () => {
@@ -978,13 +978,13 @@ describe('Facebook allowlist + resolution', () => {
     vi.restoreAllMocks();
   });
 
-  // Facebook is intentionally NOT allowlisted yet — the worker is login-walled
-  // by FB from datacenter IPs, so FB reels can't be parsed/enriched server-side.
-  // Re-enable (and flip these back to true) when on-device fetching ships.
-  it('does NOT allowlist facebook.com / fb.watch yet (login-wall follow-up)', () => {
-    expect(isAllowedSourceHost('facebook.com')).toBe(false);
-    expect(isAllowedSourceHost('www.facebook.com')).toBe(false);
-    expect(isAllowedSourceHost('fb.watch')).toBe(false);
+  // Facebook is allowlisted: the iOS Share Extension fetches FB og data
+  // on-device (residential IP), so reels can be saved with a clean title +
+  // thumbnail even though the worker itself is login-walled by FB.
+  it('allowlists facebook.com / fb.watch', () => {
+    expect(isAllowedSourceHost('facebook.com')).toBe(true);
+    expect(isAllowedSourceHost('www.facebook.com')).toBe(true);
+    expect(isAllowedSourceHost('fb.watch')).toBe(true);
   });
 
   it('still rejects a spoofed facebook subdomain attack', () => {
@@ -1059,5 +1059,52 @@ describe('extractRecipeDetailsFromHtml Facebook title fallback', () => {
     expect(result).not.toBeNull();
     expect(result!.title.toLowerCase()).toContain('crispy garlic potatoes');
     expect(result!.title).not.toBe('Facebook');
+  });
+  it('strips the engagement-stat prefix before extracting the title', () => {
+    const html = `<html><head>
+      <meta property="og:title" content="Facebook" />
+      <meta property="og:description" content="562K views · 5K reactions · Crispy garlic potatoes 🥔" />
+      <meta property="og:image" content="https://scontent.example/img.jpg" />
+    </head></html>`;
+    const result = extractRecipeDetailsFromHtml(html, 'https://www.facebook.com/reel/123');
+    expect(result).not.toBeNull();
+    expect(result!.title.toLowerCase()).toContain('crispy garlic potatoes');
+    expect(result!.title.toLowerCase()).not.toContain('views');
+    expect(result!.title.toLowerCase()).not.toContain('reactions');
+  });
+  it('does not set a stats-only og:description as the title', () => {
+    const html = `<html><head>
+      <meta property="og:title" content="Facebook" />
+      <meta property="og:description" content="562K views · 5K reactions ·" />
+      <meta property="og:image" content="https://scontent.example/img.jpg" />
+    </head></html>`;
+    const result = extractRecipeDetailsFromHtml(html, 'https://www.facebook.com/reel/123');
+    // og:title was the generic "Facebook" and the description stripped to empty,
+    // so the title must NOT contain engagement stats.
+    if (result && result.title) {
+      expect(result.title.toLowerCase()).not.toContain('views');
+      expect(result.title.toLowerCase()).not.toContain('reactions');
+    }
+  });
+});
+
+describe('stripFacebookEngagementPrefix', () => {
+  it('strips a leading run of engagement-stat segments', () => {
+    expect(stripFacebookEngagementPrefix('562K views · 5K reactions · Pasta Carbonara 🍝'))
+      .toBe('Pasta Carbonara 🍝');
+  });
+  it('strips comma-separated stats, last segment with no trailing separator', () => {
+    expect(stripFacebookEngagementPrefix('1.2M views, 45K likes, 320 comments, 89 shares Garlic Shrimp'))
+      .toBe('Garlic Shrimp');
+  });
+  it('leaves a caption with no engagement prefix unchanged', () => {
+    expect(stripFacebookEngagementPrefix('Crispy garlic potatoes 🥔 the best side dish ever'))
+      .toBe('Crispy garlic potatoes 🥔 the best side dish ever');
+  });
+  it('trims surrounding whitespace', () => {
+    expect(stripFacebookEngagementPrefix('  3 reactions   Lemon Cake  ')).toBe('Lemon Cake');
+  });
+  it('returns empty string when the description is only engagement stats', () => {
+    expect(stripFacebookEngagementPrefix('562K views · 5K reactions ·')).toBe('');
   });
 });
