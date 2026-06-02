@@ -3,6 +3,7 @@ import { Drawer, Box, Typography, IconButton, TextField, Button, Stack, Circular
 import CheckIcon from '@mui/icons-material/Check';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { Capacitor } from '@capacitor/core';
+import { getAppInfo, aboutVersionLabel } from '../appInfo';
 import { CUISINE_LABELS, CUISINE_ORDER } from '../lib/cuisines';
 
 // Right-anchored drawer used for "info" pages (About, Privacy, Notifications)
@@ -179,6 +180,13 @@ function AboutContent({ onDeleteAccount }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const [versionLabel, setVersionLabel] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    getAppInfo().then((info) => { if (alive) setVersionLabel(aboutVersionLabel(info)); });
+    return () => { alive = false; };
+  }, []);
 
   async function handleConfirmDelete() {
     if (typeof onDeleteAccount !== 'function') return;
@@ -334,6 +342,9 @@ function AboutContent({ onDeleteAccount }) {
       <Box sx={{ mt: 5, pt: 2.5, borderTop: 1, borderColor: 'divider' }}>
         <Typography sx={{ fontSize: 13, color: 'text.secondary', mb: 0.5 }}>recifriend.com</Typography>
         <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>Made with care.</Typography>
+        {versionLabel && (
+          <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mt: 1 }}>{versionLabel}</Typography>
+        )}
       </Box>
     </>
   );

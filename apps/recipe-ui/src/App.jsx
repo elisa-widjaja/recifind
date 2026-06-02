@@ -128,6 +128,7 @@ import { CUISINE_LABELS, CUISINE_ORDER } from './lib/cuisines';
 import { Capacitor } from '@capacitor/core';
 import { Browser } from '@capacitor/browser';
 import { App as CapacitorApp } from '@capacitor/app';
+import { getAppInfo, feedbackVersionLabel } from './appInfo';
 import { Preferences } from '@capacitor/preferences';
 import { createDispatcher } from './lib/deepLinkDispatch';
 import { readPendingShare, clearPendingShare } from './lib/pendingShare.js';
@@ -1668,11 +1669,14 @@ function App() {
     if (!feedbackFrequency) return;
     setFeedbackSubmitting(true);
     try {
+      // Tag the feedback with the installed app version so triage knows which
+      // build it came from ("iOS 1.0.7 (27)" in the app, "Web" in a browser).
+      const appLabel = feedbackVersionLabel(await getAppInfo());
       await fetch(`${API_BASE_URL}/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: `Usefulness: ${feedbackRating}/5\nFrequency: ${feedbackFrequency}${feedbackMessage.trim() ? `\n\nComments: ${feedbackMessage.trim()}` : ''}`,
+          message: `Usefulness: ${feedbackRating}/5\nFrequency: ${feedbackFrequency}${feedbackMessage.trim() ? `\n\nComments: ${feedbackMessage.trim()}` : ''}\n\nApp: ${appLabel}`,
           senderEmail: feedbackEmail
         })
       });
