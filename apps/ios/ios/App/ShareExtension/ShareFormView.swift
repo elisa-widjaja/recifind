@@ -9,6 +9,9 @@ final class ShareFormViewModel: ObservableObject {
     @Published var isSaving: Bool = false
     @Published var isSaved: Bool = false
     @Published var savedRecipeId: String? = nil
+    // Full caption recovered on-device for Facebook shares; passed to the worker
+    // enrich call so Gemini can extract ingredients/steps. nil for non-FB.
+    @Published var caption: String? = nil
     @Published var errorMessage: String?
     @Published var needsSignIn: Bool = false
     @Published var isSigningIn: Bool = false
@@ -70,12 +73,24 @@ final class ShareFormViewModel: ObservableObject {
             return
         }
 
-        // Prefer the worker's result when it has a usable title — it
-        // benefits from the KV cache + structured-data extraction. Fall
-        // back to the device fetch when the worker came back empty (most
-        // commonly because Instagram rate-limited the datacenter IPs).
+        // Facebook is login-walled from the worker's datacenter IPs, so the
+        // device fetch (residential IP) is the only trustworthy FB source —
+        // prefer it. For everything else the worker wins (KV cache + JSON-LD).
+        // When neither yields a title, fall back to a clean editable
+        // placeholder rather than the raw "facebook.com" hostname.
+        let host = sourceURL.host?.lowercased() ?? ""
+        let isFacebook = host.contains("facebook.com") || host == "fb.watch" || host.hasSuffix(".fb.watch")
+
         let resolvedTitle: String
-        if let workerTitle = workerResult?.title, !workerTitle.isEmpty {
+        if isFacebook {
+            if let deviceTitle = deviceResult?.title, !deviceTitle.isEmpty {
+                resolvedTitle = deviceTitle
+            } else if let workerTitle = workerResult?.title, !workerTitle.isEmpty {
+                resolvedTitle = workerTitle
+            } else {
+                resolvedTitle = "Facebook Reel"
+            }
+        } else if let workerTitle = workerResult?.title, !workerTitle.isEmpty {
             resolvedTitle = workerTitle
         } else if let deviceTitle = deviceResult?.title, !deviceTitle.isEmpty {
             resolvedTitle = deviceTitle
@@ -83,7 +98,17 @@ final class ShareFormViewModel: ObservableObject {
             resolvedTitle = sourceURL.host ?? "Recipe"
         }
 
-        let resolvedImage = workerResult?.imageUrl ?? deviceResult?.imageUrl
+        // Mirror the title precedence: device-first for Facebook, worker-first
+        // otherwise. Split into if/else because the equivalent nested ternary
+        // with ?? on both branches trips Swift's expression type-checker.
+        let resolvedImage: String?
+        if isFacebook {
+            resolvedImage = deviceResult?.imageUrl ?? workerResult?.imageUrl
+            // Full caption is FB-only; pass it to the worker enrich call in save().
+            caption = deviceResult?.caption
+        } else {
+            resolvedImage = workerResult?.imageUrl ?? deviceResult?.imageUrl
+        }
 
         if title.isEmpty { title = resolvedTitle }
         if imageUrl == nil, let s = resolvedImage, let u = URL(string: s) { imageUrl = u }
@@ -144,6 +169,7 @@ final class ShareFormViewModel: ObservableObject {
                 let enriched = await WorkerClient.enrichRecipe(
                     sourceUrl: urlSnapshot,
                     title: enrichTitle,
+                    caption: self.caption,
                     jwt: jwt
                 )
 

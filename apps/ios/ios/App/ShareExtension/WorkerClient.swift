@@ -8,6 +8,9 @@ private let apiBase = URL(string: "https://api.recifriend.com")!
 struct ParsePreview {
     let title: String
     let imageUrl: String?
+    // Full caption recovered on-device for Facebook (residential IP); passed to
+    // the worker for Gemini extraction. nil for other platforms / non-FB shares.
+    var caption: String? = nil
 }
 
 struct CreateRecipeResult {
@@ -104,6 +107,7 @@ enum WorkerClient {
     static func enrichRecipe(
         sourceUrl: String,
         title: String,
+        caption: String? = nil,
         jwt: String
     ) async -> EnrichResult? {
         let started = Date()
@@ -113,7 +117,8 @@ enum WorkerClient {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
-        let body: [String: Any] = ["sourceUrl": sourceUrl, "title": title]
+        var body: [String: Any] = ["sourceUrl": sourceUrl, "title": title]
+        if let caption = caption, !caption.isEmpty { body["caption"] = caption }
         guard let httpBody = try? JSONSerialization.data(withJSONObject: body) else {
             NSLog("[ShareExt] enrichRecipe body-encode-failed")
             return nil

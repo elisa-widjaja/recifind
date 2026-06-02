@@ -31,7 +31,10 @@ struct DeviceMetadataFetcher {
         let isInstagram = host.contains("instagram.com")
         let isTikTok = host.contains("tiktok.com")
         let isYouTube = host.contains("youtube.com") || host.contains("youtu.be")
-        guard isInstagram || isTikTok || isYouTube else { return nil }
+        // fb.watch short links resolve to facebook.com/reel/... — URLSession
+        // follows the redirect by default, so we fetch the source URL directly.
+        let isFacebook = host.contains("facebook.com") || host == "fb.watch" || host.hasSuffix(".fb.watch")
+        guard isInstagram || isTikTok || isYouTube || isFacebook else { return nil }
 
         var req = URLRequest(url: sourceUrl, timeoutInterval: 3.5)
         // Real Safari UA — same fix as the worker. Bot-shaped UAs trigger
@@ -57,13 +60,22 @@ struct DeviceMetadataFetcher {
 
             let ogDesc = matchMetaContent(html: html, attr: "property", value: "og:description")
                       ?? matchMetaContent(html: html, attr: "name", value: "twitter:description")
-            let ogImage = matchMetaContent(html: html, attr: "property", value: "og:image")
-                      ?? matchMetaContent(html: html, attr: "name", value: "twitter:image")
+            // Decode HTML entities in the image URL too. Facebook's signed CDN
+            // URLs come back with &amp;-encoded query params; the signature
+            // (oh=/oe=) is rejected and the CDN 403s the thumbnail unless the
+            // ampersands are real. (Harmless for IG/TikTok/YouTube URLs.)
+            let ogImage = (matchMetaContent(html: html, attr: "property", value: "og:image")
+                      ?? matchMetaContent(html: html, attr: "name", value: "twitter:image"))
+                      .map(decodeHtmlEntities)
 
             guard var caption = ogDesc?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !caption.isEmpty else { return nil }
 
             caption = decodeHtmlEntities(caption)
+
+            // For Facebook, the FULL caption (the imported recipe text) is
+            // recovered from the page HTML below; nil for other platforms.
+            var fullCaption: String? = nil
 
             // Strip the Instagram-specific metadata prefix:
             //   "1,075 likes, 23 comments - alicelovesbreakfast on May 6, 2026: "<caption>""
@@ -82,15 +94,137 @@ struct DeviceMetadataFetcher {
                 }
             }
 
+            // Facebook og:description sometimes leads with engagement stats,
+            // e.g. "562K views · 5K reactions · <caption>". Strip a leading run
+            // of "<number><K/M/B?> <views|reactions|likes|comments|shares>"
+            // segments (separated by ·, •, |, commas, or whitespace).
+            // NOTE: kept in sync with stripFacebookEngagementPrefix in the
+            // worker (apps/worker/src/index.ts).
+            if isFacebook {
+                caption = caption.replacingOccurrences(
+                    of: #"^(?:[\d.,]+\s*[KMB]?\s+(?:views?|reactions?|likes?|comments?|shares?)\s*[·•|,]?\s*)+"#,
+                    with: "",
+                    options: [.regularExpression, .caseInsensitive]
+                ).trimmingCharacters(in: .whitespacesAndNewlines)
+
+                // Defensive: FB's response is inconsistent — when it serves an
+                // engagement-stats string instead of a real caption, stripping
+                // may leave nothing usable (or still-statsy noise). In that case
+                // bail so the caller falls back to the clean "Facebook Reel"
+                // placeholder rather than showing junk as the title.
+                if caption.isEmpty || Self.looksLikeEngagementNoise(caption) {
+                    return nil
+                }
+
+                // Recover the FULL caption from the page HTML (og:description is
+                // truncated). Anchored on the cleaned caption so it locates the
+                // post's message text in FB's inline JSON. This long text is what
+                // gets passed to the worker for Gemini ingredient/step extraction.
+                fullCaption = Self.extractFullCaption(html: html, ogDescription: caption)
+            }
+
             let title = extractDishName(from: caption)
             guard !title.isEmpty else { return nil }
-            return ParsePreview(title: title, imageUrl: ogImage)
+            return ParsePreview(title: title, imageUrl: ogImage, caption: fullCaption)
         } catch {
             return nil
         }
     }
 
     // MARK: - Helpers
+
+    /// True when the (already prefix-stripped) caption still reads as Facebook
+    /// engagement noise — a "<number> views/reactions/likes/comments/shares"
+    /// token survived, meaning we never recovered a real dish name. Used to
+    /// bail to the "Facebook Reel" placeholder instead of titling a recipe with
+    /// stats. Kept conservative: a real caption only trips this if it literally
+    /// contains "<number> <one of those words>", which dish captions don't.
+    static func looksLikeEngagementNoise(_ s: String) -> Bool {
+        return s.range(
+            of: #"[\d.,]+\s*[KMB]?\s*(?:views?|reactions?|likes?|comments?|shares?)"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
+    /// Recovers the full caption from FB's page HTML. `og:description` is a
+    /// TRUNCATED prefix of the full caption, so we anchor on its leading words
+    /// and read out to the enclosing JSON string boundary. The same anchor text
+    /// appears in BOTH the truncated `og:description` meta tag (in <head>) and
+    /// the full caption in the body's inline JSON, so we scan EVERY occurrence
+    /// and keep the longest extraction — the meta yields the short truncated
+    /// string, the body JSON yields the full caption. Falls back to
+    /// `ogDescription` if nothing longer is found. No FB-specific JSON keys.
+    static func extractFullCaption(html: String, ogDescription: String) -> String {
+        let trimmedOg = ogDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedOg.count >= 12 else { return trimmedOg }
+
+        // Drop FB's trailing truncation ("…" or "...") so the anchor is clean
+        // text that also appears verbatim in the full (untruncated) caption.
+        let anchorSource = trimmedOg.replacingOccurrences(
+            of: #"\s*(?:\.\.\.|…)\s*$"#, with: "", options: .regularExpression
+        )
+        let cap = min(40, anchorSource.count)
+        var anchor = String(anchorSource.prefix(cap))
+        // Back off to a word boundary so a partial truncated word can't break
+        // the match against the full caption.
+        if cap < anchorSource.count, let lastSpace = anchor.range(of: " ", options: .backwards) {
+            anchor = String(anchor[..<lastSpace.lowerBound])
+        }
+        guard anchor.count >= 8 else { return trimmedOg }
+
+        var best = trimmedOg
+        var searchStart = html.startIndex
+        while let anchorRange = html.range(of: anchor, options: [], range: searchStart..<html.endIndex) {
+            // Walk forward to the next unescaped double-quote (JSON string end).
+            var idx = anchorRange.upperBound
+            var end = idx
+            while idx < html.endIndex {
+                let c = html[idx]
+                if c == "\"" && (idx == html.startIndex || html[html.index(before: idx)] != "\\") {
+                    end = idx
+                    break
+                }
+                idx = html.index(after: idx)
+                end = idx
+            }
+            let candidate = decodeHtmlEntities(unescapeJsonString(String(html[anchorRange.lowerBound..<end])))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if candidate.count > best.count { best = candidate }
+            searchStart = anchorRange.upperBound
+        }
+        return best
+    }
+
+    /// Unescapes a JSON string body: \n \t \r \" \/ \\ and \uXXXX.
+    private static func unescapeJsonString(_ s: String) -> String {
+        var out = ""
+        var i = s.startIndex
+        while i < s.endIndex {
+            let c = s[i]
+            if c == "\\", let next = s.index(i, offsetBy: 1, limitedBy: s.endIndex), next < s.endIndex {
+                let e = s[next]
+                switch e {
+                case "n": out += "\n"; i = s.index(after: next)
+                case "t": out += "\t"; i = s.index(after: next)
+                case "r": i = s.index(after: next)
+                case "\"": out += "\""; i = s.index(after: next)
+                case "/": out += "/"; i = s.index(after: next)
+                case "\\": out += "\\"; i = s.index(after: next)
+                case "u":
+                    let hexStart = s.index(after: next)
+                    if let hexEnd = s.index(hexStart, offsetBy: 4, limitedBy: s.endIndex),
+                       let code = UInt32(s[hexStart..<hexEnd], radix: 16),
+                       let scalar = Unicode.Scalar(code) {
+                        out.append(Character(scalar)); i = hexEnd
+                    } else { out.append(c); i = s.index(after: i) }
+                default: out.append(e); i = s.index(after: next)
+                }
+            } else {
+                out.append(c); i = s.index(after: i)
+            }
+        }
+        return out
+    }
 
     private static func matchMetaContent(html: String, attr: String, value: String) -> String? {
         let escapedValue = NSRegularExpression.escapedPattern(for: value)
