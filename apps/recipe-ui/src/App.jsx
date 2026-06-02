@@ -7030,39 +7030,51 @@ function App() {
                 error={Boolean(newRecipeErrors.sourceUrl)}
                 helperText={newRecipeErrors.sourceUrl || 'Link to the original recipe or video.'}
               />
-              <TextField
-                label="Title"
-                value={newRecipeForm.title}
-                onChange={handleNewRecipeChange('title')}
-                required
-                fullWidth
-                error={Boolean(newRecipeErrors.title)}
-                helperText={newRecipeErrors.title}
-              />
-              {sourceParseState.status === 'loading' && (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
-                  <CircularProgress size={20} />
-                  <Typography variant="body2" color="text.secondary">
-                    {sourceParseState.message || 'Parsing recipe details...'}
-                  </Typography>
-                </Box>
-              )}
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={Boolean(newRecipeForm.sharedWithFriends)}
-                    onChange={(e) => setNewRecipeForm((prev) => ({ ...prev, sharedWithFriends: e.target.checked }))}
-                    color="primary"
+              {sourceParseState.status === 'error' ? (
+                <Typography color="error" sx={{ fontSize: 14, lineHeight: 1.45, py: 1 }}>
+                  {sourceParseState.message}
+                </Typography>
+              ) : (
+                <>
+                  <TextField
+                    label="Title"
+                    value={newRecipeForm.title}
+                    onChange={handleNewRecipeChange('title')}
+                    required
+                    fullWidth
+                    error={Boolean(newRecipeErrors.title)}
+                    helperText={newRecipeErrors.title}
                   />
-                }
-                label="Make it public"
-                sx={{ ml: 'calc(-4px - 2px)', mt: 1 }}
-              />
+                  {sourceParseState.status === 'loading' && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
+                      <CircularProgress size={20} />
+                      <Typography variant="body2" color="text.secondary">
+                        {sourceParseState.message || 'Parsing recipe details...'}
+                      </Typography>
+                    </Box>
+                  )}
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={Boolean(newRecipeForm.sharedWithFriends)}
+                        onChange={(e) => setNewRecipeForm((prev) => ({ ...prev, sharedWithFriends: e.target.checked }))}
+                        color="primary"
+                      />
+                    }
+                    label="Make it public"
+                    sx={{ ml: 'calc(-4px - 2px)', mt: 1 }}
+                  />
+                </>
+              )}
             </Box>
           )}
           {/* Actions — Save Recipe sits directly under the content (Make it
               public), flowing with it rather than pinned to the sheet bottom.
-              Mirrors the Add Recipe FAB pill styling minus the + icon. */}
+              Mirrors the Add Recipe FAB pill styling minus the + icon.
+              Hidden for an unsupported-URL error in the in-app paste layout
+              (no point saving a link the worker rejects); the share layout
+              keeps it so a manual-title save still works. */}
+          {!(!useIosShareLayout && sourceParseState.status === 'error') && (
           <Box sx={{ px: 3, pb: 2, pt: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <Button
               type="submit"
@@ -7088,6 +7100,7 @@ function App() {
               Save Recipe
             </Button>
           </Box>
+          )}
           </Box>
         </Drawer>
       ) : (
@@ -7116,34 +7129,42 @@ function App() {
               error={Boolean(newRecipeErrors.sourceUrl)}
               helperText={newRecipeErrors.sourceUrl}
             />
-            <TextField
-              label="Title"
-              value={newRecipeForm.title}
-              onChange={handleNewRecipeChange('title')}
-              required
-              fullWidth
-              error={Boolean(newRecipeErrors.title)}
-              helperText={newRecipeErrors.title}
-            />
-            {sourceParseState.status === 'loading' && (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
-                <CircularProgress size={20} />
-                <Typography variant="body2" color="text.secondary">
-                  {sourceParseState.message || 'Parsing recipe details...'}
-                </Typography>
-              </Box>
-            )}
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={Boolean(newRecipeForm.sharedWithFriends)}
-                  onChange={(e) => setNewRecipeForm((prev) => ({ ...prev, sharedWithFriends: e.target.checked }))}
-                  color="primary"
+            {sourceParseState.status === 'error' ? (
+              <Typography color="error" sx={{ fontSize: 14, lineHeight: 1.45, py: 1 }}>
+                {sourceParseState.message}
+              </Typography>
+            ) : (
+              <>
+                <TextField
+                  label="Title"
+                  value={newRecipeForm.title}
+                  onChange={handleNewRecipeChange('title')}
+                  required
+                  fullWidth
+                  error={Boolean(newRecipeErrors.title)}
+                  helperText={newRecipeErrors.title}
                 />
-              }
-              label="Make it public"
-              sx={{ ml: 'calc(-4px - 2px)', mt: 1 }}
-            />
+                {sourceParseState.status === 'loading' && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
+                    <CircularProgress size={20} />
+                    <Typography variant="body2" color="text.secondary">
+                      {sourceParseState.message || 'Parsing recipe details...'}
+                    </Typography>
+                  </Box>
+                )}
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={Boolean(newRecipeForm.sharedWithFriends)}
+                      onChange={(e) => setNewRecipeForm((prev) => ({ ...prev, sharedWithFriends: e.target.checked }))}
+                      color="primary"
+                    />
+                  }
+                  label="Make it public"
+                  sx={{ ml: 'calc(-4px - 2px)', mt: 1 }}
+                />
+              </>
+            )}
           </DialogContent>
           <DialogActions sx={{ px: 0, justifyContent: 'space-between' }}>
             <Box sx={{ px: 2, display: 'flex', justifyContent: 'space-between', width: '100%' }}>
@@ -7165,9 +7186,11 @@ function App() {
               >
                 Cancel
               </Typography>
-              <Button type="submit" variant="contained" sx={{ px: 'calc(16px + 2px)' }}>
-                Save Recipe
-              </Button>
+              {sourceParseState.status !== 'error' && (
+                <Button type="submit" variant="contained" sx={{ px: 'calc(16px + 2px)' }}>
+                  Save Recipe
+                </Button>
+              )}
             </Box>
           </DialogActions>
         </Dialog>

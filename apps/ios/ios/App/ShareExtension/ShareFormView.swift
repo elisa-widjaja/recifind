@@ -271,31 +271,48 @@ struct ShareFormView: View {
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 20) {
-                recipeCard
-                    .padding(.horizontal, 16)
-                    .padding(.top, 16)
+            Group {
+                if viewModel.isUnsupportedSource {
+                    // Unsupported source: skip the grey placeholder card + empty
+                    // title and just show the worker's message, centered. Font
+                    // size (15) matches the in-app Add Recipe drawer's error.
+                    VStack {
+                        Text(viewModel.errorMessage ?? WorkerClient.defaultUnsupportedMessage)
+                            .font(.system(size: 15))
+                            .foregroundColor(.red)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+                            .padding(.top, 24)
+                        Spacer(minLength: 0)
+                    }
+                } else {
+                    VStack(spacing: 20) {
+                        recipeCard
+                            .padding(.horizontal, 16)
+                            .padding(.top, 16)
 
-                if viewModel.needsSignIn {
-                    Text("Sign in on ReciFriend to save")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 16)
-                } else if let error = viewModel.errorMessage {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundColor(.red)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 16)
+                        if viewModel.needsSignIn {
+                            Text("Sign in on ReciFriend to save")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 16)
+                        } else if let error = viewModel.errorMessage {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 16)
+                        }
+
+                        if viewModel.isSaved {
+                            viewInAppButton
+                                .padding(.top, 4)
+                        }
+
+                        Spacer(minLength: 0)
+                    }
                 }
-
-                if viewModel.isSaved {
-                    viewInAppButton
-                        .padding(.top, 4)
-                }
-
-                Spacer(minLength: 0)
             }
             .navigationTitle("Save to ReciFriend")
             .navigationBarTitleDisplayMode(.inline)
@@ -328,7 +345,12 @@ struct ShareFormView: View {
 
     @ViewBuilder
     private var saveToolbarButton: some View {
-        if viewModel.isSaving {
+        if viewModel.isUnsupportedSource {
+            // No save affordance for an unsupported link — the sheet only shows
+            // the error message. (Empty content here keeps the ToolbarItem
+            // unconditional, since `if` inside .toolbar needs iOS 16+.)
+            EmptyView()
+        } else if viewModel.isSaving {
             ProgressView()
                 .controlSize(.small)
                 .accessibilityLabel("Saving")
