@@ -14,9 +14,9 @@ export default function ReviewPrompt({ open, step, onYes, onNot, onRate, onLater
               We'd love to know how it's going so far.
             </DialogContentText>
           </DialogContent>
-          <DialogActions sx={{ px: 3, pb: 2 }}>
+          <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'center' }}>
             <Button onClick={onNot} sx={{ textTransform: 'none' }}>Not really</Button>
-            <Button onClick={onYes} variant="contained" sx={{ textTransform: 'none', fontWeight: 600 }}>Yes!</Button>
+            <Button onClick={onYes} variant="contained" sx={{ textTransform: 'none', fontWeight: 600, minWidth: 104, px: 3 }}>Yes!</Button>
           </DialogActions>
         </>
       ) : (
@@ -27,9 +27,9 @@ export default function ReviewPrompt({ open, step, onYes, onNot, onRate, onLater
               Mind leaving a rating on the App Store? It takes a few seconds and really helps.
             </DialogContentText>
           </DialogContent>
-          <DialogActions sx={{ px: 3, pb: 2 }}>
-            <Button onClick={onLater} sx={{ textTransform: 'none' }}>Maybe later</Button>
-            <Button onClick={onRate} variant="contained" sx={{ textTransform: 'none', fontWeight: 600 }}>Rate ReciFriend</Button>
+          <DialogActions sx={{ px: 3, pb: 2, flexDirection: 'column', gap: 1, '& > :not(:first-of-type)': { ml: 0 } }}>
+            <Button onClick={onRate} variant="contained" fullWidth sx={{ textTransform: 'none', fontWeight: 600 }}>Rate ReciFriend</Button>
+            <Button onClick={onLater} fullWidth sx={{ textTransform: 'none' }}>Maybe later</Button>
           </DialogActions>
         </>
       )}
