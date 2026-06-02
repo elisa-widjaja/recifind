@@ -129,6 +129,11 @@ import { Capacitor } from '@capacitor/core';
 import { Browser } from '@capacitor/browser';
 import { App as CapacitorApp } from '@capacitor/app';
 import { getAppInfo, feedbackVersionLabel } from './appInfo';
+import ReviewPrompt from './components/ReviewPrompt';
+import {
+  decideReviewPrompt, readReviewState, writeReviewState,
+  isArmedThisSession, markArmedThisSession, REVIEW_SNOOZE_MS,
+} from './reviewPrompt';
 import { Preferences } from '@capacitor/preferences';
 import { createDispatcher } from './lib/deepLinkDispatch';
 import { readPendingShare, clearPendingShare } from './lib/pendingShare.js';
@@ -3109,6 +3114,53 @@ function App() {
         duration: 3000,
       });
     }
+  };
+
+  // ---- App Store review prompt (two-step sentiment gate) ----
+  // Engaged iOS users (>= 5 saved recipes) get a rate prompt on a RETURN visit
+  // (never the session they cross the threshold), gated via localStorage: never
+  // after rating, 90-day snooze on dismiss/decline. At most one prompt per
+  // session (coexists with the feedback widget). Logic: src/reviewPrompt.js.
+  const [reviewPromptOpen, setReviewPromptOpen] = useState(false);
+  const [reviewStep, setReviewStep] = useState('sentiment');
+  const reviewHandledRef = useRef(false);
+
+  useEffect(() => {
+    if (reviewHandledRef.current) return;
+    if (showFeedbackWidget) return; // don't double-prompt; stand down this session
+    const decision = decideReviewPrompt({
+      count: recipes.length,
+      now: Date.now(),
+      state: readReviewState(),
+      armedThisSession: isArmedThisSession(),
+      isIOS: isIOSEnv,
+    });
+    if (decision === 'arm') {
+      writeReviewState({ armedAt: Date.now() });
+      markArmedThisSession();
+      reviewHandledRef.current = true;
+    } else if (decision === 'show') {
+      reviewHandledRef.current = true;
+      setReviewStep('sentiment');
+      setReviewPromptOpen(true);
+      setShowFeedbackWidget(false); // review prompt wins this session
+    }
+  }, [recipes.length, isIOSEnv, showFeedbackWidget]);
+
+  const handleReviewYes = () => setReviewStep('review');
+  const handleReviewNot = () => {
+    writeReviewState({ snoozedUntil: Date.now() + REVIEW_SNOOZE_MS });
+    setReviewPromptOpen(false);
+    setShowFeedbackWidget(true); // route unhappy users to the private feedback form
+  };
+  const handleReviewRate = () => {
+    writeReviewState({ rated: true });
+    setReviewPromptOpen(false);
+    handleRateOnAppStore();
+  };
+  const handleReviewLater = () => {
+    writeReviewState({ snoozedUntil: Date.now() + REVIEW_SNOOZE_MS });
+    setReviewPromptOpen(false);
   };
 
   // Hits the worker's DELETE /profile, then signs out + closes the settings
@@ -7656,6 +7708,16 @@ function App() {
           && !onboardingDrawerOpen
         }
         onRefresh={handlePullRefresh}
+      />
+
+      <ReviewPrompt
+        open={reviewPromptOpen}
+        step={reviewStep}
+        onYes={handleReviewYes}
+        onNot={handleReviewNot}
+        onRate={handleReviewRate}
+        onLater={handleReviewLater}
+        onClose={handleReviewLater}
       />
 
       <Snackbar
