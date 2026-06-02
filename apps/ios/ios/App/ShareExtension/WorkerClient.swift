@@ -49,7 +49,7 @@ enum WorkerClientError: Error {
 enum WorkerClient {
     /// Fallback shown when the worker rejects a link (400) without a message body.
     static let defaultUnsupportedMessage =
-        "That link isn't a supported recipe source. ReciFriend works with TikTok, Instagram, YouTube, Pinterest, AllRecipes, and NYT Cooking."
+        "That link isn't a supported recipe source. ReciFriend works with TikTok, Instagram, Facebook, YouTube, AllRecipes, and NYT Cooking."
 
     /// Pulls the `{"error": "..."}` message out of a worker error response body.
     private static func serverErrorMessage(from data: Data) -> String? {

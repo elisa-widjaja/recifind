@@ -392,7 +392,6 @@ describe('handleCreateRecipe sourceUrl allowlist', () => {
   });
 
   it.each([
-    'https://www.pinterest.com/pin/123456789012345678/',
     'https://www.allrecipes.com/recipe/22941/easy-pasta/',
     'https://cooking.nytimes.com/recipes/1024074-pasta-carbonara',
   ])('accepts %s', async (sourceUrl) => {

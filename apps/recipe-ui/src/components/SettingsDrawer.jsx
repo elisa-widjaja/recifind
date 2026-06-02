@@ -215,7 +215,7 @@ function AboutContent({ onDeleteAccount }) {
       <P>Made for home cooks sharing with family and friends, not influencers, not audiences. If you've ever sent a recipe link in a group chat and wished it lived somewhere better, ReciFriend is for you.</P>
 
       <H2>How it works</H2>
-      <P>Paste a link to a TikTok, Instagram, YouTube, Pinterest, Allrecipes, or NYT Cooking recipe (or use the iOS share sheet), and we'll extract the ingredients and steps automatically. Add friends, share what you're cooking, and let the people you eat with inspire your next meal.</P>
+      <P>Paste a link to a TikTok, Instagram, Facebook, YouTube, Allrecipes, or NYT Cooking recipe (or use the iOS share sheet), and we'll extract the ingredients and steps automatically. Add friends, share what you're cooking, and let the people you eat with inspire your next meal.</P>
 
       <Accordion
         disableGutters
@@ -241,11 +241,10 @@ function AboutContent({ onDeleteAccount }) {
           <UL>
             <li><strong>TikTok</strong>: reels and videos</li>
             <li><strong>Instagram</strong>: reels and posts</li>
+            <li><strong>Facebook</strong>: reels</li>
             <li><strong>YouTube</strong>: videos and shorts</li>
-            <li><strong>Pinterest</strong>: pins</li>
             <li><strong>Recipe sites</strong>: AllRecipes, NYT Cooking, Fresh off the Grid</li>
           </UL>
-          <P>Facebook isn't supported yet.</P>
 
           <GuideH>Save from the iOS share sheet (fastest)</GuideH>
           <OL>

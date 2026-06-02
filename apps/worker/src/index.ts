@@ -2434,7 +2434,7 @@ async function handleCreateRecipe(
       throw new HttpError(400, 'sourceUrl must use http or https');
     }
     if (!isAllowedSourceHost(parsedSource.hostname)) {
-      throw new HttpError(400, 'Only TikTok, Instagram, Facebook, YouTube, Pinterest, Allrecipes, NYT Cooking, and Fresh Off The Grid links are supported right now.');
+      throw new HttpError(400, 'Only TikTok, Instagram, Facebook, YouTube, Allrecipes, NYT Cooking, and Fresh Off The Grid links are supported right now.');
     }
     if (isFacebookLinkShim(parsedSource)) {
       throw new HttpError(400, 'That Facebook link is a redirect, not a recipe. Paste the reel or video link directly.');
@@ -2607,7 +2607,7 @@ async function handleParseRecipe(request: Request, env: Env, ctx: ExecutionConte
   // have, so failing fast here saves a redirect-resolve round trip on
   // obviously-unsupported URLs.
   if (!isAllowedSourceHost(parsedUrl.hostname)) {
-    throw new HttpError(400, 'Only TikTok, Instagram, Facebook, YouTube, Pinterest, Allrecipes, NYT Cooking, and Fresh Off The Grid links are supported right now.');
+    throw new HttpError(400, 'Only TikTok, Instagram, Facebook, YouTube, Allrecipes, NYT Cooking, and Fresh Off The Grid links are supported right now.');
   }
   if (isFacebookLinkShim(parsedUrl)) {
     throw new HttpError(400, 'That Facebook link is a redirect, not a recipe. Paste the reel or video link directly.');
@@ -2740,7 +2740,7 @@ async function handleEnrichRecipe(request: Request, env: Env) {
     throw new HttpError(400, 'sourceUrl must use http or https');
   }
   if (!isAllowedSourceHost(parsedInput.hostname)) {
-    throw new HttpError(400, 'Only TikTok, Instagram, Facebook, YouTube, Pinterest, Allrecipes, NYT Cooking, and Fresh Off The Grid links are supported right now.');
+    throw new HttpError(400, 'Only TikTok, Instagram, Facebook, YouTube, Allrecipes, NYT Cooking, and Fresh Off The Grid links are supported right now.');
   }
   if (isFacebookLinkShim(parsedInput)) {
     throw new HttpError(400, 'That Facebook link is a redirect, not a recipe. Paste the reel or video link directly.');
@@ -5460,7 +5460,9 @@ const ALLOWED_SOURCE_HOSTS = [
   'fb.watch',
   'youtube.com',
   'youtu.be',
-  'pinterest.com',
+  // Pinterest removed: pins link out to a long tail of arbitrary recipe blogs
+  // we don't allowlist, so import was shallow/broken. Rejected until the
+  // SSRF-safe pin-resolution follow-up lands. See project_pinterest_import_gap.
   'allrecipes.com',
   // cooking.nytimes.com only — keeps the rule tight to NYT Cooking and
   // doesn't admit arbitrary nytimes.com paths. The leading-dot suffix match
@@ -5705,7 +5707,7 @@ type StructuredHtmlDeps = {
 // microdata/og inside extractRecipeDetailsFromHtml) straight from a recipe
 // blog's HTML. This is the SAME extractor the /recipes/parse fast path uses,
 // so enrich becomes as reliable as parse for blogs (AllRecipes, Fresh Off The
-// Grid, NYT Cooking, Google Docs, Pinterest).
+// Grid, NYT Cooking, Google Docs).
 //
 // Host-gated: Instagram / TikTok / YouTube / Facebook are caption- or
 // video-based and have no usable JSON-LD recipe node, so we return empty

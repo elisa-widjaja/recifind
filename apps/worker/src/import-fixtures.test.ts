@@ -55,7 +55,7 @@ describe('import regression: allowlist + shim (deterministic)', () => {
     for (const h of ['tiktok.com', 'instagram.com', 'facebook.com', 'www.facebook.com', 'fb.watch', 'youtube.com', 'youtu.be', 'www.allrecipes.com', 'cooking.nytimes.com', 'freshoffthegrid.com', 'docs.google.com']) {
       expect(isAllowedSourceHost(h)).toBe(true);
     }
-    for (const h of ['facebook.com.evil.com', 'fb.watch.evil.com', 'evil.com', 'google.com']) {
+    for (const h of ['facebook.com.evil.com', 'fb.watch.evil.com', 'evil.com', 'google.com', 'pinterest.com', 'www.pinterest.com', 'pin.it']) {
       expect(isAllowedSourceHost(h)).toBe(false);
     }
   });
