@@ -2434,7 +2434,7 @@ async function handleCreateRecipe(
       throw new HttpError(400, 'sourceUrl must use http or https');
     }
     if (!isAllowedSourceHost(parsedSource.hostname)) {
-      throw new HttpError(400, 'Only TikTok, Instagram, YouTube, Pinterest, Allrecipes, NYT Cooking, and Fresh Off The Grid links are supported right now.');
+      throw new HttpError(400, 'Only TikTok, Instagram, Facebook, YouTube, Pinterest, Allrecipes, NYT Cooking, and Fresh Off The Grid links are supported right now.');
     }
     if (isFacebookLinkShim(parsedSource)) {
       throw new HttpError(400, 'That Facebook link is a redirect, not a recipe. Paste the reel or video link directly.');
@@ -2607,7 +2607,7 @@ async function handleParseRecipe(request: Request, env: Env, ctx: ExecutionConte
   // have, so failing fast here saves a redirect-resolve round trip on
   // obviously-unsupported URLs.
   if (!isAllowedSourceHost(parsedUrl.hostname)) {
-    throw new HttpError(400, 'Only TikTok, Instagram, YouTube, Pinterest, Allrecipes, NYT Cooking, and Fresh Off The Grid links are supported right now.');
+    throw new HttpError(400, 'Only TikTok, Instagram, Facebook, YouTube, Pinterest, Allrecipes, NYT Cooking, and Fresh Off The Grid links are supported right now.');
   }
   if (isFacebookLinkShim(parsedUrl)) {
     throw new HttpError(400, 'That Facebook link is a redirect, not a recipe. Paste the reel or video link directly.');
@@ -2722,6 +2722,7 @@ async function handleEnrichRecipe(request: Request, env: Env) {
   const body = await readJsonBody(request);
   const sourceUrl = typeof body.sourceUrl === 'string' ? body.sourceUrl.trim() : '';
   const title = typeof body.title === 'string' ? body.title.trim() : '';
+  const caption = typeof body.caption === 'string' ? body.caption.trim().slice(0, 10_000) : '';
 
   if (!sourceUrl) {
     throw new HttpError(400, 'sourceUrl is required');
@@ -2739,7 +2740,7 @@ async function handleEnrichRecipe(request: Request, env: Env) {
     throw new HttpError(400, 'sourceUrl must use http or https');
   }
   if (!isAllowedSourceHost(parsedInput.hostname)) {
-    throw new HttpError(400, 'Only TikTok, Instagram, YouTube, Pinterest, Allrecipes, NYT Cooking, and Fresh Off The Grid links are supported right now.');
+    throw new HttpError(400, 'Only TikTok, Instagram, Facebook, YouTube, Pinterest, Allrecipes, NYT Cooking, and Fresh Off The Grid links are supported right now.');
   }
   if (isFacebookLinkShim(parsedInput)) {
     throw new HttpError(400, 'That Facebook link is a redirect, not a recipe. Paste the reel or video link directly.');
@@ -2775,7 +2776,8 @@ async function handleEnrichRecipe(request: Request, env: Env) {
     captionExtract,
     youtubeVideo,
     textInference,
-  });
+    captionProvided: (e, cap) => geminiExtractFromCaption(e, cap),
+  }, caption);
   const ogImage = await ogImagePromise;
 
   console.log('[enrich]', {
@@ -5003,7 +5005,7 @@ function extractTikTokRecipeTitle(ogTitle: string): string {
 function stripFacebookEngagementPrefix(ogDescription: string): string {
   return ogDescription
     .trim()
-    .replace(/^(?:[\d.,]+[KMB]?\s+(?:views?|reactions?|likes?|comments?|shares?)\s*[·,]?\s*)+/i, '')
+    .replace(/^(?:[\d.,]+\s*[KMB]?\s+(?:views?|reactions?|likes?|comments?|shares?)\s*[·•|,]?\s*)+/i, '')
     .trim();
 }
 
@@ -5761,6 +5763,22 @@ async function structuredHtml(
   return { ...base, provenance: 'extracted' };
 }
 
+// Shared core: a caption string -> Gemini extract -> EnrichmentResult.
+async function geminiExtractFromCaption(
+  env: Env,
+  caption: string,
+  deps: { fetchImpl?: typeof fetch; getAccessToken?: (env: Env) => Promise<string>; getServiceAccount?: (env: Env) => Promise<GeminiServiceAccount> } = {}
+): Promise<EnrichmentResult> {
+  const parsed = await callGeminiExtract(env, buildExtractOnlyPrompt(caption), {
+    fetchImpl: deps.fetchImpl,
+    getAccessToken: deps.getAccessToken,
+    getServiceAccount: deps.getServiceAccount,
+  });
+  const base = parsed ? parsedToEnrichmentResult(parsed) : EMPTY_ENRICHMENT;
+  const isEmpty = base.ingredients.length === 0 && base.steps.length === 0;
+  return { ...base, provenance: isEmpty ? null : 'extracted' };
+}
+
 type CaptionExtractDeps = {
   fetchOembedCaption?: typeof fetchOembedCaption;
   fetchImpl?: typeof fetch;
@@ -5821,14 +5839,12 @@ async function captionExtract(
   }
 
   try {
-    const parsed = await callGeminiExtract(env, buildExtractOnlyPrompt(caption), {
+    const result = await geminiExtractFromCaption(env, caption, {
       fetchImpl: deps.fetchImpl,
       getAccessToken: deps.getAccessToken,
       getServiceAccount: deps.getServiceAccount,
     });
-    const base = parsed ? parsedToEnrichmentResult(parsed) : EMPTY_ENRICHMENT;
-    const isEmpty = base.ingredients.length === 0 && base.steps.length === 0;
-    const result: EnrichmentResult = { ...base, provenance: isEmpty ? null : 'extracted' };
+    const isEmpty = result.ingredients.length === 0 && result.steps.length === 0;
     console.log('[enrich]', { strategy: 'caption-extract', url: sourceUrl, captionLength: caption.length, outcome: isEmpty ? 'empty' : 'extracted', duration_ms: Date.now() - startedAt });
     return result;
   } catch (err) {
@@ -5992,15 +6008,35 @@ type ChainStrategies = {
   captionExtract: (env: Env, url: string, title: string) => Promise<EnrichmentResult>;
   youtubeVideo: (env: Env, url: string, title: string) => Promise<EnrichmentResult>;
   textInference: (env: Env, url: string, title: string) => Promise<EnrichmentResult>;
+  captionProvided?: (env: Env, caption: string, title: string) => Promise<EnrichmentResult>;
 };
 
 async function runEnrichmentChain(
   env: Env,
   resolvedUrl: string,
   title: string,
-  strategies: ChainStrategies
-): Promise<{ result: EnrichmentResult; winningStrategy: 'structured-html' | 'caption-extract' | 'youtube-video' | 'text-inference' | null }> {
+  strategies: ChainStrategies,
+  providedCaption?: string
+): Promise<{ result: EnrichmentResult; winningStrategy: 'structured-html' | 'caption-extract' | 'youtube-video' | 'text-inference' | 'caption-provided' | null }> {
   const hasIngredientsOrSteps = (r: EnrichmentResult) => r.ingredients.length > 0 || r.steps.length > 0;
+
+  // Facebook: if the caller supplies a caption (from the iOS Share Extension's
+  // on-device fetch), run Gemini extraction on it. Otherwise fall through to
+  // title-only — the worker is login-walled by FB from datacenter IPs, so any
+  // content from text-inference comes from a TRUNCATED og:description preview.
+  if (/facebook\.com|fb\.watch/i.test(resolvedUrl)) {
+    const cap = (providedCaption ?? '').trim();
+    if (cap && strategies.captionProvided) {
+      const r = await strategies.captionProvided(env, cap, title);
+      if (r.ingredients.length > 0 || r.steps.length > 0) {
+        return { result: r, winningStrategy: 'caption-provided' };
+      }
+    }
+    return {
+      result: { ...EMPTY_ENRICHMENT, title, provenance: title ? 'title-only' : null },
+      winningStrategy: null,
+    };
+  }
 
   // Track the best dish title we get from any strategy, in case all of them
   // come back without ingredients/steps. If the caption is unstructured (no
@@ -6662,6 +6698,7 @@ export {
   buildGeminiPrompt,
   parseGeminiRecipeJson,
   fetchOembedCaption,
+  geminiExtractFromCaption,
   captionExtract,
   youtubeVideo,
   textInference,
@@ -6675,4 +6712,6 @@ export {
   stripFacebookEngagementPrefix,
   resolveSourceUrl,
   extractRecipeDetailsFromHtml,
+  extractInstagramRecipeTitle,
+  extractTikTokRecipeTitle,
 };

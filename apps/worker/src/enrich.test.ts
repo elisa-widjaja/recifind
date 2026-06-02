@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, structuredHtml, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe, isAllowedSourceHost, isFacebookLinkShim, resolveSourceUrl, extractRecipeDetailsFromHtml, stripFacebookEngagementPrefix } from './index';
+import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, structuredHtml, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe, isAllowedSourceHost, isFacebookLinkShim, resolveSourceUrl, extractRecipeDetailsFromHtml, stripFacebookEngagementPrefix, geminiExtractFromCaption } from './index';
 import type { Env } from './index';
 
 describe('fetchRawRecipeText', () => {
@@ -690,6 +690,66 @@ describe('runEnrichmentChain', () => {
     expect(result.provenance).toBe('title-only');
     expect(winningStrategy).toBeNull();
   });
+
+  it('short-circuits Facebook to title-only and never runs a content strategy', async () => {
+    // FB is login-walled from the worker; any content the strategies could
+    // scrape comes from a truncated og:description preview (partial/misleading).
+    // The chain must skip all strategies and keep only the (device-supplied) title.
+    const contentful = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['should-not-appear'], steps: ['nope'] }));
+    const { result, winningStrategy } = await runEnrichmentChain(
+      {} as Env,
+      'https://www.facebook.com/reel/123',
+      'Triple Chocolate Banana Bread',
+      { structuredHtml: contentful, captionExtract: contentful, youtubeVideo: contentful, textInference: contentful }
+    );
+    expect(result.title).toBe('Triple Chocolate Banana Bread');
+    expect(result.ingredients).toEqual([]);
+    expect(result.steps).toEqual([]);
+    expect(result.provenance).toBe('title-only');
+    expect(winningStrategy).toBeNull();
+    expect(contentful).not.toHaveBeenCalled();
+  });
+
+  it('short-circuits an fb.watch link with no title to empty (null provenance)', async () => {
+    const contentful = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['x'], steps: ['y'] }));
+    const { result, winningStrategy } = await runEnrichmentChain(
+      {} as Env,
+      'https://fb.watch/abc123/',
+      '',
+      { structuredHtml: contentful, captionExtract: contentful, youtubeVideo: contentful, textInference: contentful }
+    );
+    expect(result.ingredients).toEqual([]);
+    expect(result.provenance).toBeNull();
+    expect(winningStrategy).toBeNull();
+    expect(contentful).not.toHaveBeenCalled();
+  });
+
+  it('FB with a provided caption runs captionProvided and marks extracted', async () => {
+    const captionProvided = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['1 cup flour'], steps: ['mix'], provenance: 'extracted' as const }));
+    const contentful = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['should-not-run'] }));
+    const { result, winningStrategy } = await runEnrichmentChain(
+      {} as Env, 'https://www.facebook.com/reel/123', 'Cake',
+      { structuredHtml: contentful, captionExtract: contentful, youtubeVideo: contentful, textInference: contentful, captionProvided },
+      'Cake. Ingredients: 1 cup flour. Steps: mix.'
+    );
+    expect(result.ingredients).toEqual(['1 cup flour']);
+    expect(result.provenance).toBe('extracted');
+    expect(winningStrategy).toBe('caption-provided');
+    expect(captionProvided).toHaveBeenCalledTimes(1);
+    expect(contentful).not.toHaveBeenCalled();
+  });
+  it('FB with no provided caption stays title-only', async () => {
+    const captionProvided = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['x'] }));
+    const { result, winningStrategy } = await runEnrichmentChain(
+      {} as Env, 'https://www.facebook.com/reel/123', 'Banana Bread',
+      { structuredHtml: async () => EMPTY_EXPECTED, captionExtract: async () => EMPTY_EXPECTED, youtubeVideo: async () => EMPTY_EXPECTED, textInference: async () => EMPTY_EXPECTED, captionProvided }
+    );
+    expect(result.title).toBe('Banana Bread');
+    expect(result.ingredients).toEqual([]);
+    expect(result.provenance).toBe('title-only');
+    expect(winningStrategy).toBeNull();
+    expect(captionProvided).not.toHaveBeenCalled();
+  });
 });
 
 describe('enrichAfterSave', () => {
@@ -1106,5 +1166,31 @@ describe('stripFacebookEngagementPrefix', () => {
   });
   it('returns empty string when the description is only engagement stats', () => {
     expect(stripFacebookEngagementPrefix('562K views · 5K reactions ·')).toBe('');
+  });
+});
+
+describe('geminiExtractFromCaption', () => {
+  afterEach(() => vi.restoreAllMocks());
+  it('runs Gemini extract on a provided caption and marks provenance extracted', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ ingredients: ['1 cup flour'], steps: ['mix'], mealTypes: [], durationMinutes: null, notes: '', title: 'Cake' }) }] } }] })
+    })) as unknown as typeof fetch;
+    const result = await geminiExtractFromCaption({} as any, 'Cake. Ingredients: 1 cup flour. Steps: mix.', {
+      fetchImpl, getAccessToken: async () => 'tok', getServiceAccount: async () => ({}) as any,
+    });
+    expect(result.ingredients).toEqual(['1 cup flour']);
+    expect(result.provenance).toBe('extracted');
+  });
+  it('returns null provenance when Gemini finds nothing', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ ingredients: [], steps: [], mealTypes: [], durationMinutes: null, notes: '', title: '' }) }] } }] })
+    })) as unknown as typeof fetch;
+    const result = await geminiExtractFromCaption({} as any, 'just a vibe, no recipe here', {
+      fetchImpl, getAccessToken: async () => 'tok', getServiceAccount: async () => ({}) as any,
+    });
+    expect(result.ingredients).toEqual([]);
+    expect(result.provenance).toBeNull();
   });
 });
