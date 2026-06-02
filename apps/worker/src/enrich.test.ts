@@ -1146,6 +1146,18 @@ describe('extractRecipeDetailsFromHtml Facebook title fallback', () => {
       expect(result.title.toLowerCase()).not.toContain('reactions');
     }
   });
+
+  it('strips the engagement prefix when FB puts the stats in og:title itself', () => {
+    const html = `<html><head>
+      <meta property="og:title" content="649K views · 6.1K reactions | Triple Chocolate Banana Bread" />
+      <meta property="og:image" content="https://scontent.example/img.jpg" />
+    </head></html>`;
+    const result = extractRecipeDetailsFromHtml(html, 'https://www.facebook.com/reel/123');
+    expect(result).not.toBeNull();
+    expect(result!.title.toLowerCase()).toContain('triple chocolate banana bread');
+    expect(result!.title.toLowerCase()).not.toContain('views');
+    expect(result!.title.toLowerCase()).not.toContain('reactions');
+  });
 });
 
 describe('stripFacebookEngagementPrefix', () => {

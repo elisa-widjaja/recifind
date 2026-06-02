@@ -5054,7 +5054,10 @@ function extractRecipeDetailsFromHtml(html: string, sourceUrl: string): ParsedRe
   } else if (isTikTok && fallbackTitle) {
     fallbackTitle = extractTikTokRecipeTitle(fallbackTitle);
   } else if (isFacebook && fallbackTitle) {
-    fallbackTitle = extractTikTokRecipeTitle(fallbackTitle);
+    // FB often puts the engagement stats in og:TITLE itself, e.g.
+    // "649K views · 6.1K reactions | Triple Chocolate Banana Bread" — strip
+    // that prefix before the dish-name extractor so the title isn't junk.
+    fallbackTitle = extractTikTokRecipeTitle(stripFacebookEngagementPrefix(fallbackTitle));
   }
 
   const fallbackImage = extractOgImageUrlFromHtml(html, sourceUrl);
