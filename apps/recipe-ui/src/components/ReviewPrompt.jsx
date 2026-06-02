@@ -8,7 +8,7 @@ export default function ReviewPrompt({ open, step, onYes, onNot, onRate, onLater
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
       {step === 'sentiment' ? (
         <>
-          <DialogTitle sx={{ fontWeight: 700 }}>Enjoying ReciFriend?</DialogTitle>
+          <DialogTitle sx={{ fontWeight: 700, fontSize: 18, whiteSpace: 'nowrap' }}>Enjoying ReciFriend?</DialogTitle>
           <DialogContent>
             <DialogContentText sx={{ fontSize: 14 }}>
               We'd love to know how it's going so far.
@@ -21,10 +21,10 @@ export default function ReviewPrompt({ open, step, onYes, onNot, onRate, onLater
         </>
       ) : (
         <>
-          <DialogTitle sx={{ fontWeight: 700 }}>Glad you're enjoying it!</DialogTitle>
+          <DialogTitle sx={{ fontWeight: 700, fontSize: 18 }}>Glad you're enjoying it!</DialogTitle>
           <DialogContent>
             <DialogContentText sx={{ fontSize: 14 }}>
-              Would you mind leaving a quick review on the App Store? It really helps other home cooks find ReciFriend.
+              Mind leaving a rating on the App Store? It takes a few seconds and really helps.
             </DialogContentText>
           </DialogContent>
           <DialogActions sx={{ px: 3, pb: 2 }}>

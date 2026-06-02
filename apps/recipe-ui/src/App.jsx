@@ -3127,13 +3127,16 @@ function App() {
 
   useEffect(() => {
     if (reviewHandledRef.current) return;
-    if (showFeedbackWidget) return; // don't double-prompt; stand down this session
+    if (settingsDrawer) return; // don't pop the prompt over an open settings/feedback drawer
     const decision = decideReviewPrompt({
       count: recipes.length,
       now: Date.now(),
       state: readReviewState(),
       armedThisSession: isArmedThisSession(),
-      isIOS: isIOSEnv,
+      // Native iOS app only — don't proactively nag web/PWA users (who may not
+      // even have the app installed) to rate it. The passive "Rate" row keeps
+      // using isIOSEnv since that's user-initiated.
+      isIOS: Capacitor.isNativePlatform(),
     });
     if (decision === 'arm') {
       writeReviewState({ armedAt: Date.now() });
@@ -3143,15 +3146,14 @@ function App() {
       reviewHandledRef.current = true;
       setReviewStep('sentiment');
       setReviewPromptOpen(true);
-      setShowFeedbackWidget(false); // review prompt wins this session
     }
-  }, [recipes.length, isIOSEnv, showFeedbackWidget]);
+  }, [recipes.length, settingsDrawer]);
 
   const handleReviewYes = () => setReviewStep('review');
   const handleReviewNot = () => {
     writeReviewState({ snoozedUntil: Date.now() + REVIEW_SNOOZE_MS });
     setReviewPromptOpen(false);
-    setShowFeedbackWidget(true); // route unhappy users to the private feedback form
+    setSettingsDrawer('feedback'); // route unhappy users to the in-app feedback form
   };
   const handleReviewRate = () => {
     writeReviewState({ rated: true });
