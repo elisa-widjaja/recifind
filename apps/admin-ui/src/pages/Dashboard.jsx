@@ -78,18 +78,21 @@ export default function Dashboard() {
               </ToggleButtonGroup>
             </Box>
 
-            {data.growth.windows?.[growthWindow] && (
-              <Grid container spacing={2}>
-                <Tile title="Signups" value={data.growth.windows[growthWindow].signups} help={HELP.signupsWindow} />
-                <Tile
-                  title="Activated in 24h"
-                  value={`${data.growth.windows[growthWindow].activated_24h} (${data.growth.windows[growthWindow].activated_pct}%)`}
-                  help={HELP.activated24h}
-                />
-                <Tile title="New saves" value={data.growth.windows[growthWindow].new_saves} help={HELP.newSaves} />
-                <Tile title="Re-saves" value={data.growth.windows[growthWindow].re_saves} help={HELP.reSaves} />
-              </Grid>
-            )}
+            {data.growth.windows?.[growthWindow] && (() => {
+              const w = data.growth.windows[growthWindow];
+              return (
+                <Grid container spacing={2}>
+                  <ComboTile items={[
+                    { label: 'Signups', value: w.signups, help: HELP.signupsWindow },
+                    { label: 'Activated in 24h', value: `${w.activated_24h} (${w.activated_pct}%)`, help: HELP.activated24h },
+                  ]} />
+                  <ComboTile items={[
+                    { label: 'New saves', value: w.new_saves, help: HELP.newSaves },
+                    { label: 'Re-saves', value: w.re_saves, help: HELP.reSaves },
+                  ]} />
+                </Grid>
+              );
+            })()}
 
             {data.growth.windows?.[growthWindow] && (() => {
               const w = data.growth.windows[growthWindow];
@@ -256,6 +259,29 @@ function Tile({ title, value, help }) {
             <HelpIcon text={help} />
           </Typography>
           <Typography variant="h4">{value}</Typography>
+        </CardContent>
+      </Card>
+    </Grid>
+  );
+}
+
+// Two related metrics shown side by side in one outlined card.
+function ComboTile({ items }) {
+  return (
+    <Grid item xs={12} sm={6}>
+      <Card variant="outlined">
+        <CardContent>
+          <Box sx={{ display: 'flex', gap: 3 }}>
+            {items.map((it) => (
+              <Box key={it.label} sx={{ flex: 1 }}>
+                <Typography variant="caption" color="text.secondary">
+                  {it.label}
+                  <HelpIcon text={it.help} />
+                </Typography>
+                <Typography variant="h4">{it.value}</Typography>
+              </Box>
+            ))}
+          </Box>
         </CardContent>
       </Card>
     </Grid>
