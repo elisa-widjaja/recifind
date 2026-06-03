@@ -1799,7 +1799,7 @@ export async function getPublicDiscover(db: D1Database): Promise<DiscoverRecipe[
      WHERE shared_with_friends = 1
        AND hidden_at IS NULL
        AND (source_url LIKE '%tiktok.com%' OR source_url LIKE '%instagram.com%'
-            OR source_url LIKE '%youtube.com/shorts%')
+            OR source_url LIKE '%youtube.com/shorts%' OR source_url LIKE '%facebook.com%')
      ORDER BY created_at DESC
      LIMIT 20`
   ).all();
