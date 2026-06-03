@@ -6,7 +6,7 @@ import {
 } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import {
-  LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip, BarChart, Bar,
+  LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip, BarChart, Bar, Legend,
 } from 'recharts';
 import { fetchAdmin } from '../api';
 
@@ -90,6 +90,56 @@ export default function Dashboard() {
                 <Tile title="Re-saves" value={data.growth.windows[growthWindow].re_saves} help={HELP.reSaves} />
               </Grid>
             )}
+
+            {data.growth.windows?.[growthWindow] && (() => {
+              const w = data.growth.windows[growthWindow];
+              const WINDOW_LABEL = { '1d': '1 day', '7d': '1 week', '30d': '1 month' };
+              const label = WINDOW_LABEL[growthWindow] || growthWindow;
+              const signupsData = [{
+                name: label,
+                'Activated in 24h': w.activated_24h,
+                'Not activated yet': Math.max(0, w.signups - w.activated_24h),
+              }];
+              const savesData = [{
+                name: label,
+                'New saves': w.new_saves,
+                'Re-saves': w.re_saves,
+              }];
+              return (
+                <Grid container spacing={2} sx={{ mt: 0.5 }}>
+                  <Grid item xs={12} md={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      Signups vs activated in 24h (bar = total signups)
+                    </Typography>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={signupsData}>
+                        <XAxis dataKey="name" />
+                        <YAxis allowDecimals={false} />
+                        <Tooltip />
+                        <Legend />
+                        <Bar dataKey="Activated in 24h" stackId="signups" fill="#6200EA" />
+                        <Bar dataKey="Not activated yet" stackId="signups" fill="#D1C4E9" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Typography variant="caption" color="text.secondary">
+                      New saves vs re-saves (bar = total saves)
+                    </Typography>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={savesData}>
+                        <XAxis dataKey="name" />
+                        <YAxis allowDecimals={false} />
+                        <Tooltip />
+                        <Legend />
+                        <Bar dataKey="New saves" stackId="saves" fill="#6200EA" />
+                        <Bar dataKey="Re-saves" stackId="saves" fill="#00BCD4" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </Grid>
+                </Grid>
+              );
+            })()}
 
             <Typography variant="subtitle2" sx={{ mt: 3, mb: 1 }}>
               Retention by signup day (last 30 days)
