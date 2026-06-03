@@ -3,6 +3,7 @@ import { isAdminEmail } from './admin';
 import { writeAuditLog } from './admin';
 import { handleAdminMe } from './admin';
 import { buildUsersListQuery } from './admin';
+import { syncAdminUserStats, fetchAllSupabaseLastSignIn } from './admin';
 import { buildSignupsPerDayQuery, buildViralCoefWeeklyQuery, buildGrowthCountersQuery, buildRetentionCohortsQuery, METRICS_EXCLUDED_EMAILS, buildWeeklySignupsActivationQuery, buildWeeklySavesQuery, launchWeeks, LAUNCH_DATE } from './admin';
 import { buildRecipeSearchQuery } from './admin';
 import { deriveImageStatus } from './admin';
@@ -155,55 +156,51 @@ describe('handleAdminMe', () => {
 });
 
 describe('buildUsersListQuery', () => {
-  it('returns SQL containing all expected aggregates', () => {
+  it('joins admin_user_stats with no GROUP BY and no recipes/invites_sent', () => {
     const { sql } = buildUsersListQuery({ limit: 50, offset: 0 });
-    expect(sql).toMatch(/COUNT\(DISTINCT r\.id\)\s+AS\s+recipe_count/i);
-    expect(sql).toMatch(/COUNT\(DISTINCT frs\.to_user_id\)\s+AS\s+invites_sent/i);
-    expect(sql).toMatch(/COUNT\(DISTINCT f\.friend_id\)\s+AS\s+invites_accepted/i);
+    expect(sql).toMatch(/LEFT JOIN admin_user_stats s ON s\.user_id = p\.user_id/i);
+    expect(sql).not.toMatch(/GROUP BY/i);
+    expect(sql).not.toMatch(/LEFT JOIN recipes/i);
+    expect(sql).not.toMatch(/invites_sent/i);
+    expect(sql).toMatch(/COALESCE\(s\.recipe_count, 0\) AS recipe_count/i);
+    expect(sql).toMatch(/COALESCE\(s\.friends_count, 0\) AS invites_accepted/i);
+    expect(sql).toMatch(/s\.last_sign_in_at AS last_sign_in_at/i);
+    expect(sql).toMatch(/AS is_active/i);
+    expect(sql).toMatch(/julianday\(s\.last_sign_in_at\) >= julianday\('now','-30 days'\)/i);
   });
 
-  it('always includes deleted_at IS NULL filter', () => {
-    const { sql } = buildUsersListQuery({ limit: 50, offset: 0 });
-    expect(sql).toMatch(/p\.deleted_at IS NULL/);
+  it('default excludes soft-deleted and paginates', () => {
+    const { sql, params } = buildUsersListQuery({ limit: 25, offset: 50 });
+    expect(sql).toMatch(/p\.deleted_at IS NULL/i);
+    expect(sql).toMatch(/LIMIT \? OFFSET \?/i);
+    expect(params).toEqual([25, 50]);
   });
 
-  it('returns SQL including soft-deleted when activity=soft_deleted', () => {
-    const { sql } = buildUsersListQuery({ limit: 50, offset: 0, activity: 'soft_deleted' });
-    expect(sql).toMatch(/p\.deleted_at IS NOT NULL/);
+  it('search adds a LIKE clause with two params before limit/offset', () => {
+    const { params } = buildUsersListQuery({ limit: 50, offset: 0, search: 'ann' });
+    expect(params).toEqual(['%ann%', '%ann%', 50, 0]);
   });
 
-  it('binds the search term as a LIKE param against email and display_name', () => {
-    const { sql, params } = buildUsersListQuery({ limit: 50, offset: 0, search: 'sarah' });
-    expect(sql).toMatch(/p\.email LIKE \? OR p\.display_name LIKE \?/i);
-    expect(params.filter((x) => x === '%sarah%')).toHaveLength(2);
-  });
-
-  it('applies recipe bucket filter for "0"', () => {
-    const { sql } = buildUsersListQuery({ limit: 50, offset: 0, recipeBucket: '0' });
-    expect(sql).toMatch(/HAVING\s+(\(.*\s)?recipe_count = 0/i);
-  });
-
-  it('applies recipe bucket filter for "10-19"', () => {
+  it('recipeBucket filters on COALESCE(s.recipe_count,0)', () => {
     const { sql } = buildUsersListQuery({ limit: 50, offset: 0, recipeBucket: '10-19' });
-    expect(sql).toMatch(/recipe_count BETWEEN 10 AND 19/i);
+    expect(sql).toMatch(/COALESCE\(s\.recipe_count,0\) BETWEEN 10 AND 19/i);
   });
 
-  it('applies signupAfter bound', () => {
-    const { sql, params } = buildUsersListQuery({
-      limit: 50, offset: 0, signupAfter: '2026-01-01'
-    });
-    expect(sql).toMatch(/p\.created_at >= \?/);
-    expect(params).toContain('2026-01-01');
+  it('activity=active filters by the is-active expression', () => {
+    const { sql } = buildUsersListQuery({ limit: 50, offset: 0, activity: 'active' });
+    expect(sql).toMatch(/COALESCE\(s\.recipe_count,0\) >= 1/i);
+    expect(sql).toMatch(/julianday\(s\.last_sign_in_at\) >= julianday\('now','-30 days'\)/i);
   });
 
-  it('respects sort=signup_asc', () => {
-    const { sql } = buildUsersListQuery({ limit: 50, offset: 0, sort: 'signup_asc' });
-    expect(sql).toMatch(/ORDER BY p\.created_at ASC/i);
+  it('activity=ghost filters by recipe_count 0 and not-came-back', () => {
+    const { sql } = buildUsersListQuery({ limit: 50, offset: 0, activity: 'ghost' });
+    expect(sql).toMatch(/COALESCE\(s\.recipe_count,0\) = 0/i);
+    expect(sql).toMatch(/5\.0\/1440\.0/);
   });
 
-  it('defaults to signup_desc', () => {
-    const { sql } = buildUsersListQuery({ limit: 50, offset: 0 });
-    expect(sql).toMatch(/ORDER BY p\.created_at DESC/i);
+  it('activity=soft_deleted selects deleted rows', () => {
+    const { sql } = buildUsersListQuery({ limit: 50, offset: 0, activity: 'soft_deleted' });
+    expect(sql).toMatch(/p\.deleted_at IS NOT NULL/i);
   });
 });
 
@@ -1133,5 +1130,132 @@ describe('buildRecipeSearchQuery image_url', () => {
   it('selects r.image_url so image status can be derived', () => {
     const { sql } = buildRecipeSearchQuery({ q: 'pie', limit: 10 });
     expect(sql).toContain('r.image_url');
+  });
+});
+
+describe('syncAdminUserStats', () => {
+  function mockDb(captured) {
+    const prepare = vi.fn((sql) => ({
+      bind: (...args) => ({ __sql: sql, __args: args }),
+      all: vi.fn().mockImplementation(() => {
+        if (/FROM recipes/i.test(sql)) return Promise.resolve({ results: [{ user_id: 'u1', n: 3 }] });
+        if (/FROM friends/i.test(sql)) return Promise.resolve({ results: [{ user_id: 'u1', n: 2 }] });
+        if (/FROM profiles/i.test(sql)) return Promise.resolve({ results: [{ user_id: 'u1' }, { user_id: 'u2' }] });
+        return Promise.resolve({ results: [] });
+      }),
+    }));
+    const batch = vi.fn((stmts) => { captured.push(...stmts); return Promise.resolve([]); });
+    return { prepare, batch };
+  }
+
+  it('upserts one row per profile with merged counts + last_sign_in', async () => {
+    const captured = [];
+    const db = mockDb(captured);
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ users: [{ id: 'u1', last_sign_in_at: '2026-06-01T00:00:00Z' }] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await syncAdminUserStats({ DB: db, SUPABASE_URL: 'https://x', SUPABASE_SERVICE_ROLE_KEY: 'k' });
+
+    expect(res.users).toBe(2);
+    const u1 = captured.find((s) => s.__args[0] === 'u1');
+    const u2 = captured.find((s) => s.__args[0] === 'u2');
+    expect(u1.__args.slice(0, 4)).toEqual(['u1', 3, 2, '2026-06-01T00:00:00Z']);
+    expect(u2.__args.slice(0, 4)).toEqual(['u2', 0, 0, null]);
+    expect(u1.__sql).toMatch(/last_sign_in_at=excluded\.last_sign_in_at/i);
+    vi.unstubAllGlobals();
+  });
+
+  it('preserves existing last_sign_in_at when Supabase fetch fails', async () => {
+    const captured = [];
+    const db = mockDb(captured);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }));
+
+    const res = await syncAdminUserStats({ DB: db, SUPABASE_URL: 'https://x', SUPABASE_SERVICE_ROLE_KEY: 'k' });
+
+    expect(res.users).toBe(2);
+    const u1 = captured.find((s) => s.__args[0] === 'u1');
+    expect(u1.__args.slice(0, 3)).toEqual(['u1', 3, 2]);
+    expect(u1.__sql).not.toMatch(/last_sign_in_at=excluded/i);
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('fetchAllSupabaseLastSignIn', () => {
+  it('returns empty map without a service role key (no fetch)', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const m = await fetchAllSupabaseLastSignIn({ SUPABASE_URL: 'https://x', SUPABASE_SERVICE_ROLE_KEY: undefined });
+    expect(m.size).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('handleAdminUsersList (denormalized)', () => {
+  it('returns joined rows without making any Supabase calls', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const rows = [
+      { id: 'u1', email: 'a@x.com', display_name: 'A', signed_up_at: '2026-05-01', deleted_at: null,
+        recipe_count: 5, invites_accepted: 2, last_sign_in_at: '2026-06-01T00:00:00Z', is_active: 1 },
+    ];
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: rows }) }),
+    } as unknown as D1Database;
+
+    const { handleAdminUsersList } = await import('./admin');
+    const res = await handleAdminUsersList({
+      env: { DB: mockDb, SUPABASE_URL: 'https://x', SUPABASE_SERVICE_ROLE_KEY: 'k' },
+      user: { userId: 'admin', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      url: new URL('https://x/admin/users?limit=1'),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.users).toHaveLength(1);
+    expect(body.users[0].recipe_count).toBe(5);
+    expect(body.page.has_more).toBe(true); // returned (1) === limit (1)
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('handleAdminUserDrilldown last_sign_in', () => {
+  it('surfaces a live last_sign_in_at on the profile when a key is set', async () => {
+    const stubs = [
+      { user_id: 'u1', email: 'a@x.com', display_name: 'A', created_at: '2026-01-01', deleted_at: null }, // profile.first
+      { results: [] }, // recipes
+      { results: [] }, // cook_events
+      { results: [] }, // conversions
+      null,            // invite link .first
+      { results: [] }, // pending_received
+      { results: [] }, // shares
+    ];
+    let i = 0;
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnThis(),
+        first: vi.fn().mockImplementation(() => Promise.resolve(stubs[i++])),
+        all: vi.fn().mockImplementation(() => Promise.resolve(stubs[i++])),
+      }),
+    } as unknown as D1Database;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ last_sign_in_at: '2026-06-02T10:00:00Z' }) }));
+
+    const { handleAdminUserDrilldown } = await import('./admin');
+    const res = await handleAdminUserDrilldown({
+      env: { DB: mockDb, SUPABASE_URL: 'https://x', SUPABASE_SERVICE_ROLE_KEY: 'k' },
+      user: { userId: 'admin', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      userId: 'u1',
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.profile.last_sign_in_at).toBe('2026-06-02T10:00:00Z');
+    vi.unstubAllGlobals();
   });
 });

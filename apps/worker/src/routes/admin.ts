@@ -172,16 +172,24 @@ export interface UsersListParams {
 export interface BuiltQuery { sql: string; params: unknown[] }
 
 const RECIPE_BUCKETS: Record<string, string> = {
-  '0': 'recipe_count = 0',
-  '1-9': 'recipe_count BETWEEN 1 AND 9',
-  '10-19': 'recipe_count BETWEEN 10 AND 19',
-  '20-49': 'recipe_count BETWEEN 20 AND 49',
-  '50+': 'recipe_count >= 50',
+  '0': 'COALESCE(s.recipe_count,0) = 0',
+  '1-9': 'COALESCE(s.recipe_count,0) BETWEEN 1 AND 9',
+  '10-19': 'COALESCE(s.recipe_count,0) BETWEEN 10 AND 19',
+  '20-49': 'COALESCE(s.recipe_count,0) BETWEEN 20 AND 49',
+  '50+': 'COALESCE(s.recipe_count,0) >= 50',
 };
+
+// Activity expressions (julianday so ISO `…T…Z` values compare correctly vs 'now').
+const IS_ACTIVE_EXPR =
+  `p.deleted_at IS NULL AND COALESCE(s.recipe_count,0) >= 1 ` +
+  `AND s.last_sign_in_at IS NOT NULL ` +
+  `AND julianday(s.last_sign_in_at) >= julianday('now','-30 days')`;
+const CAME_BACK_EXPR =
+  `julianday(COALESCE(s.last_sign_in_at, p.created_at)) - julianday(p.created_at) > (5.0/1440.0)`;
+const GHOST_EXPR = `COALESCE(s.recipe_count,0) = 0 AND NOT (${CAME_BACK_EXPR})`;
 
 export function buildUsersListQuery(p: UsersListParams): BuiltQuery {
   const where: string[] = [];
-  const having: string[] = [];
   const params: unknown[] = [];
 
   if (p.activity === 'soft_deleted') {
@@ -194,38 +202,31 @@ export function buildUsersListQuery(p: UsersListParams): BuiltQuery {
     where.push('(p.email LIKE ? OR p.display_name LIKE ?)');
     params.push(`%${p.search}%`, `%${p.search}%`);
   }
-  if (p.signupAfter) {
-    where.push('p.created_at >= ?');
-    params.push(p.signupAfter);
-  }
-  if (p.signupBefore) {
-    where.push('p.created_at <= ?');
-    params.push(p.signupBefore);
-  }
+  if (p.signupAfter) { where.push('p.created_at >= ?'); params.push(p.signupAfter); }
+  if (p.signupBefore) { where.push('p.created_at <= ?'); params.push(p.signupBefore); }
+  if (p.recipeBucket && RECIPE_BUCKETS[p.recipeBucket]) where.push(RECIPE_BUCKETS[p.recipeBucket]);
 
-  if (p.recipeBucket && RECIPE_BUCKETS[p.recipeBucket]) {
-    having.push(RECIPE_BUCKETS[p.recipeBucket]);
-  }
+  if (p.activity === 'active') where.push(`(${IS_ACTIVE_EXPR})`);
+  else if (p.activity === 'ghost') where.push(`(${GHOST_EXPR})`);
+  else if (p.activity === 'inactive') where.push(`NOT (${IS_ACTIVE_EXPR}) AND NOT (${GHOST_EXPR})`);
+  // 'soft_deleted' is already covered by the base deleted_at filter above.
 
   const orderBy = p.sort === 'signup_asc' ? 'p.created_at ASC' : 'p.created_at DESC';
 
   const sql = `
     SELECT
-      p.user_id            AS id,
-      p.email              AS email,
-      p.display_name       AS display_name,
-      p.created_at         AS signed_up_at,
-      p.deleted_at         AS deleted_at,
-      COUNT(DISTINCT r.id) AS recipe_count,
-      COUNT(DISTINCT frs.to_user_id) AS invites_sent,
-      COUNT(DISTINCT f.friend_id) AS invites_accepted
+      p.user_id      AS id,
+      p.email        AS email,
+      p.display_name AS display_name,
+      p.created_at   AS signed_up_at,
+      p.deleted_at   AS deleted_at,
+      COALESCE(s.recipe_count, 0) AS recipe_count,
+      COALESCE(s.friends_count, 0) AS invites_accepted,
+      s.last_sign_in_at AS last_sign_in_at,
+      CASE WHEN ${IS_ACTIVE_EXPR} THEN 1 ELSE 0 END AS is_active
     FROM profiles p
-    LEFT JOIN recipes r ON r.user_id = p.user_id
-    LEFT JOIN friend_requests_sent frs ON frs.from_user_id = p.user_id
-    LEFT JOIN friends f ON f.user_id = p.user_id
+    LEFT JOIN admin_user_stats s ON s.user_id = p.user_id
     WHERE ${where.join(' AND ')}
-    GROUP BY p.user_id
-    ${having.length ? `HAVING ${having.join(' AND ')}` : ''}
     ORDER BY ${orderBy}
     LIMIT ? OFFSET ?
   `.trim();
@@ -237,6 +238,83 @@ export function buildUsersListQuery(p: UsersListParams): BuiltQuery {
 const ALLOWED_ACTIVITY = new Set(['active', 'inactive', 'ghost', 'soft_deleted']);
 const ALLOWED_BUCKET = new Set(['0', '1-9', '10-19', '20-49', '50+']);
 const ALLOWED_SORT = new Set(['signup_desc', 'signup_asc']);
+
+// Page through Supabase Auth admin users → Map<user_id, last_sign_in_at|null>.
+export async function fetchAllSupabaseLastSignIn(
+  env: { SUPABASE_URL: string; SUPABASE_SERVICE_ROLE_KEY?: string }
+): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  if (!env.SUPABASE_SERVICE_ROLE_KEY) return out;
+  const perPage = 1000;
+  for (let page = 1; page <= 100; page++) {
+    const res = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users?page=${page}&per_page=${perPage}`, {
+      headers: {
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+      },
+    });
+    if (!res.ok) throw new Error(`supabase list users failed: ${res.status}`);
+    const body = (await res.json()) as { users?: Array<{ id: string; last_sign_in_at?: string | null }> };
+    const users = body.users || [];
+    for (const u of users) out.set(u.id, u.last_sign_in_at ?? null);
+    if (users.length < perPage) break;
+  }
+  return out;
+}
+
+// Recompute admin_user_stats for every profile. Counts come from D1 (authoritative);
+// last_sign_in from a batched Supabase call. If Supabase fails, counts are still
+// written and existing last_sign_in_at values are PRESERVED (not blanked).
+export async function syncAdminUserStats(
+  env: { DB: D1Database; SUPABASE_URL: string; SUPABASE_SERVICE_ROLE_KEY?: string }
+): Promise<{ users: number }> {
+  const now = new Date().toISOString();
+
+  const [recipeRows, friendRows, profileRows] = await Promise.all([
+    env.DB.prepare(`SELECT user_id, COUNT(*) AS n FROM recipes GROUP BY user_id`).all(),
+    env.DB.prepare(`SELECT user_id, COUNT(DISTINCT friend_id) AS n FROM friends GROUP BY user_id`).all(),
+    env.DB.prepare(`SELECT user_id FROM profiles`).all(),
+  ]);
+
+  const recipeCounts = new Map<string, number>();
+  for (const r of (recipeRows.results as any[]) || []) recipeCounts.set(r.user_id, r.n);
+  const friendCounts = new Map<string, number>();
+  for (const r of (friendRows.results as any[]) || []) friendCounts.set(r.user_id, r.n);
+
+  let lastSignIn = new Map<string, string | null>();
+  let gotSignIn = false;
+  try {
+    lastSignIn = await fetchAllSupabaseLastSignIn(env);
+    gotSignIn = true;
+  } catch (err) {
+    console.error('[admin] syncAdminUserStats: supabase fetch failed; writing counts only', err);
+  }
+
+  // On success, refresh last_sign_in_at too. On failure, leave it untouched for
+  // existing rows (and NULL for brand-new ones).
+  const upsertSql = gotSignIn
+    ? `INSERT INTO admin_user_stats (user_id, recipe_count, friends_count, last_sign_in_at, synced_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET
+         recipe_count = excluded.recipe_count,
+         friends_count = excluded.friends_count,
+         last_sign_in_at=excluded.last_sign_in_at,
+         synced_at = excluded.synced_at`
+    : `INSERT INTO admin_user_stats (user_id, recipe_count, friends_count, last_sign_in_at, synced_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET
+         recipe_count = excluded.recipe_count,
+         friends_count = excluded.friends_count,
+         synced_at = excluded.synced_at`;
+
+  const stmt = env.DB.prepare(upsertSql);
+  const profileIds = ((profileRows.results as any[]) || []).map((r) => r.user_id as string);
+  const batch = profileIds.map((id) =>
+    stmt.bind(id, recipeCounts.get(id) ?? 0, friendCounts.get(id) ?? 0, lastSignIn.get(id) ?? null, now)
+  );
+  if (batch.length) await env.DB.batch(batch);
+  return { users: batch.length };
+}
 
 export async function handleAdminUsersList(args: {
   env: { DB: D1Database; SUPABASE_URL: string; SUPABASE_SERVICE_ROLE_KEY?: string };
@@ -277,71 +355,17 @@ export async function handleAdminUsersList(args: {
 
   const { sql, params: bindParams } = buildUsersListQuery(params);
   const { results } = await args.env.DB.prepare(sql).bind(...bindParams).all();
-  const preFilterCount = (results || []).length;
-
-  const enriched = await enrichWithLastSignIn(results, args.env);
-  const filtered = filterByActivity(enriched, params.activity);
+  const users = results || [];
 
   return json(200, {
-    users: filtered,
+    users,
     page: {
       limit,
       offset,
-      returned: filtered.length,
-      has_more: preFilterCount === limit, // there could be more rows in D1; client should fetch next page
+      returned: users.length,
+      has_more: users.length === limit,
     },
   });
-}
-
-const ACTIVE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-const GHOST_WINDOW_MS = 5 * 60 * 1000;
-
-async function enrichWithLastSignIn(rows: any[], env: { SUPABASE_URL: string; SUPABASE_SERVICE_ROLE_KEY?: string }) {
-  if (rows.length === 0) return rows;
-  if (!env.SUPABASE_SERVICE_ROLE_KEY) {
-    return rows.map((r) => ({ ...r, last_sign_in_at: null, is_active: false }));
-  }
-  const enriched = await Promise.all(rows.map(async (r) => {
-    const url = `${env.SUPABASE_URL}/auth/v1/admin/users/${r.id}`;
-    let lastSignInAt: string | null = null;
-    try {
-      const res = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-          apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-        },
-      });
-      if (res.ok) lastSignInAt = (await res.json() as any).last_sign_in_at;
-    } catch (err) {
-      console.error('[admin] enrichWithLastSignIn fetch failed', { userId: r.id, err });
-    }
-    const isActive = computeIsActive(r, lastSignInAt);
-    return { ...r, last_sign_in_at: lastSignInAt, is_active: isActive };
-  }));
-  return enriched;
-}
-
-function computeIsActive(row: any, lastSignInAt: string | null): boolean {
-  if (row.deleted_at) return false;
-  if (row.recipe_count < 1) return false;
-  if (!lastSignInAt) return false;
-  const ageMs = Date.now() - new Date(lastSignInAt).getTime();
-  return ageMs <= ACTIVE_WINDOW_MS;
-}
-
-function classifyActivity(row: any, lastSignInAt: string | null): 'active' | 'inactive' | 'ghost' | 'soft_deleted' {
-  if (row.deleted_at) return 'soft_deleted';
-  const signupTime = new Date(row.signed_up_at).getTime();
-  const lastSignInTime = lastSignInAt ? new Date(lastSignInAt).getTime() : signupTime;
-  const cameBack = (lastSignInTime - signupTime) > GHOST_WINDOW_MS;
-  if (row.recipe_count === 0 && !cameBack) return 'ghost';
-  if (computeIsActive(row, lastSignInAt)) return 'active';
-  return 'inactive';
-}
-
-function filterByActivity(rows: any[], activity: UsersListParams['activity']) {
-  if (!activity) return rows;
-  return rows.filter((r) => classifyActivity(r, r.last_sign_in_at) === activity);
 }
 
 // ---------------------------------------------------------------------------
@@ -446,8 +470,25 @@ export async function handleAdminUserDrilldown(args: {
     return { ...row, last_sign_in_at: lastSignInAt };
   }));
 
+  // Live last_sign_in_at for this one user (cheap; keeps detail precise vs the
+  // hourly-synced list value).
+  let profileLastSignInAt: string | null = null;
+  if (args.env.SUPABASE_SERVICE_ROLE_KEY) {
+    try {
+      const r = await fetch(`${args.env.SUPABASE_URL}/auth/v1/admin/users/${args.userId}`, {
+        headers: {
+          Authorization: `Bearer ${args.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          apikey: args.env.SUPABASE_SERVICE_ROLE_KEY,
+        },
+      });
+      if (r.ok) profileLastSignInAt = ((await r.json()) as any).last_sign_in_at ?? null;
+    } catch (err) {
+      console.error('[admin] drilldown profile last_sign_in fetch failed', { userId: args.userId, err });
+    }
+  }
+
   return json(200, {
-    profile,
+    profile: { ...(profile as any), last_sign_in_at: profileLastSignInAt },
     recipes: (recipes.results || []).map((r: any) => ({ ...r, image_status: deriveImageStatus(r.image_url) })),
     cook_events: cookEvents.results || [],
     shares: shares.results || [],

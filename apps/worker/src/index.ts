@@ -967,6 +967,15 @@ export default {
   },
 
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    // Refresh denormalized admin user stats (isolated so a failure never blocks nudges).
+    try {
+      const { syncAdminUserStats } = await import('./routes/admin');
+      const result = await syncAdminUserStats(env);
+      console.log('[cron] syncAdminUserStats done', result);
+    } catch (err) {
+      console.error('[cron] syncAdminUserStats failed', err);
+    }
+
     const now = new Date().toISOString();
     const BATCH_SIZE = 20;
 
@@ -1743,10 +1752,7 @@ async function handleOembedAuthor(url: URL) {
 
 // Hand-picked YouTube Shorts to always appear in the first 2 slots of Discover New Recipes.
 // Add recipe IDs here (must exist in D1). Keep at most 2.
-const CURATED_YOUTUBE_SHORTS_IDS = [
-  '802582a9-2ece-49ca-ab8e-0561d54645c5', // The Best Gouda Grits Recipe
-  'e0853763-d134-4547-8496-efa18bfa5062', // Persian Sheet-Pan Beef Kefta Wraps
-];
+const CURATED_YOUTUBE_SHORTS_IDS: string[] = [];
 
 type DiscoverRecipe = {
   id: string; userId: string; title: string; sourceUrl: string; imageUrl: string;
