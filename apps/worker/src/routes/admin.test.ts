@@ -587,8 +587,8 @@ describe('buildGrowthCountersQuery', () => {
 });
 
 describe('buildRetentionCohortsQuery', () => {
-  it('groups signups by day, counts later-day returners newest first, and excludes accounts', () => {
-    const { sql, params } = buildRetentionCohortsQuery(30, EXCL);
+  it('groups signups by day from the given anchor, counts later-day returners, excludes accounts', () => {
+    const { sql, params } = buildRetentionCohortsQuery('2026-05-26', EXCL);
     expect(sql).toMatch(/GROUP BY c\.day/i);
     expect(sql).toMatch(/ORDER BY c\.day DESC/i);
     expect(sql).toMatch(/DATE\(r\.created_at\) > c\.day/i);
@@ -597,6 +597,7 @@ describe('buildRetentionCohortsQuery', () => {
     expect(sql).toMatch(/user_id NOT IN \(SELECT user_id FROM excluded\)/i);
     expect(params).toHaveLength(4);
     expect(params.slice(0, 3)).toEqual(EXCL);
+    expect(params[3]).toBe('2026-05-26');
   });
 });
 

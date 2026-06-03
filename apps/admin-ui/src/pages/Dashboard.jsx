@@ -22,7 +22,7 @@ const HELP = {
   activated24h: 'Of the signups in the window, how many created at least one recipe within 24h of their own signup time. Note: people who signed up less than 24h ago are still inside their window, so this can keep rising.',
   newSaves: 'Recipes created in the window that are the first save of that recipe (a fresh import).',
   reSaves: 'Recipes created in the window that are a re-save: a user saving a recipe that already belongs to another user (same recipe id, different owner).',
-  retentionCohorts: 'Each row is one signup day (last 30 days). "Came back" = how many of that day\'s signups created a recipe on a LATER calendar day.',
+  retentionCohorts: 'Each row is one signup day since launch (5/26). "Came back" = how many of that day\'s signups created a recipe on a LATER calendar day.',
 };
 
 const RANGES = [
@@ -95,7 +95,7 @@ export default function Dashboard() {
             })()}
 
             {(() => {
-              // Fixed weekly view (last 4 weeks), independent of the tile toggle.
+              // Fixed weekly view since launch, independent of the tile toggle.
               const mmdd = (w) => (typeof w === 'string' ? w.slice(5) : w);
               const signupsData = (data.growth.weekly_signups_activation ?? []).map((d) => ({
                 week: mmdd(d.week),
@@ -109,33 +109,33 @@ export default function Dashboard() {
               }));
               if (!signupsData.length && !savesData.length) return null;
               return (
-                <Grid container spacing={2} sx={{ mt: 0.5 }}>
+                <Grid container spacing={2} sx={{ mt: 4 }}>
                   <Grid item xs={12} md={6}>
                     <Typography variant="caption" color="text.secondary">
-                      Signups vs activated in 24h (weekly, last 4 weeks; bar = total signups)
+                      Signups vs activated in 24h (weekly since launch; bar = total signups)
                     </Typography>
                     <ResponsiveContainer width="100%" height={220}>
-                      <BarChart data={signupsData}>
+                      <BarChart data={signupsData} maxBarSize={28}>
                         <XAxis dataKey="week" />
                         <YAxis allowDecimals={false} />
                         <Tooltip />
-                        <Legend iconType="circle" />
-                        <Bar dataKey="Activated in 24h" stackId="signups" fill="#6200EA" background={{ fill: '#f0f0f0' }} />
+                        <Legend iconType="circle" iconSize={8} />
+                        <Bar dataKey="Activated in 24h" stackId="signups" fill="#6200EA" />
                         <Bar dataKey="Not activated yet" stackId="signups" fill="#D1C4E9" />
                       </BarChart>
                     </ResponsiveContainer>
                   </Grid>
                   <Grid item xs={12} md={6}>
                     <Typography variant="caption" color="text.secondary">
-                      New saves vs re-saves (weekly, last 4 weeks; bar = total saves)
+                      New saves vs re-saves (weekly since launch; bar = total saves)
                     </Typography>
                     <ResponsiveContainer width="100%" height={220}>
-                      <BarChart data={savesData}>
+                      <BarChart data={savesData} maxBarSize={28}>
                         <XAxis dataKey="week" />
                         <YAxis allowDecimals={false} />
                         <Tooltip />
-                        <Legend iconType="circle" />
-                        <Bar dataKey="New saves" stackId="saves" fill="#6200EA" background={{ fill: '#f0f0f0' }} />
+                        <Legend iconType="circle" iconSize={8} />
+                        <Bar dataKey="New saves" stackId="saves" fill="#6200EA" />
                         <Bar dataKey="Re-saves" stackId="saves" fill="#00BCD4" />
                       </BarChart>
                     </ResponsiveContainer>
@@ -145,7 +145,7 @@ export default function Dashboard() {
             })()}
 
             <Typography variant="subtitle2" sx={{ mt: 3, mb: 1 }}>
-              Retention by signup day (last 30 days)
+              Retention by signup day (since launch, 5/26)
               <HelpIcon text={HELP.retentionCohorts} />
             </Typography>
             <Table size="small">

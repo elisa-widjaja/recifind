@@ -553,10 +553,10 @@ export function buildGrowthCountersQuery(days: number, excludeEmails: string[] =
   };
 }
 
-// Daily signup cohorts over `days`, with how many returned to create a recipe on
-// a LATER calendar day. Newest cohort first. Excludes the same accounts.
-export function buildRetentionCohortsQuery(days: number, excludeEmails: string[] = []): BuiltQuery {
-  const since = new Date(Date.now() - days * 86400000).toISOString();
+// Daily signup cohorts on/after `sinceIso`, with how many returned to create a
+// recipe on a LATER calendar day. Newest cohort first. Excludes the same accounts.
+export function buildRetentionCohortsQuery(sinceIso: string, excludeEmails: string[] = []): BuiltQuery {
+  const since = sinceIso;
   const ph = excludeEmails.map(() => '?').join(', ');
   const excludedFilter = excludeEmails.length ? `email IN (${ph})` : '0';
   return {
@@ -739,7 +739,7 @@ export async function handleAdminMetricsTimeseries(args: {
     const q = buildGrowthCountersQuery(d, METRICS_EXCLUDED_EMAILS);
     return args.env.DB.prepare(q.sql).bind(...q.params).first();
   };
-  const retQ = buildRetentionCohortsQuery(30, METRICS_EXCLUDED_EMAILS);
+  const retQ = buildRetentionCohortsQuery(LAUNCH_DATE, METRICS_EXCLUDED_EMAILS);
   // Weekly series anchored at the launch date (week 1 = launch week).
   const wSAQ = buildWeeklySignupsActivationQuery(LAUNCH_DATE, METRICS_EXCLUDED_EMAILS);
   const wSavesQ = buildWeeklySavesQuery(LAUNCH_DATE, METRICS_EXCLUDED_EMAILS);
