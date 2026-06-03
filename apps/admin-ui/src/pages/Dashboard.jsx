@@ -115,10 +115,10 @@ export default function Dashboard() {
                       Signups vs activated in 24h (weekly since launch; bar = total signups)
                     </Typography>
                     <ResponsiveContainer width="100%" height={220}>
-                      <BarChart data={signupsData} maxBarSize={28}>
+                      <BarChart data={signupsData} maxBarSize={40}>
                         <XAxis dataKey="week" />
                         <YAxis allowDecimals={false} />
-                        <Tooltip />
+                        <Tooltip content={<WeekTooltip pctLabel="activated" numKey="Activated in 24h" denKeys={['Activated in 24h', 'Not activated yet']} />} />
                         <Legend iconType="circle" iconSize={8} />
                         <Bar dataKey="Activated in 24h" stackId="signups" fill="#6200EA" />
                         <Bar dataKey="Not activated yet" stackId="signups" fill="#D1C4E9" />
@@ -130,10 +130,10 @@ export default function Dashboard() {
                       New saves vs re-saves (weekly since launch; bar = total saves)
                     </Typography>
                     <ResponsiveContainer width="100%" height={220}>
-                      <BarChart data={savesData} maxBarSize={28}>
+                      <BarChart data={savesData} maxBarSize={40}>
                         <XAxis dataKey="week" />
                         <YAxis allowDecimals={false} />
-                        <Tooltip />
+                        <Tooltip content={<WeekTooltip pctLabel="re-saves" numKey="Re-saves" denKeys={['New saves', 'Re-saves']} />} />
                         <Legend iconType="circle" iconSize={8} />
                         <Bar dataKey="New saves" stackId="saves" fill="#6200EA" />
                         <Bar dataKey="Re-saves" stackId="saves" fill="#00BCD4" />
@@ -144,7 +144,7 @@ export default function Dashboard() {
               );
             })()}
 
-            <Typography variant="subtitle2" sx={{ mt: 3, mb: 1 }}>
+            <Typography variant="subtitle2" sx={{ mt: 4, mb: 1 }}>
               Retention by signup day (since launch, 5/26)
               <HelpIcon text={HELP.retentionCohorts} />
             </Typography>
@@ -163,7 +163,7 @@ export default function Dashboard() {
                     <TableCell>{c.day}</TableCell>
                     <TableCell align="right">{c.cohort_size}</TableCell>
                     <TableCell align="right">{c.returned}</TableCell>
-                    <TableCell align="right"><Box component="span" sx={{ fontSize: '0.5em' }}>{c.returned_pct}%</Box></TableCell>
+                    <TableCell align="right">{c.returned_pct}%</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -262,6 +262,28 @@ function Tile({ title, value, help }) {
         </CardContent>
       </Card>
     </Grid>
+  );
+}
+
+// Custom bar tooltip: shows the week with a percentage next to it, then the
+// per-series breakdown. pct = numKey / sum(denKeys).
+function WeekTooltip({ active, payload, label, pctLabel, numKey, denKeys }) {
+  if (!active || !payload || !payload.length) return null;
+  const vals = Object.fromEntries(payload.map((p) => [p.name, p.value]));
+  const num = vals[numKey] ?? 0;
+  const den = (denKeys || []).reduce((s, k) => s + (vals[k] ?? 0), 0);
+  const pct = den > 0 ? Math.round((1000 * num) / den) / 10 : 0;
+  return (
+    <Box sx={{ bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: 1, px: 1.25, py: 0.75 }}>
+      <Typography variant="caption" sx={{ fontWeight: 600, display: 'block' }}>
+        {label} ({pct}% {pctLabel})
+      </Typography>
+      {payload.map((p) => (
+        <Typography key={p.name} variant="caption" sx={{ display: 'block', color: p.color }}>
+          {p.name}: {p.value}
+        </Typography>
+      ))}
+    </Box>
   );
 }
 
