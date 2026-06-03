@@ -494,6 +494,96 @@ export function buildViralCoefWeeklyQuery(days: number): BuiltQuery {
   };
 }
 
+// Owner / test accounts excluded from all growth & retention metrics so the
+// numbers reflect real users only.
+export const METRICS_EXCLUDED_EMAILS = [
+  'elisa.widjaja@gmail.com',
+  'elisa_widjaja@hotmail.com',
+  'mochislime02@gmail.com',
+];
+
+// Growth counters for a rolling window of `days`. Returns one row:
+//   signups, activated_24h, new_saves, re_saves
+// new vs re-save: every recipe id is globally unique, so re-saves can't be found
+// in the recipes table. A re-save instead leaves one `friend_saved_your_recipe`
+// notification whose data JSON carries the saver id + the saver's new copy id.
+// A recipe row matches that notification => re-save; otherwise => new save.
+// excludeEmails are resolved to user_ids via the `excluded` CTE and removed from
+// every count (for re-saves the saver IS recipes.user_id, so this also drops
+// re-saves performed by the owner's own accounts).
+export function buildGrowthCountersQuery(days: number, excludeEmails: string[] = []): BuiltQuery {
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const ph = excludeEmails.map(() => '?').join(', ');
+  const excludedFilter = excludeEmails.length ? `email IN (${ph})` : '0';
+  return {
+    sql: `
+      WITH excluded AS (
+        SELECT user_id FROM profiles WHERE ${excludedFilter}
+      ),
+      saves AS (
+        SELECT EXISTS (
+          SELECT 1 FROM notifications n
+          WHERE n.type = 'friend_saved_your_recipe'
+            AND json_extract(n.data, '$.recipeId') = r.id
+            AND json_extract(n.data, '$.saverId') = r.user_id
+        ) AS is_resave
+        FROM recipes r
+        WHERE r.created_at >= ?
+          AND r.user_id NOT IN (SELECT user_id FROM excluded)
+      ),
+      cohort AS (
+        SELECT user_id, created_at AS signup_at
+        FROM profiles
+        WHERE deleted_at IS NULL AND created_at >= ?
+          AND user_id NOT IN (SELECT user_id FROM excluded)
+      )
+      SELECT
+        (SELECT COUNT(*) FROM cohort) AS signups,
+        (SELECT COUNT(*) FROM cohort c
+           WHERE EXISTS (
+             SELECT 1 FROM recipes r
+             WHERE r.user_id = c.user_id
+               AND r.created_at >= c.signup_at
+               AND r.created_at <= datetime(c.signup_at, '+1 day')
+           )) AS activated_24h,
+        (SELECT COALESCE(SUM(CASE WHEN is_resave THEN 0 ELSE 1 END), 0) FROM saves) AS new_saves,
+        (SELECT COALESCE(SUM(CASE WHEN is_resave THEN 1 ELSE 0 END), 0) FROM saves) AS re_saves
+    `.trim(),
+    params: [...excludeEmails, since, since],
+  };
+}
+
+// Daily signup cohorts over `days`, with how many returned to create a recipe on
+// a LATER calendar day. Newest cohort first. Excludes the same accounts.
+export function buildRetentionCohortsQuery(days: number, excludeEmails: string[] = []): BuiltQuery {
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const ph = excludeEmails.map(() => '?').join(', ');
+  const excludedFilter = excludeEmails.length ? `email IN (${ph})` : '0';
+  return {
+    sql: `
+      WITH excluded AS (
+        SELECT user_id FROM profiles WHERE ${excludedFilter}
+      ),
+      cohort AS (
+        SELECT user_id, DATE(created_at) AS day
+        FROM profiles
+        WHERE deleted_at IS NULL AND created_at >= ?
+          AND user_id NOT IN (SELECT user_id FROM excluded)
+      )
+      SELECT c.day AS day,
+             COUNT(*) AS cohort_size,
+             SUM(CASE WHEN EXISTS (
+               SELECT 1 FROM recipes r
+               WHERE r.user_id = c.user_id AND DATE(r.created_at) > c.day
+             ) THEN 1 ELSE 0 END) AS returned
+      FROM cohort c
+      GROUP BY c.day
+      ORDER BY c.day DESC
+    `.trim(),
+    params: [...excludeEmails, since],
+  };
+}
+
 export async function handleAdminMetricsTimeseries(args: {
   env: { DB: D1Database; SUPABASE_URL: string; SUPABASE_SERVICE_ROLE_KEY?: string };
   user: { userId: string; email?: string };
@@ -557,6 +647,39 @@ export async function handleAdminMetricsTimeseries(args: {
     `SELECT COUNT(DISTINCT user_id) AS n FROM recipes`
   ).first();
 
+  // Growth counters (1d / 7d / 30d) + daily retention cohorts (last 30d).
+  // METRICS_EXCLUDED_EMAILS is defined in this same module (no import needed).
+  const runCounters = (d: number) => {
+    const q = buildGrowthCountersQuery(d, METRICS_EXCLUDED_EMAILS);
+    return args.env.DB.prepare(q.sql).bind(...q.params).first();
+  };
+  const retQ = buildRetentionCohortsQuery(30, METRICS_EXCLUDED_EMAILS);
+  const [g1, g7, g30, retention] = await Promise.all([
+    runCounters(1),
+    runCounters(7),
+    runCounters(30),
+    args.env.DB.prepare(retQ.sql).bind(...retQ.params).all(),
+  ]);
+
+  const pct = (num: number, den: number) => (den > 0 ? Math.round((1000 * num) / den) / 10 : 0);
+  const toWindow = (row: any) => {
+    const signups = row?.signups ?? 0;
+    const activated = row?.activated_24h ?? 0;
+    return {
+      signups,
+      activated_24h: activated,
+      activated_pct: pct(activated, signups),
+      new_saves: row?.new_saves ?? 0,
+      re_saves: row?.re_saves ?? 0,
+    };
+  };
+  const retention_cohorts = ((retention.results as any[]) || []).map((r) => ({
+    day: r.day,
+    cohort_size: r.cohort_size,
+    returned: r.returned,
+    returned_pct: pct(r.returned, r.cohort_size),
+  }));
+
   return json(200, {
     signups_per_day: signups.results || [],
     viral_coef_weekly: viral.results || [],
@@ -567,6 +690,10 @@ export async function handleAdminMetricsTimeseries(args: {
       active_users_approx: (activeApprox as any)?.n ?? 0,
       total_recipes: (recipeTotals as any)?.total_recipes ?? 0,
       latest_viral_coef: (viral.results || []).at(-1) as any,
+    },
+    growth: {
+      windows: { '1d': toWindow(g1), '7d': toWindow(g7), '30d': toWindow(g30) },
+      retention_cohorts,
     },
   });
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Box, Card, CardContent, CircularProgress, ClickAwayListener, Grid, IconButton, MenuItem, Select,
+  Table, TableBody, TableCell, TableHead, TableRow, ToggleButton, ToggleButtonGroup,
   Tooltip as MuiTooltip, Typography,
 } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
@@ -17,6 +18,11 @@ const HELP = {
   activationCurve: 'Per signup-week cohort, % of users in that cohort who have ever added ≥1 recipe. Cumulative-to-date (no time window), so recent weeks read lower until users have had time to save.',
   loopCompletion: 'Per signup-week cohort, % of users who have ever sent ≥1 friend invite. Uses "ever sent" (friend_requests_sent has no created_at), so it\'s a coarse proxy.',
   viralCoefWeekly: 'Weekly accepted friend pairs ÷ weekly signups. Accepts and signups aren\'t cohort-aligned — it\'s a coincident weekly ratio, not a true per-cohort K-factor. >1 means more friendships formed than new signups that week.',
+  signupsWindow: 'New profiles created in the selected window (excludes soft-deleted accounts and the team accounts).',
+  activated24h: 'Of the signups in the window, how many created at least one recipe within 24h of their own signup time. Note: people who signed up less than 24h ago are still inside their window, so this can keep rising.',
+  newSaves: 'Recipes created in the window that are the first save of that recipe (a fresh import).',
+  reSaves: 'Recipes created in the window that are a re-save: a user saving a recipe that already belongs to another user (same recipe id, different owner).',
+  retentionCohorts: 'Each row is one signup day (last 30 days). "Came back" = how many of that day\'s signups created a recipe on a LATER calendar day.',
 };
 
 const RANGES = [
@@ -28,6 +34,7 @@ const RANGES = [
 export default function Dashboard() {
   const [days, setDays] = useState(90);
   const [data, setData] = useState(null);
+  const [growthWindow, setGrowthWindow] = useState('7d');
 
   useEffect(() => {
     setData(null);
@@ -53,6 +60,64 @@ export default function Dashboard() {
         <Tile title="Active users" value={`${t.active_users_approx} (${activePct}%)`} help={HELP.activeUsers} />
         <Tile title="Total recipes" value={t.total_recipes} help={HELP.totalRecipes} />
       </Grid>
+
+      {data.growth && (
+        <Card variant="outlined" sx={{ mb: 3 }}>
+          <CardContent>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+              <Typography variant="subtitle2" sx={{ flex: 1 }}>Growth & engagement</Typography>
+              <ToggleButtonGroup
+                size="small"
+                exclusive
+                value={growthWindow}
+                onChange={(e, v) => { if (v) setGrowthWindow(v); }}
+              >
+                <ToggleButton value="1d">1 day</ToggleButton>
+                <ToggleButton value="7d">1 week</ToggleButton>
+                <ToggleButton value="30d">1 month</ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+
+            {data.growth.windows?.[growthWindow] && (
+              <Grid container spacing={2}>
+                <Tile title="Signups" value={data.growth.windows[growthWindow].signups} help={HELP.signupsWindow} />
+                <Tile
+                  title="Activated in 24h"
+                  value={`${data.growth.windows[growthWindow].activated_24h} (${data.growth.windows[growthWindow].activated_pct}%)`}
+                  help={HELP.activated24h}
+                />
+                <Tile title="New saves" value={data.growth.windows[growthWindow].new_saves} help={HELP.newSaves} />
+                <Tile title="Re-saves" value={data.growth.windows[growthWindow].re_saves} help={HELP.reSaves} />
+              </Grid>
+            )}
+
+            <Typography variant="subtitle2" sx={{ mt: 3, mb: 1 }}>
+              Retention by signup day (last 30 days)
+              <HelpIcon text={HELP.retentionCohorts} />
+            </Typography>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Day</TableCell>
+                  <TableCell align="right">Signed up</TableCell>
+                  <TableCell align="right">Came back</TableCell>
+                  <TableCell align="right">%</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {(data.growth.retention_cohorts ?? []).map((c) => (
+                  <TableRow key={c.day}>
+                    <TableCell>{c.day}</TableCell>
+                    <TableCell align="right">{c.cohort_size}</TableCell>
+                    <TableCell align="right">{c.returned}</TableCell>
+                    <TableCell align="right">{c.returned_pct}%</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
       <ChartCard title="Signups per day" help={HELP.signupsPerDay}>
         <ResponsiveContainer width="100%" height={250}>

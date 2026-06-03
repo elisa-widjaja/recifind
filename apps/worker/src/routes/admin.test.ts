@@ -3,7 +3,7 @@ import { isAdminEmail } from './admin';
 import { writeAuditLog } from './admin';
 import { handleAdminMe } from './admin';
 import { buildUsersListQuery } from './admin';
-import { buildSignupsPerDayQuery, buildViralCoefWeeklyQuery } from './admin';
+import { buildSignupsPerDayQuery, buildViralCoefWeeklyQuery, buildGrowthCountersQuery, buildRetentionCohortsQuery, METRICS_EXCLUDED_EMAILS } from './admin';
 import { buildRecipeSearchQuery } from './admin';
 import { deriveImageStatus } from './admin';
 
@@ -557,6 +557,92 @@ describe('buildViralCoefWeeklyQuery', () => {
   it('produces SQL with weekly buckets', () => {
     const { sql } = buildViralCoefWeeklyQuery(90);
     expect(sql).toMatch(/strftime\('%Y-%W', /i);
+  });
+});
+
+const EXCL = ['a@x.com', 'b@x.com', 'c@x.com'];
+
+describe('buildGrowthCountersQuery', () => {
+  it('classifies new vs re-saves via a friend_saved_your_recipe notification match and excludes accounts', () => {
+    const { sql, params } = buildGrowthCountersQuery(7, EXCL);
+    expect(sql).toMatch(/friend_saved_your_recipe/);
+    expect(sql).toMatch(/json_extract\(n\.data, ?'\$\.recipeId'\) ?= ?r\.id/i);
+    expect(sql).toMatch(/json_extract\(n\.data, ?'\$\.saverId'\) ?= ?r\.user_id/i);
+    expect(sql).toMatch(/datetime\(c\.signup_at, '\+1 day'\)/i);
+    expect(sql).toMatch(/deleted_at IS NULL/i);
+    expect(sql).toMatch(/WITH excluded AS/i);
+    expect(sql).toMatch(/user_id NOT IN \(SELECT user_id FROM excluded\)/i);
+    expect(params).toHaveLength(5);
+    expect(params.slice(0, 3)).toEqual(EXCL);
+  });
+
+  it('defaults to no exclusions when none provided', () => {
+    const { params } = buildGrowthCountersQuery(7);
+    expect(params).toHaveLength(2);
+  });
+
+  it('ships a non-empty default exclusion list', () => {
+    expect(METRICS_EXCLUDED_EMAILS).toContain('elisa.widjaja@gmail.com');
+  });
+});
+
+describe('buildRetentionCohortsQuery', () => {
+  it('groups signups by day, counts later-day returners newest first, and excludes accounts', () => {
+    const { sql, params } = buildRetentionCohortsQuery(30, EXCL);
+    expect(sql).toMatch(/GROUP BY c\.day/i);
+    expect(sql).toMatch(/ORDER BY c\.day DESC/i);
+    expect(sql).toMatch(/DATE\(r\.created_at\) > c\.day/i);
+    expect(sql).toMatch(/deleted_at IS NULL/i);
+    expect(sql).toMatch(/WITH excluded AS/i);
+    expect(sql).toMatch(/user_id NOT IN \(SELECT user_id FROM excluded\)/i);
+    expect(params).toHaveLength(4);
+    expect(params.slice(0, 3)).toEqual(EXCL);
+  });
+});
+
+import { handleAdminMetricsTimeseries } from './admin';
+
+describe('handleAdminMetricsTimeseries growth block', () => {
+  it('returns three windows and a retention table with computed percentages', async () => {
+    const counterRow = { signups: 33, activated_24h: 21, new_saves: 40, re_saves: 7, total_users: 33, total_recipes: 47, n: 30 };
+    const arrayResult = { results: [{ day: '2026-05-28', cohort_size: 33, returned: 10 }] };
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue({
+        bind: vi.fn().mockReturnThis(),
+        first: vi.fn().mockResolvedValue(counterRow),
+        all: vi.fn().mockResolvedValue(arrayResult),
+      }),
+    } as unknown as D1Database;
+
+    const res = await handleAdminMetricsTimeseries({
+      env: { DB: mockDb, SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: undefined },
+      user: { userId: 'u-1', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      url: new URL('https://x/admin/metrics/timeseries?days=90'),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Object.keys(body.growth.windows)).toEqual(['1d', '7d', '30d']);
+    const w = body.growth.windows['7d'];
+    expect(w.signups).toBe(33);
+    expect(w.activated_24h).toBe(21);
+    expect(w.activated_pct).toBe(63.6);
+    expect(w.new_saves).toBe(40);
+    expect(w.re_saves).toBe(7);
+    expect(body.growth.retention_cohorts[0]).toEqual({
+      day: '2026-05-28', cohort_size: 33, returned: 10, returned_pct: 30.3,
+    });
+  });
+
+  it('denies non-admins', async () => {
+    const res = await handleAdminMetricsTimeseries({
+      env: { DB: {} as any, SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: undefined },
+      user: { userId: 'u-1', email: 'intruder@example.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      url: new URL('https://x/admin/metrics/timeseries'),
+    });
+    expect(res.status).toBe(403);
   });
 });
 
