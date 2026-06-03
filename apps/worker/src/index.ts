@@ -1750,8 +1750,9 @@ async function handleOembedAuthor(url: URL) {
   }
 }
 
-// Hand-picked YouTube Shorts to always appear in the first 2 slots of Discover New Recipes.
-// Add recipe IDs here (must exist in D1). Keep at most 2.
+// Optional hand-picked recipe IDs to pin to the front of the Discover "From the Community"
+// shelf. Empty = shelf is purely recency-based (newest shared community recipes). Add IDs
+// here (must exist in D1, shared_with_friends = 1) to pin them ahead of the recent feed.
 const CURATED_YOUTUBE_SHORTS_IDS: string[] = [];
 
 type DiscoverRecipe = {
