@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import {
-  Box, Card, CardContent, CircularProgress, ClickAwayListener, Grid, IconButton, MenuItem, Select,
+  Box, Card, CardContent, CircularProgress, ClickAwayListener, Divider, Grid, IconButton, MenuItem, Select,
   Table, TableBody, TableCell, TableHead, TableRow, ToggleButton, ToggleButtonGroup,
   Tooltip as MuiTooltip, Typography,
 } from '@mui/material';
@@ -57,7 +57,7 @@ export default function Dashboard() {
 
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Tile title="Total users" value={t.total_users} help={HELP.totalUsers} />
-        <Tile title="Active users" value={`${t.active_users_approx} (${activePct}%)`} help={HELP.activeUsers} />
+        <Tile title="Active users" value={<>{t.active_users_approx} <Pct value={activePct} /></>} help={HELP.activeUsers} />
         <Tile title="Total recipes" value={t.total_recipes} help={HELP.totalRecipes} />
       </Grid>
 
@@ -84,7 +84,7 @@ export default function Dashboard() {
                 <Grid container spacing={2}>
                   <ComboTile items={[
                     { label: 'Signups', value: w.signups, help: HELP.signupsWindow },
-                    { label: 'Activated in 24h', value: `${w.activated_24h} (${w.activated_pct}%)`, help: HELP.activated24h },
+                    { label: 'Activated in 24h', value: <>{w.activated_24h} <Pct value={w.activated_pct} /></>, help: HELP.activated24h },
                   ]} />
                   <ComboTile items={[
                     { label: 'New saves', value: w.new_saves, help: HELP.newSaves },
@@ -120,7 +120,7 @@ export default function Dashboard() {
                         <YAxis allowDecimals={false} />
                         <Tooltip />
                         <Legend />
-                        <Bar dataKey="Activated in 24h" stackId="signups" fill="#6200EA" />
+                        <Bar dataKey="Activated in 24h" stackId="signups" fill="#6200EA" background={{ fill: '#f0f0f0' }} />
                         <Bar dataKey="Not activated yet" stackId="signups" fill="#D1C4E9" />
                       </BarChart>
                     </ResponsiveContainer>
@@ -135,7 +135,7 @@ export default function Dashboard() {
                         <YAxis allowDecimals={false} />
                         <Tooltip />
                         <Legend />
-                        <Bar dataKey="New saves" stackId="saves" fill="#6200EA" />
+                        <Bar dataKey="New saves" stackId="saves" fill="#6200EA" background={{ fill: '#f0f0f0' }} />
                         <Bar dataKey="Re-saves" stackId="saves" fill="#00BCD4" />
                       </BarChart>
                     </ResponsiveContainer>
@@ -163,7 +163,7 @@ export default function Dashboard() {
                     <TableCell>{c.day}</TableCell>
                     <TableCell align="right">{c.cohort_size}</TableCell>
                     <TableCell align="right">{c.returned}</TableCell>
-                    <TableCell align="right">{c.returned_pct}%</TableCell>
+                    <TableCell align="right"><Box component="span" sx={{ fontSize: '0.5em' }}>{c.returned_pct}%</Box></TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -265,21 +265,29 @@ function Tile({ title, value, help }) {
   );
 }
 
-// Two related metrics shown side by side in one outlined card.
+// A percentage rendered at half the surrounding font size.
+function Pct({ value }) {
+  return <Box component="span" sx={{ fontSize: '0.5em', color: 'text.secondary' }}>({value}%)</Box>;
+}
+
+// Two related metrics shown side by side in one outlined card, split by a divider.
 function ComboTile({ items }) {
   return (
     <Grid item xs={12} sm={6}>
       <Card variant="outlined">
         <CardContent>
-          <Box sx={{ display: 'flex', gap: 3 }}>
-            {items.map((it) => (
-              <Box key={it.label} sx={{ flex: 1 }}>
-                <Typography variant="caption" color="text.secondary">
-                  {it.label}
-                  <HelpIcon text={it.help} />
-                </Typography>
-                <Typography variant="h4">{it.value}</Typography>
-              </Box>
+          <Box sx={{ display: 'flex', gap: 3, alignItems: 'stretch' }}>
+            {items.map((it, i) => (
+              <Fragment key={it.label}>
+                {i > 0 && <Divider orientation="vertical" flexItem />}
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    {it.label}
+                    <HelpIcon text={it.help} />
+                  </Typography>
+                  <Typography variant="h4">{it.value}</Typography>
+                </Box>
+              </Fragment>
             ))}
           </Box>
         </CardContent>
