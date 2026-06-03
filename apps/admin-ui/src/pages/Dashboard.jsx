@@ -133,7 +133,7 @@ export default function Dashboard() {
                       <BarChart data={savesData} maxBarSize={40}>
                         <XAxis dataKey="week" />
                         <YAxis allowDecimals={false} />
-                        <Tooltip content={<WeekTooltip pctLabel="re-saves" numKey="Re-saves" denKeys={['New saves', 'Re-saves']} />} />
+                        <Tooltip />
                         <Legend iconType="circle" iconSize={8} />
                         <Bar dataKey="New saves" stackId="saves" fill="#6200EA" />
                         <Bar dataKey="Re-saves" stackId="saves" fill="#00BCD4" />
