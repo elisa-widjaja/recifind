@@ -119,7 +119,7 @@ export default function Dashboard() {
                         <XAxis dataKey="week" />
                         <YAxis allowDecimals={false} />
                         <Tooltip />
-                        <Legend />
+                        <Legend iconType="circle" />
                         <Bar dataKey="Activated in 24h" stackId="signups" fill="#6200EA" background={{ fill: '#f0f0f0' }} />
                         <Bar dataKey="Not activated yet" stackId="signups" fill="#D1C4E9" />
                       </BarChart>
@@ -134,7 +134,7 @@ export default function Dashboard() {
                         <XAxis dataKey="week" />
                         <YAxis allowDecimals={false} />
                         <Tooltip />
-                        <Legend />
+                        <Legend iconType="circle" />
                         <Bar dataKey="New saves" stackId="saves" fill="#6200EA" background={{ fill: '#f0f0f0' }} />
                         <Bar dataKey="Re-saves" stackId="saves" fill="#00BCD4" />
                       </BarChart>

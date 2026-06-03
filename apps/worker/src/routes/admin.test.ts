@@ -3,7 +3,7 @@ import { isAdminEmail } from './admin';
 import { writeAuditLog } from './admin';
 import { handleAdminMe } from './admin';
 import { buildUsersListQuery } from './admin';
-import { buildSignupsPerDayQuery, buildViralCoefWeeklyQuery, buildGrowthCountersQuery, buildRetentionCohortsQuery, METRICS_EXCLUDED_EMAILS, buildWeeklySignupsActivationQuery, buildWeeklySavesQuery, recentMondays } from './admin';
+import { buildSignupsPerDayQuery, buildViralCoefWeeklyQuery, buildGrowthCountersQuery, buildRetentionCohortsQuery, METRICS_EXCLUDED_EMAILS, buildWeeklySignupsActivationQuery, buildWeeklySavesQuery, launchWeeks, LAUNCH_DATE } from './admin';
 import { buildRecipeSearchQuery } from './admin';
 import { deriveImageStatus } from './admin';
 
@@ -601,43 +601,50 @@ describe('buildRetentionCohortsQuery', () => {
 });
 
 describe('buildWeeklySignupsActivationQuery', () => {
-  it('buckets signups + 24h activation by Monday week, excludes accounts', () => {
-    const { sql, params } = buildWeeklySignupsActivationQuery(35, EXCL);
-    expect(sql).toMatch(/strftime\('%w'/i); // Monday week-start bucketing
+  it('buckets signups + 24h activation by week-since-launch, excludes accounts', () => {
+    const { sql, params } = buildWeeklySignupsActivationQuery('2026-05-26', EXCL);
+    expect(sql).toMatch(/julianday\(created_at\) - julianday\(\?\)/i); // anchored week index
     expect(sql).toMatch(/datetime\(c\.signup_at, '\+1 day'\)/i);
-    expect(sql).toMatch(/GROUP BY c\.week/i);
-    expect(sql).toMatch(/ORDER BY c\.week ASC/i);
+    expect(sql).toMatch(/GROUP BY c\.week_idx/i);
+    expect(sql).toMatch(/ORDER BY c\.week_idx ASC/i);
     expect(sql).toMatch(/deleted_at IS NULL/i);
     expect(sql).toMatch(/user_id NOT IN \(SELECT user_id FROM excluded\)/i);
-    expect(params).toHaveLength(4);
+    // 3 excluded emails + anchor (week index) + anchor (since filter)
+    expect(params).toHaveLength(5);
     expect(params.slice(0, 3)).toEqual(EXCL);
+    expect(params.slice(3)).toEqual(['2026-05-26', '2026-05-26']);
   });
 });
 
 describe('buildWeeklySavesQuery', () => {
-  it('buckets new vs re-saves by Monday week via notifications, excludes accounts', () => {
-    const { sql, params } = buildWeeklySavesQuery(35, EXCL);
+  it('buckets new vs re-saves by week-since-launch via notifications, excludes accounts', () => {
+    const { sql, params } = buildWeeklySavesQuery('2026-05-26', EXCL);
     expect(sql).toMatch(/friend_saved_your_recipe/);
-    expect(sql).toMatch(/strftime\('%w'/i);
-    expect(sql).toMatch(/GROUP BY week/i);
-    expect(sql).toMatch(/ORDER BY week ASC/i);
+    expect(sql).toMatch(/julianday\(r\.created_at\) - julianday\(\?\)/i);
+    expect(sql).toMatch(/GROUP BY week_idx/i);
+    expect(sql).toMatch(/ORDER BY week_idx ASC/i);
     expect(sql).toMatch(/user_id NOT IN \(SELECT user_id FROM excluded\)/i);
-    expect(params).toHaveLength(4);
+    expect(params).toHaveLength(5);
     expect(params.slice(0, 3)).toEqual(EXCL);
+    expect(params.slice(3)).toEqual(['2026-05-26', '2026-05-26']);
   });
 });
 
-describe('recentMondays', () => {
-  it('returns N consecutive Monday (UTC) dates, oldest first, 7 days apart', () => {
-    const ms = recentMondays(4);
-    expect(ms).toHaveLength(4);
-    for (const d of ms) expect(new Date(d + 'T00:00:00Z').getUTCDay()).toBe(1); // Monday
-    for (let i = 1; i < ms.length; i++) {
-      const gap = (new Date(ms[i] + 'T00:00:00Z').getTime() - new Date(ms[i - 1] + 'T00:00:00Z').getTime()) / 86400000;
+describe('launchWeeks', () => {
+  it('starts at the launch anchor, 7 days apart, at least minWeeks', () => {
+    const ws = launchWeeks('2026-05-26', 4);
+    expect(ws.length).toBeGreaterThanOrEqual(4);
+    expect(ws[0]).toEqual({ idx: 0, week: '2026-05-26' });
+    expect(ws[1].week).toBe('2026-06-02');
+    for (let i = 1; i < ws.length; i++) {
+      expect(ws[i].idx).toBe(i);
+      const gap = (new Date(ws[i].week + 'T00:00:00Z').getTime() - new Date(ws[i - 1].week + 'T00:00:00Z').getTime()) / 86400000;
       expect(gap).toBe(7);
     }
-    // oldest first
-    expect(ms[0] < ms[3]).toBe(true);
+  });
+
+  it('exposes the launch date constant', () => {
+    expect(LAUNCH_DATE).toBe('2026-05-26');
   });
 });
 
