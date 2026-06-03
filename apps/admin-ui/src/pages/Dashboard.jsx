@@ -94,29 +94,29 @@ export default function Dashboard() {
               );
             })()}
 
-            {data.growth.windows?.[growthWindow] && (() => {
-              const w = data.growth.windows[growthWindow];
-              const WINDOW_LABEL = { '1d': '1 day', '7d': '1 week', '30d': '1 month' };
-              const label = WINDOW_LABEL[growthWindow] || growthWindow;
-              const signupsData = [{
-                name: label,
-                'Activated in 24h': w.activated_24h,
-                'Not activated yet': Math.max(0, w.signups - w.activated_24h),
-              }];
-              const savesData = [{
-                name: label,
-                'New saves': w.new_saves,
-                'Re-saves': w.re_saves,
-              }];
+            {(() => {
+              // Fixed weekly view (last 4 weeks), independent of the tile toggle.
+              const mmdd = (w) => (typeof w === 'string' ? w.slice(5) : w);
+              const signupsData = (data.growth.weekly_signups_activation ?? []).map((d) => ({
+                week: mmdd(d.week),
+                'Activated in 24h': d.activated_24h,
+                'Not activated yet': Math.max(0, d.signups - d.activated_24h),
+              }));
+              const savesData = (data.growth.weekly_saves ?? []).map((d) => ({
+                week: mmdd(d.week),
+                'New saves': d.new_saves,
+                'Re-saves': d.re_saves,
+              }));
+              if (!signupsData.length && !savesData.length) return null;
               return (
                 <Grid container spacing={2} sx={{ mt: 0.5 }}>
                   <Grid item xs={12} md={6}>
                     <Typography variant="caption" color="text.secondary">
-                      Signups vs activated in 24h (bar = total signups)
+                      Signups vs activated in 24h (weekly, last 4 weeks; bar = total signups)
                     </Typography>
                     <ResponsiveContainer width="100%" height={220}>
                       <BarChart data={signupsData}>
-                        <XAxis dataKey="name" />
+                        <XAxis dataKey="week" />
                         <YAxis allowDecimals={false} />
                         <Tooltip />
                         <Legend />
@@ -127,11 +127,11 @@ export default function Dashboard() {
                   </Grid>
                   <Grid item xs={12} md={6}>
                     <Typography variant="caption" color="text.secondary">
-                      New saves vs re-saves (bar = total saves)
+                      New saves vs re-saves (weekly, last 4 weeks; bar = total saves)
                     </Typography>
                     <ResponsiveContainer width="100%" height={220}>
                       <BarChart data={savesData}>
-                        <XAxis dataKey="name" />
+                        <XAxis dataKey="week" />
                         <YAxis allowDecimals={false} />
                         <Tooltip />
                         <Legend />

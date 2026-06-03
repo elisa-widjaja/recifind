@@ -584,6 +584,91 @@ export function buildRetentionCohortsQuery(days: number, excludeEmails: string[]
   };
 }
 
+// SQL expression giving the Monday (UTC) that starts the week of `col`.
+// strftime('%w') is 0=Sun..6=Sat; subtracting (dow+6)%7 days lands on Monday.
+const WEEK_START = (col: string) =>
+  `DATE(${col}, '-' || ((CAST(strftime('%w', ${col}) AS INTEGER) + 6) % 7) || ' days')`;
+
+// The N most recent Monday week-start dates (UTC, oldest first), matching the
+// SQL WEEK_START bucketing. Used to render a fixed, contiguous set of week bars
+// (filling zeros for weeks with no activity).
+export function recentMondays(n: number): string[] {
+  const now = new Date();
+  const offsetToMonday = (now.getUTCDay() + 6) % 7;
+  const thisMonday = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - offsetToMonday);
+  const out: string[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    out.push(new Date(thisMonday - i * 7 * 86400000).toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+// Weekly signups + 24h-activation, bucketed by signup week. Excludes accounts.
+export function buildWeeklySignupsActivationQuery(days: number, excludeEmails: string[] = []): BuiltQuery {
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const ph = excludeEmails.map(() => '?').join(', ');
+  const excludedFilter = excludeEmails.length ? `email IN (${ph})` : '0';
+  return {
+    sql: `
+      WITH excluded AS (
+        SELECT user_id FROM profiles WHERE ${excludedFilter}
+      ),
+      cohort AS (
+        SELECT user_id, created_at AS signup_at, ${WEEK_START('created_at')} AS week
+        FROM profiles
+        WHERE deleted_at IS NULL AND created_at >= ?
+          AND user_id NOT IN (SELECT user_id FROM excluded)
+      )
+      SELECT c.week AS week,
+             COUNT(*) AS signups,
+             SUM(CASE WHEN EXISTS (
+               SELECT 1 FROM recipes r
+               WHERE r.user_id = c.user_id
+                 AND r.created_at >= c.signup_at
+                 AND r.created_at <= datetime(c.signup_at, '+1 day')
+             ) THEN 1 ELSE 0 END) AS activated_24h
+      FROM cohort c
+      GROUP BY c.week
+      ORDER BY c.week ASC
+    `.trim(),
+    params: [...excludeEmails, since],
+  };
+}
+
+// Weekly new vs re-saves, bucketed by recipe-created week. Excludes accounts.
+// Re-save = matches a friend_saved_your_recipe notification (see buildGrowthCountersQuery).
+export function buildWeeklySavesQuery(days: number, excludeEmails: string[] = []): BuiltQuery {
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const ph = excludeEmails.map(() => '?').join(', ');
+  const excludedFilter = excludeEmails.length ? `email IN (${ph})` : '0';
+  return {
+    sql: `
+      WITH excluded AS (
+        SELECT user_id FROM profiles WHERE ${excludedFilter}
+      ),
+      saves AS (
+        SELECT ${WEEK_START('r.created_at')} AS week,
+          EXISTS (
+            SELECT 1 FROM notifications n
+            WHERE n.type = 'friend_saved_your_recipe'
+              AND json_extract(n.data, '$.recipeId') = r.id
+              AND json_extract(n.data, '$.saverId') = r.user_id
+          ) AS is_resave
+        FROM recipes r
+        WHERE r.created_at >= ?
+          AND r.user_id NOT IN (SELECT user_id FROM excluded)
+      )
+      SELECT week,
+             COALESCE(SUM(CASE WHEN is_resave THEN 0 ELSE 1 END), 0) AS new_saves,
+             COALESCE(SUM(CASE WHEN is_resave THEN 1 ELSE 0 END), 0) AS re_saves
+      FROM saves
+      GROUP BY week
+      ORDER BY week ASC
+    `.trim(),
+    params: [...excludeEmails, since],
+  };
+}
+
 export async function handleAdminMetricsTimeseries(args: {
   env: { DB: D1Database; SUPABASE_URL: string; SUPABASE_SERVICE_ROLE_KEY?: string };
   user: { userId: string; email?: string };
@@ -654,11 +739,16 @@ export async function handleAdminMetricsTimeseries(args: {
     return args.env.DB.prepare(q.sql).bind(...q.params).first();
   };
   const retQ = buildRetentionCohortsQuery(30, METRICS_EXCLUDED_EMAILS);
-  const [g1, g7, g30, retention] = await Promise.all([
+  // Weekly series cover 35 days (enough to fill the 4 most recent week buckets).
+  const wSAQ = buildWeeklySignupsActivationQuery(35, METRICS_EXCLUDED_EMAILS);
+  const wSavesQ = buildWeeklySavesQuery(35, METRICS_EXCLUDED_EMAILS);
+  const [g1, g7, g30, retention, weeklySARows, weeklySavesRows] = await Promise.all([
     runCounters(1),
     runCounters(7),
     runCounters(30),
     args.env.DB.prepare(retQ.sql).bind(...retQ.params).all(),
+    args.env.DB.prepare(wSAQ.sql).bind(...wSAQ.params).all(),
+    args.env.DB.prepare(wSavesQ.sql).bind(...wSavesQ.params).all(),
   ]);
 
   const pct = (num: number, den: number) => (den > 0 ? Math.round((1000 * num) / den) / 10 : 0);
@@ -680,6 +770,19 @@ export async function handleAdminMetricsTimeseries(args: {
     returned_pct: pct(r.returned, r.cohort_size),
   }));
 
+  // Fixed, contiguous last-4-weeks series (zero-filled), keyed to Monday starts.
+  const weeks4 = recentMondays(4);
+  const saByWeek = new Map(((weeklySARows.results as any[]) || []).map((r) => [r.week, r]));
+  const savesByWeek = new Map(((weeklySavesRows.results as any[]) || []).map((r) => [r.week, r]));
+  const weekly_signups_activation = weeks4.map((week) => {
+    const r = saByWeek.get(week);
+    return { week, signups: r?.signups ?? 0, activated_24h: r?.activated_24h ?? 0 };
+  });
+  const weekly_saves = weeks4.map((week) => {
+    const r = savesByWeek.get(week);
+    return { week, new_saves: r?.new_saves ?? 0, re_saves: r?.re_saves ?? 0 };
+  });
+
   return json(200, {
     signups_per_day: signups.results || [],
     viral_coef_weekly: viral.results || [],
@@ -694,6 +797,8 @@ export async function handleAdminMetricsTimeseries(args: {
     growth: {
       windows: { '1d': toWindow(g1), '7d': toWindow(g7), '30d': toWindow(g30) },
       retention_cohorts,
+      weekly_signups_activation,
+      weekly_saves,
     },
   });
 }

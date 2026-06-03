@@ -3,7 +3,7 @@ import { isAdminEmail } from './admin';
 import { writeAuditLog } from './admin';
 import { handleAdminMe } from './admin';
 import { buildUsersListQuery } from './admin';
-import { buildSignupsPerDayQuery, buildViralCoefWeeklyQuery, buildGrowthCountersQuery, buildRetentionCohortsQuery, METRICS_EXCLUDED_EMAILS } from './admin';
+import { buildSignupsPerDayQuery, buildViralCoefWeeklyQuery, buildGrowthCountersQuery, buildRetentionCohortsQuery, METRICS_EXCLUDED_EMAILS, buildWeeklySignupsActivationQuery, buildWeeklySavesQuery, recentMondays } from './admin';
 import { buildRecipeSearchQuery } from './admin';
 import { deriveImageStatus } from './admin';
 
@@ -597,6 +597,47 @@ describe('buildRetentionCohortsQuery', () => {
     expect(sql).toMatch(/user_id NOT IN \(SELECT user_id FROM excluded\)/i);
     expect(params).toHaveLength(4);
     expect(params.slice(0, 3)).toEqual(EXCL);
+  });
+});
+
+describe('buildWeeklySignupsActivationQuery', () => {
+  it('buckets signups + 24h activation by Monday week, excludes accounts', () => {
+    const { sql, params } = buildWeeklySignupsActivationQuery(35, EXCL);
+    expect(sql).toMatch(/strftime\('%w'/i); // Monday week-start bucketing
+    expect(sql).toMatch(/datetime\(c\.signup_at, '\+1 day'\)/i);
+    expect(sql).toMatch(/GROUP BY c\.week/i);
+    expect(sql).toMatch(/ORDER BY c\.week ASC/i);
+    expect(sql).toMatch(/deleted_at IS NULL/i);
+    expect(sql).toMatch(/user_id NOT IN \(SELECT user_id FROM excluded\)/i);
+    expect(params).toHaveLength(4);
+    expect(params.slice(0, 3)).toEqual(EXCL);
+  });
+});
+
+describe('buildWeeklySavesQuery', () => {
+  it('buckets new vs re-saves by Monday week via notifications, excludes accounts', () => {
+    const { sql, params } = buildWeeklySavesQuery(35, EXCL);
+    expect(sql).toMatch(/friend_saved_your_recipe/);
+    expect(sql).toMatch(/strftime\('%w'/i);
+    expect(sql).toMatch(/GROUP BY week/i);
+    expect(sql).toMatch(/ORDER BY week ASC/i);
+    expect(sql).toMatch(/user_id NOT IN \(SELECT user_id FROM excluded\)/i);
+    expect(params).toHaveLength(4);
+    expect(params.slice(0, 3)).toEqual(EXCL);
+  });
+});
+
+describe('recentMondays', () => {
+  it('returns N consecutive Monday (UTC) dates, oldest first, 7 days apart', () => {
+    const ms = recentMondays(4);
+    expect(ms).toHaveLength(4);
+    for (const d of ms) expect(new Date(d + 'T00:00:00Z').getUTCDay()).toBe(1); // Monday
+    for (let i = 1; i < ms.length; i++) {
+      const gap = (new Date(ms[i] + 'T00:00:00Z').getTime() - new Date(ms[i - 1] + 'T00:00:00Z').getTime()) / 86400000;
+      expect(gap).toBe(7);
+    }
+    // oldest first
+    expect(ms[0] < ms[3]).toBe(true);
   });
 });
 
