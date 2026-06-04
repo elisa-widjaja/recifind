@@ -5623,7 +5623,7 @@ function App() {
                       color: 'text.primary',
                     }}
                   >
-                    {(userProfile?.displayName || session.user?.email?.split('@')[0] || 'there').split(' ')[0]}
+                    {(userProfile?.displayName || 'there').split(' ')[0]}
                   </Typography>
                   <Typography
                     sx={{
@@ -5967,7 +5967,7 @@ function App() {
             }
           }}
           pendingFriendCount={session ? (friendRequests?.length ?? 0) : 0}
-          profileInitial={userProfile?.displayName || session?.user?.email || 'U'}
+          profileInitial={userProfile?.displayName || 'U'}
           profileAvatarUrl={userProfile?.avatarUrl || null}
           signedIn={!!session}
         />

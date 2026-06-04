@@ -38,6 +38,7 @@ describe('handleFriendSuggestions', () => {
     expect(result.suggestions[0]).toEqual({
       userId: 'user-b',
       name: 'Maya R.',
+      avatarUrl: null,
       kind: 'fof',
       mutualCount: 2,
       requestSent: false,
@@ -45,6 +46,7 @@ describe('handleFriendSuggestions', () => {
     expect(result.suggestions[1]).toEqual({
       userId: 'user-c',
       name: 'James T.',
+      avatarUrl: null,
       kind: 'fof',
       mutualCount: 1,
       requestSent: false,
@@ -76,6 +78,33 @@ describe('handleFriendSuggestions', () => {
     expect(result.suggestions).toHaveLength(2);
     expect(result.suggestions[0].requestSent).toBe(true);
     expect(result.suggestions[1].requestSent).toBe(false);
+  });
+
+  it('hides nameless suggestions (null/blank display_name) so no gibberish card renders', async () => {
+    // Two FOF rows: one named, one with a null name (relay/Hide-My-Email user
+    // not yet caught by the backfill). The nameless one must not surface.
+    const fofResults = [
+      { userId: 'user-b', name: 'Maya R.', mutualCount: 2 },
+      { userId: 'user-x', name: null, mutualCount: 5 },
+      { userId: 'user-y', name: '   ', mutualCount: 4 },
+    ];
+    const mockDb = {
+      prepare: vi.fn()
+        .mockReturnValueOnce(sentQueryMock())
+        .mockReturnValueOnce({
+          bind: vi.fn().mockReturnThis(),
+          all: vi.fn().mockResolvedValue({ results: fofResults }),
+        })
+        .mockReturnValueOnce({
+          bind: vi.fn().mockReturnThis(),
+          first: vi.fn().mockResolvedValue(null),
+        }),
+    } as unknown as D1Database;
+
+    const result = await handleFriendSuggestions(mockDb, 'user-a');
+
+    expect(result.suggestions).toHaveLength(1);
+    expect(result.suggestions[0].userId).toBe('user-b');
   });
 
   it('returns empty array when no FOF and no prefs', async () => {
@@ -128,6 +157,7 @@ describe('handleFriendSuggestions', () => {
     expect(result.suggestions[1]).toEqual({
       userId: 'user-d',
       name: 'Priya S.',
+      avatarUrl: null,
       kind: 'pref',
       sharedPref: 'Vegetarian',
       requestSent: false,
@@ -137,6 +167,7 @@ describe('handleFriendSuggestions', () => {
     expect(result.suggestions[2]).toEqual({
       userId: 'user-e',
       name: 'Nora K.',
+      avatarUrl: null,
       kind: 'pref',
       sharedPref: '',
       requestSent: false,

@@ -99,7 +99,7 @@ export default function ProfilePage({
   notificationsEnabled,
   avatarUploading,
 }) {
-  const displayName = user?.displayName || user?.email?.split('@')[0] || 'You';
+  const displayName = user?.displayName || 'You';
   const initial = (displayName || 'U').charAt(0).toUpperCase();
   const hasAvatar = Boolean(user?.avatarUrl);
   const fileInputRef = useRef(null);

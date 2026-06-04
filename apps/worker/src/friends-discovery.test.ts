@@ -96,6 +96,34 @@ describe('getFriendActivity', () => {
     expect(result[0].friendName).toBe('Marco');
   });
 
+  it('shows the generic name when the actor profile exists but has no display_name (relay signup)', async () => {
+    const notificationRows = [
+      {
+        id: 5,
+        type: 'friend_cooked_recipe',
+        // Baked message carries the gibberish relay handle — must NOT surface.
+        message: '69bzcjwj7k cooked Margherita Pizza 🍳',
+        data: JSON.stringify({ cookerId: 'relay-1', recipeId: 'recipe-2' }),
+        created_at: '2026-03-10T09:00:00Z',
+        read: 0,
+      },
+    ];
+    const recipeRows = [
+      { id: 'recipe-2', user_id: 'owner-2', shared_with_friends: 1, title: 'Margherita Pizza', image_url: '' },
+    ];
+    const mockDb = {
+      prepare: vi.fn()
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: notificationRows }) })
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [] }) }) // pending_requests
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: recipeRows }) })
+        // Profile row EXISTS for relay-1 but display_name is null → nameless actor.
+        .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [{ user_id: 'relay-1', display_name: null, avatar_url: null }] }) }),
+    } as unknown as D1Database;
+
+    const result = await getFriendActivity(mockDb, 'user-123');
+    expect(result[0].friendName).toBe('ReciFriend cook');
+  });
+
   it('returns recipe as null when recipeId is absent from data blob', async () => {
     const notificationRows = [
       {

@@ -1299,7 +1299,7 @@ async function handleRecipeCount(request: Request, env: Env, user: Authenticated
 }
 
 async function handleGetProfile(env: Env, user: AuthenticatedUser) {
-  const profile = await getOrCreateProfile(env, user.userId, user.email);
+  const profile = await getOrCreateProfile(env, user.userId, user.email, user.claims);
   const meta = await getCollectionMeta(env, user.userId);
   const onboardingRow = await env.DB.prepare(
     'SELECT onboarding_seen FROM profiles WHERE user_id = ?'
@@ -2212,12 +2212,18 @@ export async function getFriendActivity(
   )];
   const actorNameById = new Map<string, string>();
   const actorAvatarById = new Map<string, string>();
+  // Actors whose profile row EXISTS (even if nameless). Lets us tell a
+  // nameless relay profile (row present, display_name NULL → show the generic)
+  // apart from a genuinely missing/deleted profile (no row → keep the baked
+  // message name, which is a real name we'd otherwise lose).
+  const actorRowFound = new Set<string>();
   if (actorIds.length > 0) {
     const ph = actorIds.map(() => '?').join(', ');
     const actorRows = await db.prepare(
       `SELECT user_id, display_name, avatar_url FROM profiles WHERE user_id IN (${ph}) AND deleted_at IS NULL`
     ).bind(...actorIds).all();
     for (const r of (actorRows.results as Array<Record<string, unknown>>)) {
+      actorRowFound.add(String(r.user_id));
       if (r.display_name) actorNameById.set(String(r.user_id), String(r.display_name));
       if (r.avatar_url) actorAvatarById.set(String(r.user_id), String(r.avatar_url));
     }
@@ -2251,9 +2257,21 @@ export async function getFriendActivity(
       // Live name by recipe-actor id first; fall back to the baked name,
       // then the first word of the baked message (friend_request path).
       const actorId = saverId ?? sharerId ?? cookerId;
+      const liveName = (actorId ? actorNameById.get(actorId) : undefined)
+        ?? (friendIdFromData ? actorNameById.get(friendIdFromData) : undefined);
+      // When the actor's profile row EXISTS but carries no name (a relay /
+      // Hide-My-Email signup), show the friendly generic instead of the baked
+      // name/message, which for those users is a gibberish handle. If the row
+      // is absent (deleted/missing profile) we keep the baked message name —
+      // it's a real name we'd otherwise lose. friend_request items have no
+      // actorId/friendIdFromData here, so they keep the message-derived name
+      // (the dedup path the comment above relies on).
+      const namelessActor =
+        (actorId != null && actorRowFound.has(actorId) && !actorNameById.has(actorId)) ||
+        (friendIdFromData != null && actorRowFound.has(friendIdFromData) && !actorNameById.has(friendIdFromData));
       const friendName: string | null =
-        (actorId ? actorNameById.get(actorId) : undefined)
-        ?? (friendIdFromData ? actorNameById.get(friendIdFromData) : undefined)
+        liveName
+        ?? (namelessActor ? GENERIC_DISPLAY_NAME : undefined)
         ?? (d.friendName as string | undefined)
         ?? item.message.split(' ')[0]
         ?? null;
@@ -2307,7 +2325,7 @@ export async function getFriendsRecentlySaved(db: D1Database, userId: string): P
   // the live name — the two then miss each other in the client dedup.
   const friends = await db.prepare(
     `SELECT f.friend_id,
-            COALESCE(p.display_name, f.friend_name) AS friend_name,
+            COALESCE(NULLIF(p.display_name, ''), NULLIF(f.friend_name, '')) AS friend_name,
             p.avatar_url AS avatar_url
      FROM friends f
      LEFT JOIN profiles p ON p.user_id = f.friend_id AND p.deleted_at IS NULL
@@ -2324,7 +2342,7 @@ export async function getFriendsRecentlySaved(db: D1Database, userId: string): P
     ).bind(String(friend.friend_id)).all();
     for (const r of (rows.results as Array<Record<string, unknown>>)) {
       items.push({
-        friendName: String(friend.friend_name),
+        friendName: friend.friend_name ? String(friend.friend_name) : GENERIC_DISPLAY_NAME,
         friendId: String(friend.friend_id),
         avatarUrl: friend.avatar_url ? String(friend.avatar_url) : null,
         recipe: { id: String(r.id), userId: String(friend.friend_id), title: String(r.title), sourceUrl: r.source_url ? String(r.source_url) : null, imageUrl: r.image_url ? String(r.image_url) : null, mealTypes: JSON.parse(String(r.meal_types || '[]')), customTags: JSON.parse(String(r.custom_tags || '[]')), durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null, createdAt: String(r.created_at), ingredients: JSON.parse(String(r.ingredients || '[]')), steps: JSON.parse(String(r.steps || '[]')) }
@@ -2351,7 +2369,7 @@ export async function getFriendsRecentlyShared(db: D1Database, userId: string): 
   ).bind(userId).all();
 
   return (rows.results as Array<Record<string, unknown>>).map((r) => ({
-    friendName: r.sharer_name ? String(r.sharer_name) : 'A friend',
+    friendName: r.sharer_name ? String(r.sharer_name) : GENERIC_DISPLAY_NAME,
     friendId: String(r.sharer_id),
     avatarUrl: r.sharer_avatar ? String(r.sharer_avatar) : null,
     recipe: {
@@ -3264,19 +3282,27 @@ export async function handleFriendSuggestions(
       AND f2.friend_id NOT IN (SELECT friend_id FROM friends WHERE user_id = ?)
       AND f2.friend_id NOT IN (SELECT dismissed_user_id FROM dismissed_suggestions WHERE user_id = ?)
       AND p.deleted_at IS NULL
+      -- Hide nameless profiles (relay/Hide-My-Email signups we couldn't name);
+      -- a card showing a gibberish handle reads as spam.
+      AND p.display_name IS NOT NULL AND TRIM(p.display_name) <> ''
     GROUP BY f2.friend_id
     ORDER BY mutualCount DESC
     LIMIT 10
   `).bind(userId, userId, userId, userId).all<{ userId: string; name: string; avatarUrl: string | null; mutualCount: number }>();
 
-  const fofSuggestions = (fofRows.results || []).map(row => ({
-    userId: row.userId,
-    name: row.name,
-    avatarUrl: row.avatarUrl ?? null,
-    kind: 'fof' as const,
-    mutualCount: row.mutualCount,
-    requestSent: sentToIds.has(row.userId),
-  }));
+  const fofSuggestions = (fofRows.results || [])
+    // Guard in JS too: the SQL filters nameless rows, but this keeps a
+    // gibberish/blank name from ever reaching a suggestion card if one slips
+    // through (e.g. a row not yet caught by the backfill).
+    .filter(row => row.name && String(row.name).trim())
+    .map(row => ({
+      userId: row.userId,
+      name: row.name,
+      avatarUrl: row.avatarUrl ?? null,
+      kind: 'fof' as const,
+      mutualCount: row.mutualCount,
+      requestSent: sentToIds.has(row.userId),
+    }));
 
   if (fofSuggestions.length >= 5) {
     return { suggestions: fofSuggestions };
@@ -3307,6 +3333,7 @@ export async function handleFriendSuggestions(
       AND p.user_id NOT IN (SELECT friend_id FROM friends WHERE user_id = ?)
       AND p.user_id NOT IN (SELECT dismissed_user_id FROM dismissed_suggestions WHERE user_id = ?)
       AND p.deleted_at IS NULL
+      AND p.display_name IS NOT NULL AND TRIM(p.display_name) <> ''
       AND (${likeClauses})
     ORDER BY p.display_name ASC
     LIMIT ?
@@ -3320,6 +3347,7 @@ export async function handleFriendSuggestions(
 
   const prefSuggestions = (prefRows.results || [])
     .filter(row => !alreadySuggested.has(row.userId))
+    .filter(row => row.name && String(row.name).trim())
     .map(row => {
       // Only surface dietary prefs in the label — meal-type overlaps fall back
       // to a generic "Fellow home cook" string on the client.
@@ -3399,7 +3427,7 @@ async function handleSendFriendRequest(request: Request, env: Env, user: Authent
     if (existingInvite) {
       throw new HttpError(409, 'You already invited this person');
     }
-    const senderProfile = await getOrCreateProfile(env, user.userId, user.email);
+    const senderProfile = await getOrCreateProfile(env, user.userId, user.email, user.claims);
     const inviteId = crypto.randomUUID();
     const now = new Date().toISOString();
     await env.DB.prepare(
@@ -3440,7 +3468,7 @@ async function handleSendFriendRequest(request: Request, env: Env, user: Authent
     throw new HttpError(409, 'This user has already sent you a friend request. Check your requests.');
   }
 
-  const senderProfile = await getOrCreateProfile(env, user.userId, user.email);
+  const senderProfile = await getOrCreateProfile(env, user.userId, user.email, user.claims);
   const now = new Date().toISOString();
 
   await env.DB.batch([
@@ -3491,7 +3519,7 @@ async function handleListFriendRequests(env: Env, user: AuthenticatedUser) {
   const result = await env.DB.prepare(
     `SELECT fr.from_user_id, fr.from_email, fr.to_user_id,
             fr.to_email, fr.status, fr.created_at,
-            COALESCE(p.display_name, fr.from_name) AS from_name,
+            COALESCE(NULLIF(p.display_name, ''), NULLIF(fr.from_name, '')) AS from_name,
             p.avatar_url AS avatar_url
      FROM friend_requests fr
      LEFT JOIN profiles p ON p.user_id = fr.from_user_id AND p.deleted_at IS NULL
@@ -3501,7 +3529,7 @@ async function handleListFriendRequests(env: Env, user: AuthenticatedUser) {
   const requests = (result.results || []).map((row) => ({
     fromUserId: row.from_user_id as string,
     fromEmail: row.from_email as string,
-    fromName: row.from_name as string,
+    fromName: (row.from_name as string | null) || GENERIC_DISPLAY_NAME,
     toUserId: row.to_user_id as string,
     toEmail: row.to_email as string,
     status: row.status as string,
@@ -3515,7 +3543,7 @@ async function handleListFriendRequests(env: Env, user: AuthenticatedUser) {
 async function handleListSentFriendRequests(env: Env, user: AuthenticatedUser) {
   const result = await env.DB.prepare(
     `SELECT fr.to_user_id, fr.to_email, fr.created_at,
-            p.display_name AS to_name,
+            NULLIF(p.display_name, '') AS to_name,
             p.avatar_url AS avatar_url
      FROM friend_requests_sent frs
      JOIN friend_requests fr ON fr.to_user_id = frs.to_user_id AND fr.from_user_id = frs.from_user_id
@@ -3526,7 +3554,7 @@ async function handleListSentFriendRequests(env: Env, user: AuthenticatedUser) {
   const sent = (result.results || []).map((row) => ({
     toUserId: row.to_user_id as string,
     toEmail: row.to_email as string,
-    toName: (row.to_name as string | null) ?? null,
+    toName: (row.to_name as string | null) || GENERIC_DISPLAY_NAME,
     avatarUrl: (row.avatar_url as string | null) ?? null,
     createdAt: row.created_at as string,
   }));
@@ -3574,7 +3602,7 @@ async function handleAcceptInvite(request: Request, env: Env, user: Authenticate
   const now = new Date().toISOString();
 
   // Fetch profiles for both users to populate friend_email/friend_name
-  const newUserProfile = await getOrCreateProfile(env, user.userId, user.email);
+  const newUserProfile = await getOrCreateProfile(env, user.userId, user.email, user.claims);
   const inviterProfile = await getOrCreateProfile(env, inviterUserId, invite.inviter_email as string);
 
   // Create bilateral friend connection directly (no accept step needed)
@@ -3604,7 +3632,7 @@ async function handleCheckInvites(env: Env, user: AuthenticatedUser, ctx: Execut
   if (invites.length === 0) return json({ connected: [] });
 
   const now = new Date().toISOString();
-  const newUserProfile = await getOrCreateProfile(env, user.userId, user.email);
+  const newUserProfile = await getOrCreateProfile(env, user.userId, user.email, user.claims);
   const connected: string[] = [];
 
   for (const invite of invites) {
@@ -3660,7 +3688,7 @@ async function handleAcceptFriendRequest(_request: Request, env: Env, user: Auth
   }
 
   const now = new Date().toISOString();
-  const userProfile = await getOrCreateProfile(env, user.userId, user.email);
+  const userProfile = await getOrCreateProfile(env, user.userId, user.email, user.claims);
   const fromProfile = await getOrCreateProfile(env, fromUserId, friendReq.from_email as string);
 
   const friendA: Friend = {
@@ -3754,7 +3782,7 @@ async function handleListFriends(env: Env, user: AuthenticatedUser) {
   // not the snapshot baked at connection time (which goes stale after renames).
   const result = await env.DB.prepare(
     `SELECT f.friend_id, f.friend_email, f.connected_at,
-            COALESCE(p.display_name, f.friend_name) AS friend_name,
+            COALESCE(NULLIF(p.display_name, ''), NULLIF(f.friend_name, '')) AS friend_name,
             p.avatar_url AS avatar_url
      FROM friends f
      LEFT JOIN profiles p ON p.user_id = f.friend_id AND p.deleted_at IS NULL
@@ -3764,7 +3792,7 @@ async function handleListFriends(env: Env, user: AuthenticatedUser) {
   const friends = (result.results || []).map((row) => ({
     friendId: row.friend_id as string,
     friendEmail: row.friend_email as string,
-    friendName: row.friend_name as string,
+    friendName: (row.friend_name as string | null) || GENERIC_DISPLAY_NAME,
     avatarUrl: (row.avatar_url as string | null) ?? null,
     connectedAt: row.connected_at as string,
   }));
@@ -3786,7 +3814,7 @@ async function handleCreateOpenInvite(
     return json({ token: existing.token as string });
   }
 
-  const profile = await getOrCreateProfile(env, user.userId, user.email);
+  const profile = await getOrCreateProfile(env, user.userId, user.email, user.claims);
   const token = crypto.randomUUID();
   const now = new Date().toISOString();
 
@@ -3812,7 +3840,7 @@ async function handleRegenerateOpenInvite(
     return json({ token: null });
   }
 
-  const profile = await getOrCreateProfile(env, user.userId, user.email);
+  const profile = await getOrCreateProfile(env, user.userId, user.email, user.claims);
   const token = crypto.randomUUID();
   const now = new Date().toISOString();
 
@@ -3863,7 +3891,7 @@ async function handleAcceptOpenInvite(
     return json({ message: 'Already used' });
   }
 
-  const accepterProfile = await getOrCreateProfile(env, user.userId, user.email);
+  const accepterProfile = await getOrCreateProfile(env, user.userId, user.email, user.claims);
   const inviterProfile = await getOrCreateProfile(env, inviterUserId, '');
   const now = new Date().toISOString();
 
@@ -4409,7 +4437,44 @@ async function lookupUserByEmail(env: Env, email: string): Promise<{ id: string;
   }
 }
 
-async function getOrCreateProfile(env: Env, userId: string, email?: string): Promise<UserProfile> {
+// Shown in place of a display name when we never captured a real one. Apple
+// "Hide My Email" signups arrive with a random relay address (e.g.
+// 69bzcjwj7k@privaterelay.appleid.com); deriving a name from the local part
+// produced spammy-looking gibberish handles on friend cards and the activity
+// feed. A friendly generic reads far better than that.
+export const GENERIC_DISPLAY_NAME = 'ReciFriend cook';
+
+export function isAppleRelayEmail(email?: string | null): boolean {
+  return typeof email === 'string' && email.toLowerCase().endsWith('@privaterelay.appleid.com');
+}
+
+// The user's real name from the Supabase JWT. Google/Apple OAuth put it in
+// user_metadata.full_name / name; some tokens also carry a top-level name.
+export function displayNameFromClaims(claims?: Record<string, unknown>): string | null {
+  const meta = (claims?.user_metadata ?? {}) as Record<string, unknown>;
+  for (const cand of [meta.full_name, meta.name, claims?.name]) {
+    if (typeof cand === 'string' && cand.trim()) return cand.trim();
+  }
+  return null;
+}
+
+// Display name to STORE at profile-creation time. Prefer the real OAuth name;
+// otherwise the local part of a normal email; otherwise null (relay / nameless)
+// so every read falls back to GENERIC_DISPLAY_NAME instead of a gibberish
+// relay handle. Returning null (not a default string) keeps "they never set a
+// name" distinguishable, so the suggestion shelf can hide them and the profile
+// editor shows an empty field prompting them to set one.
+export function deriveDisplayName(email?: string, claims?: Record<string, unknown>): string | null {
+  const fromClaims = displayNameFromClaims(claims);
+  if (fromClaims) return fromClaims;
+  if (email && !isAppleRelayEmail(email)) {
+    const local = email.split('@')[0];
+    if (local) return local;
+  }
+  return null;
+}
+
+async function getOrCreateProfile(env: Env, userId: string, email?: string, claims?: Record<string, unknown>): Promise<UserProfile> {
   const row = await env.DB.prepare(
     'SELECT * FROM profiles WHERE user_id = ?'
   ).bind(userId).first();
@@ -4426,10 +4491,15 @@ async function getOrCreateProfile(env: Env, userId: string, email?: string): Pro
     };
   }
 
+  // Empty string for relay / nameless signups (display_name is NOT NULL in the
+  // schema, so we can't store SQL NULL). Reads treat '' as "no name" via
+  // NULLIF(display_name, '') / TRIM checks and fall back to GENERIC_DISPLAY_NAME
+  // rather than rendering a gibberish relay handle.
+  const derivedName = deriveDisplayName(email, claims) ?? '';
   const profile: UserProfile = {
     userId,
     email: email || '',
-    displayName: email?.split('@')[0] || 'User',
+    displayName: derivedName,
     createdAt: new Date().toISOString(),
     cookingFor: null,
     cuisinePrefs: [],
