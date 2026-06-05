@@ -16,6 +16,7 @@ struct ParsePreview {
 struct CreateRecipeResult {
     let recipeId: String
     let statusCode: Int
+    let ownerId: String?
 }
 
 /// Result of a synchronous /recipes/enrich call. Any field may be nil/empty
@@ -223,6 +224,7 @@ enum WorkerClient {
             let id = recipe["id"] as? String
         else { throw WorkerClientError.decoding }
 
-        return CreateRecipeResult(recipeId: id, statusCode: http.statusCode)
+        let ownerId = recipe["userId"] as? String
+        return CreateRecipeResult(recipeId: id, statusCode: http.statusCode, ownerId: ownerId)
     }
 }

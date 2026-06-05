@@ -8,7 +8,11 @@ final class ShareFormViewModel: ObservableObject {
     @Published var isLoadingPreview: Bool = true
     @Published var isSaving: Bool = false
     @Published var isSaved: Bool = false
+    // True when the worker reported the recipe was already in the user's
+    // collection (HTTP 200 from POST /recipes) rather than a fresh save (201).
+    @Published var isDuplicate: Bool = false
     @Published var savedRecipeId: String? = nil
+    @Published var savedOwnerId: String? = nil
     // Full caption recovered on-device for Facebook shares; passed to the worker
     // enrich call so Gemini can extract ingredients/steps. nil for non-FB.
     @Published var caption: String? = nil
@@ -191,8 +195,10 @@ final class ShareFormViewModel: ObservableObject {
                     jwt: jwt
                 )
                 await MainActor.run {
+                    self.isDuplicate = (result.statusCode == 200)
                     self.isSaved = true
                     self.savedRecipeId = result.recipeId
+                    self.savedOwnerId = result.ownerId
                     self.startAutoDismiss()
                 }
             } catch WorkerClientError.unauthenticated {
@@ -246,7 +252,7 @@ final class ShareFormViewModel: ObservableObject {
     func openInApp() {
         guard let id = savedRecipeId else { return }
         autoDismissTask?.cancel()
-        onFinish(.viewInApp(recipeId: id))
+        onFinish(.viewInApp(recipeId: id, ownerId: savedOwnerId))
     }
 
     func signIn() {
@@ -444,7 +450,7 @@ struct ShareFormView: View {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
                             .font(.system(size: 13))
-                        Text("Recipe saved!")
+                        Text(viewModel.isDuplicate ? "Already in your collection" : "Recipe saved!")
                             .font(.system(size: 13))
                             .foregroundColor(.secondary)
                     }

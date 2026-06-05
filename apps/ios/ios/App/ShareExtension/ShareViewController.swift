@@ -104,7 +104,7 @@ final class ShareViewController: UIViewController {
         case saved(recipeId: String)
         case cancelled
         case fallback              // A2: open main-app drawer via deep link (legacy)
-        case viewInApp(recipeId: String)
+        case viewInApp(recipeId: String, ownerId: String?)
         case signIn                // logged-out: write App Group, open sign-in in app
     }
 
@@ -124,8 +124,8 @@ final class ShareViewController: UIViewController {
             openDeepLink(for: sourceURL) { [weak self] _ in
                 self?.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
             }
-        case .viewInApp(let recipeId):
-            openRecipeInApp(recipeId: recipeId) { [weak self] _ in
+        case .viewInApp(let recipeId, let ownerId):
+            openRecipeInApp(recipeId: recipeId, ownerId: ownerId) { [weak self] _ in
                 self?.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
             }
         case .signIn:
@@ -151,13 +151,20 @@ final class ShareViewController: UIViewController {
         openURL(url, completion: completion)
     }
 
-    private func openRecipeInApp(recipeId: String, completion: @escaping (Bool) -> Void) {
-        // recifriend://recipes (no id) opens the recipe collection page.
-        // Handled by the main app's deepLinkDispatch recipes_list kind.
-        // recipeId unused for now — kept on the outcome for a possible future
-        // "open this specific recipe" flavor.
-        _ = recipeId
-        guard let url = URL(string: "recifriend://recipes") else { completion(false); return }
+    private func openRecipeInApp(recipeId: String, ownerId: String?, completion: @escaping (Bool) -> Void) {
+        // recifriend://recipes/{id}?user={owner} -> main app's deep-link parser
+        // resolves to the recipe DETAIL view (build 20+). Falls back to the bare
+        // recipes list if the id is somehow empty.
+        var components = URLComponents()
+        components.scheme = "recifriend"
+        components.host = "recipes"
+        if !recipeId.isEmpty {
+            components.path = "/\(recipeId)"
+            if let ownerId = ownerId, !ownerId.isEmpty {
+                components.queryItems = [URLQueryItem(name: "user", value: ownerId)]
+            }
+        }
+        guard let url = components.url else { completion(false); return }
         openURL(url, completion: completion)
     }
 
