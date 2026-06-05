@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Box, Typography, Stack, Button, Dialog, DialogContent, Skeleton } from '@mui/material';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import CloseIcon from '@mui/icons-material/Close';
@@ -37,7 +37,7 @@ function timeAgo(iso) {
  *   onAcceptFriendRequest?: (fromUserId) => Promise<void> — called when user taps Accept on a friend_request activity item
  *   onDeclineFriendRequest?: (fromUserId) => Promise<void> — called when user taps Decline on a friend_request activity item
  */
-export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe, onShareRecipe, onInviteFriend, onOpenFriends, onSuggestionTap, onOpenFriendRecipes, onAcceptFriendRequest, onDeclineFriendRequest, darkMode, onCookWithFriendsVisible }) {
+export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe, onShareRecipe, onInviteFriend, onOpenFriends, onSuggestionTap, onOpenFriendRecipes, onAcceptFriendRequest, onDeclineFriendRequest, darkMode, onCookWithFriendsVisible, onReady }) {
   const [unifiedFeed, setUnifiedFeed] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [requestDialogItem, setRequestDialogItem] = useState(null);
@@ -79,7 +79,7 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
     }
   }
 
-  useEffect(() => {
+  const loadFeed = useCallback(() => {
     if (!accessToken) return;
     Promise.all([
       fetchJson('/friends/activity', accessToken),
@@ -154,6 +154,10 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
       setLoaded(true);
     });
   }, [accessToken]);
+
+  useEffect(() => { loadFeed(); }, [loadFeed]);
+
+  useEffect(() => { onReady?.(loadFeed); }, [onReady, loadFeed]);
 
   const cookWithFriendsRef = useRef(null);
 
@@ -781,7 +785,7 @@ export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest, onOpenFr
           wordBreak: 'break-word',
           display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
         }}>
-          {item.message}
+          {isResolvedFriendRequest ? `You and ${friendName} are now connected` : item.message}
         </Typography>
       )}
 

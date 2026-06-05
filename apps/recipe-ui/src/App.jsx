@@ -2059,6 +2059,9 @@ function App() {
   // the deep-link dispatcher (created once) can fire it for accept_friend
   // links arriving via Universal Link / appUrlOpen on already-running app.
   const acceptFriendRequestRef = useRef(null);
+  const acceptInviteRef = useRef(null);       // POST /friends/accept-invite (email invite_token)
+  const acceptOpenInviteRef = useRef(null);   // POST /friends/accept-open-invite (SMS open invite)
+  const friendActivityRefreshRef = useRef(null); // set by FriendSections (Task 8)
   const accessTokenRef = useRef(null);
   // Same ref pattern for the recipe-detail close handler so the share
   // extension's "View on ReciFriend" deep link can dismiss an already-open
@@ -2162,6 +2165,16 @@ function App() {
           sessionStorage.setItem('pending_accept_friend', acceptId);
         }
       },
+      onFriendInvite: (token, inviteKind) => {
+        setCurrentView('friends');
+        if (accessTokenRef.current) {
+          if (inviteKind === 'open') acceptOpenInviteRef.current?.(token);
+          else acceptInviteRef.current?.(token);
+        } else {
+          sessionStorage.setItem(inviteKind === 'open' ? 'pending_open_invite' : 'pending_invite_token', token);
+        }
+      },
+      onFriendsList: () => { setCurrentView('friends'); },
       onRecipeDetail: (recipeId, ownerId) => {
         const local = recipesRef.current.find((r) => r.id === recipeId);
         if (local) { handleOpenRecipeDetailsRef.current?.(local); return; }
@@ -2552,7 +2565,7 @@ function App() {
     if (!accessToken) { openAuthDialog(); return null; }
     const res = await callRecipesApi('/friends/open-invite', { method: 'POST' }, accessToken);
     if (!res?.token) return null;
-    return `${SHARE_PUBLIC_URL}?invite=${res.token}`;
+    return `${SHARE_PUBLIC_URL}/friends?invite=${res.token}`;
   };
 
   const openInviteSheet = async () => {
@@ -2660,6 +2673,29 @@ function App() {
       await fetchFriends();
     } catch (error) {
       setSnackbarState({ open: true, message: 'Failed to accept request', severity: 'error' });
+    }
+  };
+
+  const acceptInvite = async (token) => {
+    try {
+      const res = await callRecipesApi('/friends/accept-invite', { method: 'POST', body: JSON.stringify({ token }) }, accessTokenRef.current);
+      const name = res?.inviterName;
+      setSnackbarState({ open: true, message: name ? `You're now connected with ${name}` : "You're now connected!", severity: 'success', duration: 8000, anchorOrigin: { vertical: 'top', horizontal: 'center' } });
+      fetchFriends();
+      friendActivityRefreshRef.current?.();
+    } catch {
+      setSnackbarState({ open: true, message: 'Could not accept the invite. It may have expired.', severity: 'error' });
+    }
+  };
+  const acceptOpenInvite = async (token) => {
+    try {
+      const res = await callRecipesApi('/friends/accept-open-invite', { method: 'POST', body: JSON.stringify({ token }) }, accessTokenRef.current);
+      const name = res?.inviterName;
+      setSnackbarState({ open: true, message: name ? `You're now connected with ${name}!` : "You're now connected with your friend on ReciFriend!", severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
+      fetchFriends();
+      friendActivityRefreshRef.current?.();
+    } catch {
+      setSnackbarState({ open: true, message: 'Could not accept the invite. It may have expired.', severity: 'error' });
     }
   };
 
@@ -3818,6 +3854,8 @@ function App() {
     acceptFriendRequestRef.current = acceptFriendRequest;
     accessTokenRef.current = accessToken;
   }, [acceptFriendRequest, accessToken]);
+
+  useEffect(() => { acceptInviteRef.current = acceptInvite; acceptOpenInviteRef.current = acceptOpenInvite; });
 
   // Keep the module-scope userId in sync for trackEvent's onboarding-flag
   // side-effect — see comment near trackEvent definition. Without this, the
@@ -5496,7 +5534,7 @@ function App() {
             if (!token) return;
           }
           const subject = encodeURIComponent('Join me on ReciFriend!');
-          const body = encodeURIComponent(`Hey! I'd love to share recipes with you on ReciFriend.\n\nJoin me here: ${SHARE_PUBLIC_URL}?invite=${token}`);
+          const body = encodeURIComponent(`Hey! I'd love to share recipes with you on ReciFriend.\n\nJoin me here: ${SHARE_PUBLIC_URL}/friends?invite=${token}`);
           window.location.href = `mailto:?subject=${subject}&body=${body}`;
           trackEvent('invite_friend', { method: 'email' });
         }}
@@ -5511,7 +5549,7 @@ function App() {
             } finally { setOpenInviteLinkLoading(false); }
             if (!token) return;
           }
-          const inviteUrl = `${SHARE_PUBLIC_URL}?invite=${token}`;
+          const inviteUrl = `${SHARE_PUBLIC_URL}/friends?invite=${token}`;
           const message = `Hey! I'd love to share recipes with you on ReciFriend. Join me here: ${inviteUrl}`;
           if (navigator.share) {
             try {
@@ -5539,7 +5577,7 @@ function App() {
             } finally { setOpenInviteLinkLoading(false); }
             if (!token) return;
           }
-          navigator.clipboard.writeText(`${SHARE_PUBLIC_URL}?invite=${token}`);
+          navigator.clipboard.writeText(`${SHARE_PUBLIC_URL}/friends?invite=${token}`);
           setSnackbarState({ open: true, message: 'Invite link copied!', severity: 'success' });
           trackEvent('invite_friend', { method: 'copy_link' });
         }}
@@ -5767,6 +5805,7 @@ function App() {
                   onDeclineFriendRequest={declineFriendRequest}
                   darkMode={darkMode}
                   onCookWithFriendsVisible={setCookWithFriendsVisible}
+                  onReady={(refresh) => { friendActivityRefreshRef.current = refresh; }}
                 />
                 </Box>
               </>
@@ -7441,7 +7480,7 @@ function App() {
                             if (!token) return;
                           }
                           const subject = encodeURIComponent('Join me on ReciFriend!');
-                          const body = encodeURIComponent(`Hey! I'd love to share recipes with you on ReciFriend.\n\nJoin me here: ${SHARE_PUBLIC_URL}?invite=${token}`);
+                          const body = encodeURIComponent(`Hey! I'd love to share recipes with you on ReciFriend.\n\nJoin me here: ${SHARE_PUBLIC_URL}/friends?invite=${token}`);
                           window.location.href = `mailto:?subject=${subject}&body=${body}`;
                           trackEvent('invite_friend', { method: 'email' });
                         },
@@ -7460,7 +7499,7 @@ function App() {
                             } finally { setOpenInviteLinkLoading(false); }
                             if (!token) return;
                           }
-                          const inviteUrl = `${SHARE_PUBLIC_URL}?invite=${token}`;
+                          const inviteUrl = `${SHARE_PUBLIC_URL}/friends?invite=${token}`;
                           const message = `Hey! I'd love to share recipes with you on ReciFriend. Join me here: ${inviteUrl}`;
                           if (navigator.share) {
                             try {
@@ -7492,7 +7531,7 @@ function App() {
                             } finally { setOpenInviteLinkLoading(false); }
                             if (!token) return;
                           }
-                          navigator.clipboard.writeText(`${SHARE_PUBLIC_URL}?invite=${token}`);
+                          navigator.clipboard.writeText(`${SHARE_PUBLIC_URL}/friends?invite=${token}`);
                           setSnackbarState({ open: true, message: 'Invite link copied!', severity: 'success' });
                           trackEvent('invite_friend', { method: 'copy_link' });
                         },
