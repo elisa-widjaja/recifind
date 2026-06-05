@@ -3488,7 +3488,7 @@ async function handleSendFriendRequest(request: Request, env: Env, user: Authent
       `${senderProfile.displayName} invited you to ReciFriend`,
       `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
         <h2 style="margin: 0 0 16px; font-size: 20px; color: #1a1a1a;">You're invited to ReciFriend!</h2>
-        <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;"><strong>${senderProfile.displayName}</strong> invited you to join <a href="https://recifriend.com" style="color: #6200EA; text-decoration: none;">ReciFriend</a> and share recipes together.</p>
+        <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;"><strong>${senderProfile.displayName}</strong> invited you to join <a href="https://recifriend.com/friends" style="color: #6200EA; text-decoration: none;">ReciFriend</a> and share recipes together.</p>
         <a href="https://recifriend.com/friends?invite_token=${inviteId}" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Join ReciFriend</a>
         <p style="margin: 24px 0 0; font-size: 13px; color: #999;">Once you create an account, you'll automatically be connected with ${senderProfile.displayName}.</p>
       </div>`
@@ -3547,7 +3547,7 @@ async function handleSendFriendRequest(request: Request, env: Env, user: Authent
     `${senderProfile.displayName}'s request to add you on ReciFriend`,
     `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
       <h2 style="margin: 0 0 16px; font-size: 20px; color: #1a1a1a;">${senderProfile.displayName}'s request to add you</h2>
-      <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;">${senderAvatar}<strong>${senderProfile.displayName}</strong> wants to add you as a friend on <a href="https://recifriend.com" style="color: #6200EA; text-decoration: none;">ReciFriend</a> and share recipes together.</p>
+      <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;">${senderAvatar}<strong>${senderProfile.displayName}</strong> wants to add you as a friend on <a href="https://recifriend.com/friends" style="color: #6200EA; text-decoration: none;">ReciFriend</a> and share recipes together.</p>
       <a href="https://recifriend.com/friend-requests?accept_friend=${encodeURIComponent(user.userId)}" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Accept</a>
       <p style="margin: 24px 0 0; font-size: 13px; color: #999;">You received this because someone sent you a friend request on ReciFriend.</p>
     </div>`
@@ -3786,7 +3786,7 @@ async function handleAcceptFriendRequest(_request: Request, env: Env, user: Auth
     `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
       <h2 style="margin: 0 0 16px; font-size: 20px; color: #1a1a1a;">You're now connected!</h2>
       <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;">${avatarImg}<strong>${userProfile.displayName}</strong> accepted your friend request. You can now share recipes with each other on ReciFriend.</p>
-      <a href="https://recifriend.com" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Open ReciFriend</a>
+      <a href="https://recifriend.com/friends" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Open ReciFriend</a>
       <p style="margin: 24px 0 0; font-size: 13px; color: #999;">You received this because your friend request was accepted on ReciFriend.</p>
     </div>`
   ));
