@@ -3489,7 +3489,7 @@ async function handleSendFriendRequest(request: Request, env: Env, user: Authent
       `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px;">
         <h2 style="margin: 0 0 16px; font-size: 20px; color: #1a1a1a;">You're invited to ReciFriend!</h2>
         <p style="margin: 0 0 24px; font-size: 16px; line-height: 1.5; color: #333;"><strong>${senderProfile.displayName}</strong> invited you to join <a href="https://recifriend.com" style="color: #6200EA; text-decoration: none;">ReciFriend</a> and share recipes together.</p>
-        <a href="https://recifriend.com?invite_token=${inviteId}" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Join ReciFriend</a>
+        <a href="https://recifriend.com/friends?invite_token=${inviteId}" style="display: inline-block; background: #6200EA; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 500;">Join ReciFriend</a>
         <p style="margin: 24px 0 0; font-size: 13px; color: #999;">Once you create an account, you'll automatically be connected with ${senderProfile.displayName}.</p>
       </div>`
     ));

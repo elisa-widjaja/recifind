@@ -116,6 +116,25 @@ describe('parseDeepLink — /friend-requests', () => {
   });
 });
 
+describe('parseDeepLink /friends', () => {
+  it('parses /friends?invite_token= as a pending friend_invite', () => {
+    expect(parseDeepLink('https://recifriend.com/friends?invite_token=abc123'))
+      .toEqual({ kind: 'friend_invite', token: 'abc123', invite_kind: 'pending' });
+  });
+  it('parses /friends?invite= as an open friend_invite', () => {
+    expect(parseDeepLink('https://recifriend.com/friends?invite=xyz789'))
+      .toEqual({ kind: 'friend_invite', token: 'xyz789', invite_kind: 'open' });
+  });
+  it('parses bare /friends as friends_list', () => {
+    expect(parseDeepLink('https://recifriend.com/friends'))
+      .toEqual({ kind: 'friends_list' });
+  });
+  it('leaves /friend-requests?accept_friend= unchanged', () => {
+    expect(parseDeepLink('https://recifriend.com/friend-requests?accept_friend=u1'))
+      .toEqual({ kind: 'friend_requests', accept_id: 'u1' });
+  });
+});
+
 describe('parseDeepLink — unknown paths', () => {
   it('rejects /admin', () => {
     expect(parseDeepLink('https://recifriend.com/admin')).toBeNull();

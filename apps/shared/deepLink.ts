@@ -79,6 +79,18 @@ export function parseDeepLink(raw: string): DeepLink | null {
       : { kind: 'friend_requests' };
   }
 
+  // /friends — friend-invite landing. `?invite_token=<id>` is the email invite
+  // (a pending-invite id); `?invite=<token>` is the SMS open invite (a shareable
+  // token). They route to different connect endpoints, so keep them distinct.
+  // Bare /friends just opens the friends view.
+  if (fullPath === '/friends' || fullPath === '/friends/') {
+    const pendingToken = url.searchParams.get('invite_token');
+    if (pendingToken) return { kind: 'friend_invite', token: pendingToken, invite_kind: 'pending' };
+    const openToken = url.searchParams.get('invite');
+    if (openToken) return { kind: 'friend_invite', token: openToken, invite_kind: 'open' };
+    return { kind: 'friends_list' };
+  }
+
   return null;
 }
 
