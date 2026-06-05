@@ -1364,9 +1364,13 @@ function App() {
   const [discoverRefreshKey, setDiscoverRefreshKey] = useState(0);
   const [currentView, setCurrentView] = useState(() => {
     const saved = sessionStorage.getItem('currentView');
-    const VALID_VIEWS = ['home', 'recipes', 'friend-requests', 'friends', 'discover', 'profile'];
+    // NOTE: 'friend-requests' is intentionally NOT a valid view — it has no
+    // render block (friend requests live inside the 'friends' FriendsPage).
+    // Any stale persisted 'friend-requests' falls back to 'home' instead of
+    // rendering a blank screen.
+    const VALID_VIEWS = ['home', 'recipes', 'friends', 'discover', 'profile'];
     return VALID_VIEWS.includes(saved) ? saved : 'home';
-  }); // 'home' | 'recipes' | 'friend-requests' | 'friends' | 'discover' | 'profile'
+  }); // 'home' | 'recipes' | 'friends' | 'discover' | 'profile'
 
   useEffect(() => {
     sessionStorage.setItem('currentView', currentView);
@@ -2155,8 +2159,13 @@ function App() {
         });
       },
       onFriendRequests: (acceptId) => {
-        setCurrentView('friend-requests');
-        if (!acceptId) return;
+        // 'friends' (FriendsPage) renders pending requests; 'friend-requests'
+        // has no render block and would show a blank screen.
+        setCurrentView('friends');
+        if (!acceptId) { setFriendsInitialTab('pending'); return; }
+        // Accepting via the email link: the request is no longer pending, so
+        // land on the My Friends tab where the new connection appears.
+        setFriendsInitialTab('connections');
         // Already signed in → accept now. Not signed in → defer via
         // sessionStorage; the existing post-sign-in effect picks it up.
         if (accessTokenRef.current) {
@@ -2652,9 +2661,13 @@ function App() {
     try {
       const contacts = await navigator.contacts.select(['name', 'tel'], { multiple: false });
       if (contacts.length > 0 && contacts[0].tel?.length > 0) {
+        // Use an open-invite token on the claimed /friends path so the link
+        // opens the app (and auto-connects) instead of the bare web root.
+        const inviteUrl = await generateOpenInviteUrl();
+        if (!inviteUrl) return;
         const phone = contacts[0].tel[0];
         const name = contacts[0].name?.[0] ? ` ${contacts[0].name[0]}` : '';
-        const msg = encodeURIComponent(`Hey${name}! Join me on ReciFriend to share recipes: https://recifriend.com`);
+        const msg = encodeURIComponent(`Hey${name}! Join me on ReciFriend to share recipes: ${inviteUrl}`);
         window.open(`sms:${phone}?body=${msg}`);
       }
     } catch (err) {
@@ -2664,13 +2677,15 @@ function App() {
 
   const acceptFriendRequest = async (fromUserId) => {
     try {
-      await callRecipesApi(`/friends/requests/${encodeURIComponent(fromUserId)}/accept`, {
+      const res = await callRecipesApi(`/friends/requests/${encodeURIComponent(fromUserId)}/accept`, {
         method: 'POST'
       }, accessToken);
       trackEvent('accept_friend_request');
-      setSnackbarState({ open: true, message: 'Friend request accepted!', severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
+      const name = res?.friend?.friendName;
+      setSnackbarState({ open: true, message: name ? `You and ${name} are now connected` : "You're now connected!", severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
       await fetchFriendRequests();
       await fetchFriends();
+      friendActivityRefreshRef.current?.();
     } catch (error) {
       setSnackbarState({ open: true, message: 'Failed to accept request', severity: 'error' });
     }
