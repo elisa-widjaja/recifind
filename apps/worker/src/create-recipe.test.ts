@@ -4,6 +4,8 @@ import type { Env } from './index';
 
 function makeMockDb(options: {
   existingRecipe?: { id: string; created_at: string } | null;
+  existingIngredients?: string[];
+  existingSteps?: string[];
   friends?: Array<{ friend_id: string }>;
   profile?: { display_name?: string } | null;
 }) {
@@ -21,8 +23,8 @@ function makeMockDb(options: {
         image_url: '',
         image_path: null,
         meal_types: JSON.stringify([]),
-        ingredients: JSON.stringify([]),
-        steps: JSON.stringify([]),
+        ingredients: JSON.stringify(options.existingIngredients ?? []),
+        steps: JSON.stringify(options.existingSteps ?? []),
         duration_minutes: null,
         notes: '',
         preview_image: null,
@@ -42,7 +44,7 @@ function makeMockDb(options: {
             first: async () => {
               firstCalls.push({ sql, binds: [...binds] });
               if (sql.includes('FROM recipes')) {
-                // Dedup query: SELECT id, created_at ... WHERE ... AND source_url = ?
+                // Dedup query: SELECT id ... WHERE ... AND source_url = ?
                 // loadRecipe query: SELECT * ... WHERE user_id = ? AND id = ?
                 // Use 'AND id = ?' (with leading ' AND') to avoid matching 'user_id = ?'
                 if (sql.includes('source_url = ?')) {
@@ -125,8 +127,64 @@ describe('handleCreateRecipe dedup', () => {
     });
 
     const res = await handleCreateRecipe(req, env, ctx, user as any);
+    const body = await res.json() as { duplicate: boolean };
     expect(res.status).toBe(201);
+    expect(body.duplicate).toBe(false);
     expect(runCalls.some(c => c.sql.includes('INSERT INTO recipes'))).toBe(true);
+  });
+
+  it('returns existing recipe with duplicate:true and no insert when it already has content', async () => {
+    const dupe = { id: 'recipe-existing-123', created_at: new Date(Date.now() - 5 * 86400_000).toISOString() };
+    const { db, runCalls } = makeMockDb({
+      existingRecipe: dupe,
+      existingIngredients: ['1 cup flour'],
+      existingSteps: ['Mix'],
+    });
+    const env = { DB: db as unknown as D1Database } as Env;
+    const ctx = { waitUntil: vi.fn() } as unknown as ExecutionContext;
+    const user = { userId: 'user-abc', email: 'a@b.c' };
+    const req = new Request('https://worker/recipes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Pasta', sourceUrl: 'https://www.tiktok.com/@u/video/pasta', ingredients: ['1 cup flour'], steps: ['Mix'] }),
+    });
+
+    const res = await handleCreateRecipe(req, env, ctx, user as any);
+    const body = await res.json() as { recipe: { id: string }; duplicate: boolean };
+
+    expect(res.status).toBe(200);
+    expect(body.duplicate).toBe(true);
+    expect(body.recipe.id).toBe('recipe-existing-123');
+    expect(runCalls.find(c => c.sql.includes('INSERT INTO recipes'))).toBeUndefined();
+    expect(runCalls.find(c => c.sql.includes('UPDATE recipes'))).toBeUndefined();
+  });
+
+  it('backfills an empty existing row from the re-save content (no insert, duplicate:true)', async () => {
+    const dupe = { id: 'recipe-empty-1', created_at: new Date(Date.now() - 3 * 86400_000).toISOString() };
+    const { db, runCalls } = makeMockDb({
+      existingRecipe: dupe,
+      existingIngredients: [],
+      existingSteps: [],
+    });
+    const env = { DB: db as unknown as D1Database } as Env;
+    const ctx = { waitUntil: vi.fn() } as unknown as ExecutionContext;
+    const user = { userId: 'user-abc', email: 'a@b.c' };
+    const req = new Request('https://worker/recipes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Pasta', sourceUrl: 'https://www.tiktok.com/@u/video/pasta', ingredients: ['2 eggs'], steps: ['Whisk'] }),
+    });
+
+    const res = await handleCreateRecipe(req, env, ctx, user as any);
+    const body = await res.json() as { duplicate: boolean };
+
+    expect(res.status).toBe(200);
+    expect(body.duplicate).toBe(true);
+    expect(runCalls.find(c => c.sql.includes('INSERT INTO recipes'))).toBeUndefined();
+    const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
+    expect(update).toBeDefined();
+    expect(update!.binds).toContain('recipe-empty-1');
+    expect(update!.binds.some(b => typeof b === 'string' && b.includes('eggs'))).toBe(true);
   });
 });
 
@@ -283,14 +341,13 @@ describe('handleCreateRecipe fires ctx.waitUntil(enrichAfterSave)', () => {
     expect(enrichLog![1]).toMatchObject({ winningStrategy: 'none', ingredients_count: 0, steps_count: 0 });
   });
 
-  it('does NOT fire ctx.waitUntil when dedup returns existing row', async () => {
+  it('does NOT fire ctx.waitUntil when the duplicate already has content', async () => {
     const existing = { id: 'r-dupe', created_at: new Date().toISOString() };
-    const { db } = makeMockDb({ existingRecipe: existing });
+    const { db } = makeMockDb({ existingRecipe: existing, existingIngredients: ['x'], existingSteps: ['y'] });
     const waitUntil = vi.fn();
     const env = { DB: db as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'fake' } as Env;
     const ctx = { waitUntil } as unknown as ExecutionContext;
     const user = { userId: 'u1', email: 'a@b.c' };
-
     const req = new Request('https://worker/recipes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -299,6 +356,33 @@ describe('handleCreateRecipe fires ctx.waitUntil(enrichAfterSave)', () => {
 
     await handleCreateRecipe(req, env, ctx, user as any);
     expect(waitUntil).not.toHaveBeenCalled();
+  });
+
+  it('re-fires enrichAfterSave on the existing id when the duplicate is empty', async () => {
+    const existing = { id: 'r-empty', created_at: new Date().toISOString() };
+    const { db } = makeMockDb({ existingRecipe: existing, existingIngredients: [], existingSteps: [] });
+    const pending: Array<Promise<any>> = [];
+    const waitUntil = vi.fn((p: Promise<any>) => { pending.push(p); });
+    const env = { DB: db as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'fake' } as Env;
+    const ctx = { waitUntil } as unknown as ExecutionContext;
+    const user = { userId: 'u1', email: 'a@b.c' };
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, text: async () => '' })));
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const req = new Request('https://worker/recipes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Bread', sourceUrl: 'https://www.tiktok.com/@u/video/bread' }),
+    });
+
+    const res = await handleCreateRecipe(req, env, ctx, user as any);
+    await Promise.allSettled(pending);
+
+    expect(res.status).toBe(200);
+    expect(waitUntil).toHaveBeenCalled();
+    const enrichLog = logSpy.mock.calls.find(([tag]) => tag === '[enrichAfterSave]');
+    expect(enrichLog).toBeDefined();
   });
 });
 

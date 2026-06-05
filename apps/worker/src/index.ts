@@ -2433,7 +2433,36 @@ async function handleGetSharedRecipe(request: Request, env: Env, token: string) 
   }));
 }
 
-const DEDUP_WINDOW_MS = 60_000;
+// Heal an empty (no ingredients/steps) existing recipe from a re-save that
+// carries content. Only fills columns the old row lacks — never overwrites a
+// non-empty title/image. Used by the duplicate-detection path in
+// handleCreateRecipe so a failed import the user re-saves gets repaired instead
+// of dead-ending. Returns the refreshed recipe.
+export async function backfillEmptyRecipe(
+  env: Env,
+  userId: string,
+  recipeId: string,
+  recipe: { title: string; imageUrl: string; ingredients: string[]; steps: string[] }
+): Promise<Recipe> {
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `UPDATE recipes
+     SET ingredients = ?, steps = ?,
+         title = CASE WHEN title IS NULL OR title = '' THEN ? ELSE title END,
+         image_url = CASE WHEN image_url IS NULL OR image_url = '' THEN ? ELSE image_url END,
+         updated_at = ?
+     WHERE id = ? AND user_id = ?`
+  ).bind(
+    JSON.stringify(recipe.ingredients),
+    JSON.stringify(recipe.steps),
+    recipe.title,
+    recipe.imageUrl,
+    now,
+    recipeId,
+    userId
+  ).run();
+  return loadRecipe(env, userId, recipeId);
+}
 
 async function handleCreateRecipe(
   request: Request,
@@ -2466,18 +2495,38 @@ async function handleCreateRecipe(
     }
   }
 
-  // Rapid-reshare dedup: return the existing recipe if (user_id, source_url) was
-  // inserted within the last 60s. Prevents duplicates from iOS extension retries
-  // and accidental double-taps on Save.
+  // Duplicate detection: a recipe with the same (user_id, source_url) already
+  // exists. Never create a second row. Exact-URL match (tracking-param variants
+  // intentionally not normalized — see spec). Replaces the old 60s window so
+  // re-saves days apart are also caught.
   if (recipe.sourceUrl) {
-    const sixtySecondsAgo = new Date(Date.now() - DEDUP_WINDOW_MS).toISOString();
     const dupe = await env.DB.prepare(
-      `SELECT id, created_at FROM recipes WHERE user_id = ? AND source_url = ? AND created_at >= ? ORDER BY created_at DESC LIMIT 1`
-    ).bind(user.userId, recipe.sourceUrl, sixtySecondsAgo).first() as { id: string; created_at: string } | null;
+      `SELECT id FROM recipes WHERE user_id = ? AND source_url = ? ORDER BY created_at DESC LIMIT 1`
+    ).bind(user.userId, recipe.sourceUrl).first() as { id: string } | null;
 
     if (dupe) {
       const existing = await loadRecipe(env, user.userId, dupe.id);
-      return json({ recipe: existing }, 200);
+      const existingEmpty = existing.ingredients.length === 0 && existing.steps.length === 0;
+      const incomingHasContent = recipe.ingredients.length > 0 || recipe.steps.length > 0;
+
+      if (existingEmpty && incomingHasContent) {
+        // Failed-import retry where the re-save carries content: heal the row.
+        const refreshed = await backfillEmptyRecipe(env, user.userId, dupe.id, recipe);
+        return json({ recipe: refreshed, duplicate: true }, 200);
+      }
+
+      if (existingEmpty) {
+        // Failed-import retry, re-save also empty: give enrichment another shot
+        // on the EXISTING id (preserves the old after-60s retry path).
+        ctx.waitUntil(
+          enrichAfterSave(env, user.userId, dupe.id, recipe.sourceUrl, recipe.title)
+            .catch(err => console.error('[enrichAfterSave] failed', { recipeId: dupe.id, err: String(err) }))
+        );
+        return json({ recipe: existing, duplicate: true }, 200);
+      }
+
+      // Existing row already has content -> pure dedup, no write.
+      return json({ recipe: existing, duplicate: true }, 200);
     }
   }
 
@@ -2593,7 +2642,7 @@ async function handleCreateRecipe(
     );
   }
 
-  return json({ recipe }, 201);
+  return json({ recipe, duplicate: false }, 201);
 }
 
 async function handleGetOgImage(request: Request) {

@@ -1,5 +1,5 @@
--- Supports the 60s rapid-reshare dedup lookup in handleCreateRecipe
--- (SELECT id, created_at FROM recipes WHERE user_id = ? AND source_url = ? AND created_at >= ?).
+-- Supports the unbounded (user_id, source_url) duplicate-detection lookup in handleCreateRecipe
+-- (SELECT id FROM recipes WHERE user_id = ? AND source_url = ? ORDER BY created_at DESC LIMIT 1).
 -- Without this, the lookup scans the user's recipes and filters by source_url,
 -- which regresses as users accumulate recipes.
 
