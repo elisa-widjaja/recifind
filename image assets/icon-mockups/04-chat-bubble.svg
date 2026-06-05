@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="112" fill="#6200EA"/>
+  <!-- Chat bubble silhouette with tail (lower-left) -->
+  <path d="M104 152 Q104 104 152 104 H360 Q408 104 408 152 V312 Q408 360 360 360 H220 L156 412 L172 360 H152 Q104 360 104 312 Z" fill="#FFFFFF"/>
+  <!-- Crossed fork + spoon inside (purple) -->
+  <g transform="translate(256 232) rotate(-30)">
+    <!-- Spoon (left) -->
+    <ellipse cx="-46" cy="-58" rx="22" ry="32" fill="none" stroke="#6200EA" stroke-width="12"/>
+    <line x1="-46" y1="-30" x2="-46" y2="78" stroke="#6200EA" stroke-width="12" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(256 232) rotate(30)">
+    <!-- Fork (right) -->
+    <line x1="38" y1="-90" x2="38" y2="-50" stroke="#6200EA" stroke-width="9" stroke-linecap="round"/>
+    <line x1="50" y1="-90" x2="50" y2="-50" stroke="#6200EA" stroke-width="9" stroke-linecap="round"/>
+    <line x1="62" y1="-90" x2="62" y2="-50" stroke="#6200EA" stroke-width="9" stroke-linecap="round"/>
+    <path d="M38 -50 Q50 -28 62 -50" stroke="#6200EA" stroke-width="9" fill="none" stroke-linecap="round"/>
+    <line x1="50" y1="-32" x2="50" y2="78" stroke="#6200EA" stroke-width="12" stroke-linecap="round"/>
+  </g>
+</svg>

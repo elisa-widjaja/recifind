@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Warm cream background -->
+  <rect width="512" height="512" rx="112" fill="#F4E4C9"/>
+  <!-- Recipe index card with corner fold -->
+  <path d="M112 132 H368 L400 164 V412 H112 Z" fill="#FFFFFF" stroke="#3B2E1A" stroke-width="6" stroke-linejoin="round"/>
+  <!-- Folded corner triangle -->
+  <path d="M368 132 L400 164 L368 164 Z" fill="#E8D4AE" stroke="#3B2E1A" stroke-width="6" stroke-linejoin="round"/>
+  <!-- Title underline (recipe heading) -->
+  <line x1="148" y1="190" x2="320" y2="190" stroke="#6200EA" stroke-width="10" stroke-linecap="round"/>
+  <!-- Ingredient lines -->
+  <line x1="148" y1="240" x2="356" y2="240" stroke="#3B2E1A" stroke-width="6" stroke-linecap="round" opacity="0.55"/>
+  <line x1="148" y1="278" x2="320" y2="278" stroke="#3B2E1A" stroke-width="6" stroke-linecap="round" opacity="0.55"/>
+  <line x1="148" y1="316" x2="340" y2="316" stroke="#3B2E1A" stroke-width="6" stroke-linecap="round" opacity="0.55"/>
+  <line x1="148" y1="354" x2="280" y2="354" stroke="#3B2E1A" stroke-width="6" stroke-linecap="round" opacity="0.55"/>
+  <!-- Heart in corner (favorite cue) -->
+  <path d="M328 380 C328 364 352 360 348 380 C352 360 376 364 376 380 C376 396 352 412 352 412 C352 412 328 396 328 380 Z" fill="#E07856"/>
+</svg>

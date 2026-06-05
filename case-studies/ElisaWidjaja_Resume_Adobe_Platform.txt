@@ -1,0 +1,98 @@
+Elisa Widjaja
+Product Design Lead | Product Designer & Engineer
+San Francisco Bay Area, CA
+LinkedIn Profile
+elisa.widjaja@gmail.com | (415) 812-4179
+
+
+SUMMARY
+
+Systems-minded product design leader who unifies complex, disparate experiences
+into cohesive end-to-end platforms, with admin, licensing, and framework work
+spanning Autodesk and GE Digital. A high-agency designer who ships through code,
+recently architecting a full-stack app solo with AI-powered design and
+development tooling.
+
+
+PROFESSIONAL EXPERIENCE
+
+ReciFriend (recifriend.com)
+Founder, Product Designer & Engineer
+Jan 2026 - Present | San Francisco Bay Area
+
+  - Architected and coded the full stack solo, a React and MUI web app plus a
+    native iOS app on Cloudflare Workers and D1, using AI-powered design and
+    development tooling and taking design through to engineering.
+
+  - Designed and shipped a consumer recipe-sharing app to the App Store
+    (May 2026), owning strategy, UX, design, and implementation end to end.
+
+  - Built an AI-powered import that turns a pasted TikTok, Instagram, or YouTube
+    link into a clean, structured recipe via a Gemini pipeline.
+
+  - Built an admin dashboard for managing users, recipes, and content quality.
+
+  - Designed viral growth and retention loops: friend invites, a discovery feed,
+    a Friends activity feed, and automated email nudges.
+
+Autodesk
+Product Design Lead
+Mar 2018 - Dec 2025 | San Francisco Bay Area
+
+  - Defined the north star vision and strategy for Autodesk's next-generation
+    App Store ecosystem, unifying disparate experiences across customers and
+    third-party developers into a cohesive platform.
+
+  - Led end-to-end design for complex platform workflows, improving publishing,
+    purchasing, and license management experiences.
+
+  - Created design frameworks and pattern libraries adopted across multiple
+    product teams to ensure consistency and scalability.
+
+  - Facilitated cross-organizational workshops to align engineering, product,
+    and design leadership around ecosystem design principles and roadmap.
+
+GE Digital
+Staff UX Visual Designer
+May 2014 - Mar 2018 | San Ramon, CA
+
+  - Delivered complex enterprise applications for GE's Power, Transportation,
+    and Aviation business.
+
+  - Contributed design pattern to Predix UI (GE Design System).
+
+Razorfish
+Senior Art Director
+2010 - 2014 | San Francisco, CA
+
+  - Led the design of large-scale enterprise and consumer-facing applications
+    across industries, including healthcare and finance.
+
+  - Collaborated on multi-channel strategies integrating web, mobile, and
+    emerging technologies.
+
+  - Delivered high-quality prototypes, wireframes, and specifications for
+    development teams.
+
+
+EDUCATION
+
+Bachelor of Fine Arts
+California College of the Arts
+
+
+SKILLS
+
+  - Systems Thinking
+  - Platform Thinking
+  - Design Systems and Frameworks
+  - User Experience
+  - Research
+  - UI, Interaction, and Visual Design
+  - AI-Powered Design and Prototyping Tools
+  - Full-Stack Implementation (React, Cloudflare Workers)
+
+
+PORTFOLIO
+
+https://elisawidjaja.com

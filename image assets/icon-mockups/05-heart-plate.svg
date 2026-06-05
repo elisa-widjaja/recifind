@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Warm cream background -->
+  <rect width="512" height="512" rx="112" fill="#FCE9D6"/>
+  <!-- Plate (outer ring) -->
+  <circle cx="256" cy="256" r="180" fill="#FFFFFF" stroke="#3B2E1A" stroke-width="6" opacity="0.95"/>
+  <!-- Plate inner ring -->
+  <circle cx="256" cy="256" r="140" fill="none" stroke="#3B2E1A" stroke-width="3" opacity="0.35"/>
+  <!-- Heart (centered, coral) -->
+  <path d="M256 360
+           C 256 360 156 296 156 232
+           C 156 196 184 168 220 168
+           C 240 168 254 178 256 196
+           C 258 178 272 168 292 168
+           C 328 168 356 196 356 232
+           C 356 296 256 360 256 360 Z"
+        fill="#E07856"/>
+</svg>

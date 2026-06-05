@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="112" fill="#6200EA"/>
+  <!-- "rf" lowercase serif monogram, centered -->
+  <text x="256" y="380"
+        font-family="Fraunces, 'Playfair Display', 'Times New Roman', serif"
+        font-size="380"
+        font-weight="500"
+        font-style="italic"
+        fill="#FFFFFF"
+        text-anchor="middle">rf</text>
+</svg>

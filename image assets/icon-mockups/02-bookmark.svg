@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="112" fill="#6200EA"/>
+  <!-- Bookmark ribbon -->
+  <path d="M148 96 H364 V416 L256 348 L148 416 Z" fill="#FFFFFF"/>
+  <!-- Crossed fork + spoon inside (purple) -->
+  <!-- Spoon -->
+  <ellipse cx="216" cy="206" rx="30" ry="40" fill="none" stroke="#6200EA" stroke-width="14"/>
+  <line x1="216" y1="246" x2="216" y2="320" stroke="#6200EA" stroke-width="14" stroke-linecap="round"/>
+  <!-- Fork -->
+  <line x1="296" y1="170" x2="296" y2="216" stroke="#6200EA" stroke-width="10" stroke-linecap="round"/>
+  <line x1="312" y1="170" x2="312" y2="216" stroke="#6200EA" stroke-width="10" stroke-linecap="round"/>
+  <line x1="328" y1="170" x2="328" y2="216" stroke="#6200EA" stroke-width="10" stroke-linecap="round"/>
+  <path d="M296 216 Q312 244 328 216" stroke="#6200EA" stroke-width="10" fill="none" stroke-linecap="round"/>
+  <line x1="312" y1="240" x2="312" y2="320" stroke="#6200EA" stroke-width="14" stroke-linecap="round"/>
+</svg>
