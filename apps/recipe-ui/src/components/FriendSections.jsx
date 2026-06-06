@@ -244,11 +244,24 @@ function FriendRequestDialog({ item, busy, onAccept, onDecline, onClose }) {
           <CloseIcon sx={{ fontSize: 18 }} />
         </Box>
         <Box sx={{
+          position: 'relative', overflow: 'hidden',
           width: 64, height: 64, borderRadius: '50%', bgcolor: color,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           mx: 'auto', mb: 2,
         }}>
+          {/* Colored initial backdrop; the avatar photo (carried from the
+              activity item) overlays it and removes itself on load failure. */}
           <Typography sx={{ color: '#fff', fontSize: 26, fontWeight: 700 }}>{initial}</Typography>
+          {item.avatarUrl && (
+            <Box
+              component="img"
+              src={item.avatarUrl}
+              alt=""
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover',
+                WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
+            />
+          )}
         </Box>
         <Typography sx={{ fontWeight: 700, fontSize: 18, mb: 0.5 }}>{friendName}</Typography>
         <Typography sx={{ color: 'text.secondary', fontSize: 14, mb: 3 }}>
@@ -785,7 +798,17 @@ export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest, onOpenFr
           wordBreak: 'break-word',
           display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
         }}>
-          {isResolvedFriendRequest ? `You and ${friendName} are now connected` : item.message}
+          {(() => {
+            // Bold the friend's name within the connection message (matches the
+            // recipe-notification rows, which bold the actor name).
+            const text = isResolvedFriendRequest ? `You and ${friendName} are now connected` : (item.message || '');
+            if (!friendName || !text.includes(friendName)) return text;
+            return text.split(friendName).flatMap((seg, i) =>
+              i === 0
+                ? [seg]
+                : [<Box component="span" key={i} sx={{ fontWeight: 600, color: 'text.primary' }}>{friendName}</Box>, seg]
+            );
+          })()}
         </Typography>
       )}
 

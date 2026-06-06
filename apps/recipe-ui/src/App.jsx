@@ -2687,18 +2687,51 @@ function App() {
       await fetchFriends();
       friendActivityRefreshRef.current?.();
     } catch (error) {
+      // 404 'Friend request not found' = nothing pending: either already
+      // accepted (we're friends) or the request was withdrawn. Show a friendly
+      // message instead of a hard error. Fetch friends fresh — local state may
+      // be empty on a cold deep-link launch — to tell the two cases apart.
+      if (error?.message === 'Friend request not found') {
+        let existing = null;
+        try {
+          const list = await callRecipesApi('/friends', {}, accessToken);
+          existing = (list?.friends ?? []).find((f) => f.friendId === fromUserId) ?? null;
+        } catch { /* best-effort */ }
+        setSnackbarState({
+          open: true,
+          message: existing ? `You're already connected with ${existing.friendName}` : 'This friend request is no longer available',
+          severity: existing ? 'success' : 'info',
+          anchorOrigin: { vertical: 'top', horizontal: 'center' },
+        });
+        return;
+      }
       setSnackbarState({ open: true, message: 'Failed to accept request', severity: 'error' });
     }
   };
 
+  // A benign race: the email-match auto-connect (/friends/check-invites, runs on
+  // app load) can consume the same pending invite first, so the token-based
+  // accept then 404s ("Invite not found or already used") even though we're now
+  // connected. Treat that as success rather than a misleading "expired" error.
+  const isInviteAlreadyConsumed = (err) => /not found|already used|already connected|already friends/i.test(err?.message || '');
+
   const acceptInvite = async (token) => {
+    // Suppress the bottom check-invites race-guard so it doesn't double-process
+    // this same invite (mirrors the post-sign-in effect path).
+    inviteAcceptDispatchedRef.current = true;
     try {
       const res = await callRecipesApi('/friends/accept-invite', { method: 'POST', body: JSON.stringify({ token }) }, accessTokenRef.current);
       const name = res?.inviterName;
       setSnackbarState({ open: true, message: name ? `You're now connected with ${name}` : "You're now connected!", severity: 'success', duration: 8000, anchorOrigin: { vertical: 'top', horizontal: 'center' } });
       fetchFriends();
       friendActivityRefreshRef.current?.();
-    } catch {
+    } catch (err) {
+      if (isInviteAlreadyConsumed(err)) {
+        await fetchFriends();
+        friendActivityRefreshRef.current?.();
+        setSnackbarState({ open: true, message: "You're now connected!", severity: 'success', duration: 8000, anchorOrigin: { vertical: 'top', horizontal: 'center' } });
+        return;
+      }
       setSnackbarState({ open: true, message: 'Could not accept the invite. It may have expired.', severity: 'error' });
     }
   };
@@ -2709,7 +2742,13 @@ function App() {
       setSnackbarState({ open: true, message: name ? `You're now connected with ${name}!` : "You're now connected with your friend on ReciFriend!", severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
       fetchFriends();
       friendActivityRefreshRef.current?.();
-    } catch {
+    } catch (err) {
+      if (isInviteAlreadyConsumed(err)) {
+        await fetchFriends();
+        friendActivityRefreshRef.current?.();
+        setSnackbarState({ open: true, message: "You're now connected with your friend on ReciFriend!", severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
+        return;
+      }
       setSnackbarState({ open: true, message: 'Could not accept the invite. It may have expired.', severity: 'error' });
     }
   };
@@ -7810,9 +7849,11 @@ function App() {
           // Bottom-anchored snackbars otherwise pin to bottom:0 on mobile, so the
           // 64px bottom nav + home-indicator safe area clip the lower edge. Raise
           // them to clear the nav bar (matches the FAB offset). Top-anchored ones
-          // (friend-connect, etc.) keep their default position.
+          // (friend-connect, accept, etc.) sit under the Dynamic Island at MUI's
+          // default top:24px, so push them below the safe-area inset + the tab
+          // row (content top inset 16 + 44px tabs + gap) so they're never clipped.
           snackbarState.anchorOrigin?.vertical === 'top'
-            ? undefined
+            ? { top: { xs: 'calc(env(safe-area-inset-top) + 72px)' } }
             : { bottom: { xs: 'calc(64px + env(safe-area-inset-bottom) + 16px)' } }
         }
       >
