@@ -16,11 +16,6 @@ async function fetchJson(path, accessToken) {
   return res.json();
 }
 
-function isEmbeddable(url) {
-  if (!url) return false;
-  return url.includes('tiktok.com') || url.includes('youtube.com') || url.includes('youtu.be');
-}
-
 function SectionLabel({ children }) {
   return (
     <Typography sx={{ fontWeight: 700, fontSize: 13, color: 'text.primary', mb: '10px' }}>
@@ -134,7 +129,8 @@ export default function DiscoverPage({
     });
   }, [cookingFor, cuisinePrefs, dietaryPrefs]);
 
-  // Same de-dup logic as PublicLanding: drop trending overlaps, drop YouTube embeds, prioritise reels.
+  // Same de-dup logic as PublicLanding: drop trending overlaps, drop duplicate
+  // source URLs, drop YouTube embeds.
   const trendingIds = new Set(trending.map(r => r.id));
   const seen = new Set();
   const discoverUniq = discover.filter(r => {
@@ -144,14 +140,11 @@ export default function DiscoverPage({
     seen.add(r.sourceUrl);
     return true;
   });
-  const reels = discoverUniq.filter(r => {
-    const u = r.sourceUrl || '';
-    return u.includes('tiktok.com') || u.includes('instagram.com/reel');
-  }).slice(0, 2);
-  const reelIds = new Set(reels.map(r => r.id));
-  const otherEmbed = discoverUniq.filter(r => !reelIds.has(r.id) && isEmbeddable(r.sourceUrl));
-  const nonEmbed = discoverUniq.filter(r => !reelIds.has(r.id) && !isEmbeddable(r.sourceUrl));
-  const videoRecipes = [...reels, ...otherEmbed, ...nonEmbed].slice(0, 5);
+  // Newest first, regardless of source. Every card renders as a thumbnail
+  // (social embeds are blocked in practice), so there's no reason to front-load
+  // embeddable reels. discoverUniq preserves the backend's created_at DESC
+  // order, so just take the 5 most recent.
+  const videoRecipes = discoverUniq.slice(0, 5);
 
   return (
     <Box sx={{ pb: '90px' }}>

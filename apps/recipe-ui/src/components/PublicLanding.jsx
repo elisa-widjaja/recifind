@@ -25,11 +25,6 @@ async function fetchJson(path) {
  *   onOpenRecipe: (recipe) => void — opens recipe detail
  *   darkMode: boolean
  */
-function isEmbeddable(url) {
-  if (!url) return false;
-  return url.includes('tiktok.com') || url.includes('youtube.com') || url.includes('youtu.be');
-}
-
 function SectionLabel({ emoji, label, inline = false }) {
   const el = (
     <Typography fontWeight={700} fontSize={13} sx={{ color: 'text.primary' }}>
@@ -1259,15 +1254,11 @@ export default function PublicLanding({ onJoin, onLogin, onOpenRecipe, darkMode,
     seenUrls.add(r.sourceUrl);
     return true;
   });
-  // First slots: Instagram reels + TikTok videos (the "reels" experience).
-  const reels = discoverUniq.filter(r => {
-    const u = r.sourceUrl || '';
-    return u.includes('tiktok.com') || u.includes('instagram.com/reel');
-  }).slice(0, 2);
-  const reelIds = new Set(reels.map(r => r.id));
-  const otherVideos = discoverUniq.filter(r => !reelIds.has(r.id) && isEmbeddable(r.sourceUrl));
-  const nonEmbeddable = discoverUniq.filter(r => !reelIds.has(r.id) && !isEmbeddable(r.sourceUrl));
-  const videoRecipes = [...reels, ...otherVideos, ...nonEmbeddable].slice(0, 5);
+  // Newest first, regardless of source. Every card renders as a thumbnail
+  // (social embeds are blocked in practice), so there's no reason to front-load
+  // embeddable reels. discoverUniq preserves the backend's created_at DESC
+  // order, so just take the 5 most recent.
+  const videoRecipes = discoverUniq.slice(0, 5);
 
   const trendingFiltered = trending.slice(0, 5);
 
