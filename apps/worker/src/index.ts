@@ -3959,17 +3959,20 @@ async function handleAcceptOpenInvite(
     'INSERT OR IGNORE INTO open_invite_used (inviter_user_id, accepter_user_id, accepted_at) VALUES (?, ?, ?)'
   ).bind(inviterUserId, user.userId, now).run();
 
-  // Notify the inviter
-  const notifId = crypto.randomUUID();
-  await env.DB.prepare(
-    'INSERT INTO notifications (id, user_id, type, data, created_at, read) VALUES (?, ?, ?, ?, ?, 0)'
-  ).bind(
-    notifId,
-    inviterUserId,
-    'invite_accepted',
-    JSON.stringify({ fromUserId: user.userId, fromName: accepterProfile.displayName }),
-    now
-  ).run();
+  // Notify the inviter. Match the shape used by handleAcceptInvite /
+  // handleCheckInvites (type 'friend_request' with no pending friend_requests
+  // row → the activity feed resolves it to "You and X are now connected").
+  // The previous raw INSERT used an unrecognized 'invite_accepted' type, baked
+  // no message, and assigned a UUID id (addNotification ids are the numeric
+  // auto-increment that the feed reader parses with Number(id)) — so the
+  // inviter's activity row rendered blank. Going through addNotification keeps
+  // the ego-loop consistent across all three connect paths.
+  await addNotification(env, inviterUserId, {
+    type: 'friend_request',
+    message: `${accepterProfile.displayName} accepted your invite and joined ReciFriend!`,
+    data: { fromUserId: user.userId, fromEmail: user.email || '' },
+    createdAt: now,
+  });
 
   return json({ message: 'Connected!', inviterName });
 }
