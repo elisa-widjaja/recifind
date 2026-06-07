@@ -14,6 +14,12 @@ const FRIEND_REQUEST_ITEM = {
 };
 
 describe('ActivityItem — friend_request', () => {
+  // The activity message bolds the friend's name in a <span>, which splits the
+  // sentence across multiple text nodes. Match on the message paragraph's full
+  // textContent rather than a single-node text match.
+  const messageNode = (text) =>
+    screen.getByText((_, el) => el?.tagName === 'P' && el?.textContent === text);
+
   it('renders the friend_request row with the message', () => {
     render(
       <ActivityItem
@@ -21,7 +27,7 @@ describe('ActivityItem — friend_request', () => {
         onOpenFriendRequest={vi.fn()}
       />
     );
-    expect(screen.getByText('Jules sent you a friend request')).toBeInTheDocument();
+    expect(messageNode('Jules sent you a friend request')).toBeInTheDocument();
   });
 
   it('is clickable and calls onOpenFriendRequest with the full item', () => {
@@ -63,7 +69,7 @@ describe('ActivityItem — friend_request', () => {
     );
     // No button role assigned — row still renders the message
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
-    expect(screen.getByText('Jules sent you a friend request')).toBeInTheDocument();
+    expect(messageNode('Jules sent you a friend request')).toBeInTheDocument();
   });
 
   it('shows a checkmark (not a button) when the request is resolved', () => {
@@ -79,8 +85,9 @@ describe('ActivityItem — friend_request', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
     // Checkmark icon present (via aria-label)
     expect(screen.getByLabelText('Friend request accepted')).toBeInTheDocument();
-    // Clicking the row (if user tries to) must NOT fire onOpenFriendRequest
-    fireEvent.click(screen.getByText('Jules sent you a friend request'));
+    // A resolved request renders the connection message, not the request text.
+    // Clicking the row (if user tries to) must NOT fire onOpenFriendRequest.
+    fireEvent.click(messageNode('You and Jules are now connected'));
     expect(onOpen).not.toHaveBeenCalled();
   });
 });

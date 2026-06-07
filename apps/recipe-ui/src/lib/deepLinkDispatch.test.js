@@ -111,3 +111,56 @@ describe('dispatcher — new kinds and title', () => {
     expect(onOpenPendingShare).toHaveBeenCalledOnce();
   });
 });
+
+describe('dispatcher — friend invite + friends list routing', () => {
+  // Full handler set so every kind has a target (createDispatcher calls the
+  // handler for the matched kind directly; a missing one would throw).
+  const handlers = () => ({
+    onAuthCallback: vi.fn(),
+    onAddRecipe: vi.fn(),
+    onFriendRequests: vi.fn(),
+    onRecipeDetail: vi.fn(),
+    onRecipesList: vi.fn(),
+    onOpenPendingShare: vi.fn(),
+    onFriendInvite: vi.fn(),
+    onFriendsList: vi.fn(),
+  });
+
+  it('routes /friends?invite= (open) to onFriendInvite with open kind', async () => {
+    const h = handlers();
+    const dispatch = createDispatcher(h);
+    await dispatch('https://recifriend.com/friends?invite=open-tok-1');
+    expect(h.onFriendInvite).toHaveBeenCalledWith('open-tok-1', 'open');
+    expect(h.onFriendsList).not.toHaveBeenCalled();
+  });
+
+  it('routes /friends?invite_token= (email) to onFriendInvite with pending kind', async () => {
+    const h = handlers();
+    const dispatch = createDispatcher(h);
+    await dispatch('https://recifriend.com/friends?invite_token=pending-tok-2');
+    expect(h.onFriendInvite).toHaveBeenCalledWith('pending-tok-2', 'pending');
+  });
+
+  it('routes bare /friends to onFriendsList', async () => {
+    const h = handlers();
+    const dispatch = createDispatcher(h);
+    await dispatch('https://recifriend.com/friends');
+    await dispatch('https://recifriend.com/friends/');
+    expect(h.onFriendsList).toHaveBeenCalledTimes(2);
+    expect(h.onFriendInvite).not.toHaveBeenCalled();
+  });
+
+  it('routes /friend-requests?accept_friend= to onFriendRequests with the accept id', async () => {
+    const h = handlers();
+    const dispatch = createDispatcher(h);
+    await dispatch('https://recifriend.com/friend-requests?accept_friend=req-user-3');
+    expect(h.onFriendRequests).toHaveBeenCalledWith('req-user-3');
+  });
+
+  it('routes bare /friend-requests to onFriendRequests with no id', async () => {
+    const h = handlers();
+    const dispatch = createDispatcher(h);
+    await dispatch('https://recifriend.com/friend-requests');
+    expect(h.onFriendRequests).toHaveBeenCalledWith(undefined);
+  });
+});

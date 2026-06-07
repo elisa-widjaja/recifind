@@ -183,6 +183,73 @@ test.describe('Friends flow', () => {
     }
   });
 
+  // The web invite-acceptance path (module-load URL parse at App.jsx:269-281 →
+  // the inline accept effect at ~4082) must NOT show a scary error when the
+  // email-match auto-connect (/friends/check-invites, also runs on load) won
+  // the race and consumed the pending invite first: accept-invite then 404s,
+  // but the user IS already connected. We assert the reconciliation surfaces a
+  // success message (naming the inviter via the check-invites fallback), never
+  // the "already been used" error. accept-invite + check-invites are
+  // intercepted so the race outcome is deterministic (no DB dependency); the
+  // URL parsing and the accept effect are real.
+  //
+  // NOTE: this covers the WEB path only. The native deep-link dispatcher
+  // (onFriendInvite → acceptInvite/acceptOpenInvite, where the
+  // isInviteAlreadyConsumed fix lives) is gated behind
+  // Capacitor.isNativePlatform() and is not reachable by Playwright; its
+  // routing is covered by deepLinkDispatch.test.js instead.
+  test('web invite_token accept reconciles to success when the invite was already consumed', async ({ browser, baseURL }, testInfo) => {
+    test.skip(testInfo.project.name !== 'alice-friends', 'Alice-only test');
+
+    const aliceDisplayName = await getDisplayName(ALICE_STATE);
+    const bobState = JSON.parse(fs.readFileSync(BOB_STATE, 'utf-8'));
+    const bobAuthEntry = bobState.origins?.[0]?.localStorage?.find((e: { name: string }) => e.name === 'recifriend-auth');
+    if (!bobAuthEntry) throw new Error('Bob recifriend-auth entry not found in .auth/bob.json — re-run test:setup');
+
+    const context = await browser.newContext({ baseURL });
+    await context.addInitScript(
+      ({ sessionValue }: { sessionValue: string }) => {
+        localStorage.setItem('recifriend-auth', sessionValue);
+        localStorage.setItem('onboarding_seen', '1');
+      },
+      { sessionValue: bobAuthEntry.value }
+    );
+    const page = await context.newPage();
+    try {
+      // accept-invite lost the race: the pending invite row is already gone.
+      await page.route('**/friends/accept-invite', async route => {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Invite not found or already used' }),
+        });
+      });
+      // check-invites won: it auto-connected Bob to Alice on load.
+      await page.route('**/friends/check-invites', async route => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ connected: [aliceDisplayName] }),
+        });
+      });
+
+      // Navigate the REAL claimed invite path so module-load parsing stashes the
+      // token and the inline accept effect runs — no sessionStorage injection.
+      await page.goto('/friends?invite_token=e2e-consumed-token');
+
+      // Success that names Alice, surfaced via the check-invites fallback.
+      await expect(
+        page.getByRole('alert').filter({ hasText: /you.?re now connected/i })
+      ).toBeVisible({ timeout: 10_000 });
+      // And never the misleading "already been used" / "could not" error.
+      await expect(
+        page.getByRole('alert').filter({ hasText: /already been used|could not process/i })
+      ).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
+  });
+
   test.afterAll(async () => {
     try {
       const aliceToken = await getAuthToken(ALICE_STATE);
