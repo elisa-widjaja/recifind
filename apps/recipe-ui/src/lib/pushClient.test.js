@@ -45,13 +45,16 @@ describe('ensureRegistered', () => {
     expect(Preferences.set).toHaveBeenCalledWith({ key: 'push_prompted', value: 'true' });
   });
 
-  it('does not prompt twice (respects prior denial)', async () => {
+  it('does not re-prompt on prior denial, but still registers so the app shows in Settings', async () => {
     PushNotifications.checkPermissions.mockResolvedValue({ receive: 'denied' });
     Preferences.get.mockResolvedValue({ value: 'true' });
     const api = { register: vi.fn() };
     await ensureRegistered({ api, jwt: 't' });
+    // Denied: never re-prompt — Apple only shows the native dialog once.
     expect(PushNotifications.requestPermissions).not.toHaveBeenCalled();
-    expect(PushNotifications.register).not.toHaveBeenCalled();
+    // But always register, so ReciFriend appears in Settings → Notifications and
+    // the user can re-enable later. Skipping this was a re-grant dead-end.
+    expect(PushNotifications.register).toHaveBeenCalled();
   });
 
   it('registers token with backend on `registration` event', async () => {

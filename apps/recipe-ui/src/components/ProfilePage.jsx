@@ -99,7 +99,10 @@ export default function ProfilePage({
   notificationsEnabled,
   avatarUploading,
 }) {
-  const displayName = user?.displayName || 'You';
+  // Fall back to the email's username (before the @) when no display name is
+  // set, which is more personal than a generic 'You'. 'You' is the last resort
+  // when there's no email either.
+  const displayName = user?.displayName || user?.email?.split('@')[0] || 'You';
   const initial = (displayName || 'U').charAt(0).toUpperCase();
   const hasAvatar = Boolean(user?.avatarUrl);
   const fileInputRef = useRef(null);
