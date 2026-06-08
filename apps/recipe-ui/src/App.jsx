@@ -2489,10 +2489,23 @@ function App() {
 
   // ── Friends API functions ──────────────────────────────────────────
 
+  // Monotonic guard so out-of-order /friends responses can't clobber a newer
+  // list. On a cold-launch deep-link accept, the login mount-effect's fetch can
+  // start before the accept completes and resolve AFTER the accept's own fetch,
+  // overwriting the post-accept list with the stale pre-accept one — which left
+  // a just-added friend missing until the next app open.
+  const friendsFetchSeq = useRef(0);
   const fetchFriends = useCallback(async () => {
-    if (!accessToken) return;
+    // Fall back to the ref token: on a cold-launch deep-link accept the
+    // `accessToken` state can briefly lag the ref the accept call already used,
+    // which would make this silently no-op and skip the refresh entirely.
+    const token = accessToken || accessTokenRef.current;
+    if (!token) return;
+    const seq = ++friendsFetchSeq.current;
     try {
-      const response = await callRecipesApi('/friends', {}, accessToken);
+      const response = await callRecipesApi('/friends', {}, token);
+      // A newer fetch was issued while this was in flight — discard this result.
+      if (seq !== friendsFetchSeq.current) return;
       setFriends(response?.friends ?? []);
       setFriendsLoaded(true);
     } catch (error) {
