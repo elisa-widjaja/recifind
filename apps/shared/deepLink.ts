@@ -27,6 +27,11 @@ export function parseDeepLink(raw: string): DeepLink | null {
     return { kind: 'recipes_list' };
   }
 
+  // /discover — opens the Discover tab.
+  if (fullPath === '/discover' || fullPath === '/discover/') {
+    return { kind: 'discover' };
+  }
+
   // /recipes/:id
   const recipeMatch = fullPath.match(/^\/recipes\/([^/?#]+)\/?$/);
   if (recipeMatch) {

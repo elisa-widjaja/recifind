@@ -61,6 +61,7 @@ export type DeepLink =
   | { kind: 'friends_list' }
   | { kind: 'recipe_detail'; recipe_id: string; owner_id?: string }
   | { kind: 'recipes_list' }
+  | { kind: 'discover' }
   | { kind: 'open_pending_share' };
 
 // ─── C4: APNs payload ──────────────────────────────────────────────

@@ -227,3 +227,15 @@ describe('parseDeepLink — /open-pending-share', () => {
     });
   });
 });
+
+describe('parseDeepLink — /discover', () => {
+  it('parses an https /discover Universal Link', () => {
+    expect(parseDeepLink('https://recifriend.com/discover')).toEqual({ kind: 'discover' });
+  });
+  it('parses /discover with a trailing slash', () => {
+    expect(parseDeepLink('https://recifriend.com/discover/')).toEqual({ kind: 'discover' });
+  });
+  it('parses the recifriend://discover custom scheme', () => {
+    expect(parseDeepLink('recifriend://discover')).toEqual({ kind: 'discover' });
+  });
+});
