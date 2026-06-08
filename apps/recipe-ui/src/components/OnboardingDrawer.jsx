@@ -5,6 +5,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
 import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos';
 import { CUISINE_LABELS, CUISINE_ORDER } from '../lib/cuisines';
+import RecipeShelf from './RecipeShelf';
 
 // First-time onboarding hosted in a single bottom-sheet drawer with five
 // internal screens: Welcome → Dietary → Cooking-for → Cuisines → Checklist.
@@ -19,8 +20,8 @@ const COOKING_FOR = [
 ];
 const CHECKLIST_STEPS = [
   {
-    label: 'Add your first recipe',
-    sub: 'Share directly from social media reels or copy and paste a URL.',
+    label: 'Save your first recipe',
+    sub: 'Tap one below to add it to your collection.',
   },
   {
     label: 'Invite a friend',
@@ -224,6 +225,27 @@ function Tagline({ children }) {
 }
 function H2({ children }) {
   return <Typography component="h2" sx={{ fontSize: 18, fontWeight: 700, color: 'inherit', mb: 1 }}>{children}</Typography>;
+}
+
+// Checklist step bullet. Decorative grey-tinted circle until the step is
+// actually completed, then a filled primary circle with a white check.
+function StepCircle({ done }) {
+  return (
+    <Box sx={(theme) => ({
+      width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
+      bgcolor: done
+        ? 'primary.main'
+        : (theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)'),
+      color: done
+        ? '#fff'
+        : (theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)'),
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      mt: '1px',
+      transition: 'background-color 180ms ease, color 180ms ease',
+    })}>
+      <CheckIcon sx={{ fontSize: 16 }} />
+    </Box>
+  );
 }
 
 // iOS-style 36px circle icon button used in the drawer header (X, Back,
@@ -435,47 +457,68 @@ function CuisinesScreen({ cuisinePrefs, toggleCuisine, allCuisinesSelected, togg
   );
 }
 
-function ChecklistScreen({ onGetStarted, onBack }) {
+export function ChecklistScreen({ recipes = [], savedIds = new Set(), onSave = () => {}, onGetStarted, onBack }) {
+  const savedCount = savedIds.size;
   return (
     <>
       <H1>You're all set</H1>
       <Tagline>Three quick wins to get the most out of ReciFriend.</Tagline>
 
       <Stack spacing={2.25} sx={{ mb: 2 }}>
-        {CHECKLIST_STEPS.map((step) => (
-          <Box key={step.label} sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
-            {/* Soft grey circle with a check — hints at the completed
-                state without claiming the step is done yet. Theme-aware
-                tint so it reads on both light and dark backgrounds. */}
-            <Box sx={(theme) => ({
-              width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
-              bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)',
-              color: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              mt: '1px',
-            })}>
-              <CheckIcon sx={{ fontSize: 16 }} />
+        {CHECKLIST_STEPS.map((step, i) => {
+          const done = i === 0 && savedCount > 0;
+          return (
+            <Box key={step.label} data-step data-done={done ? 'true' : 'false'}>
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
+                <StepCircle done={done} />
+                <Box sx={{ flex: 1 }}>
+                  <Typography sx={{ fontSize: 15, fontWeight: 600, lineHeight: 1.3 }}>
+                    {step.label}
+                  </Typography>
+                  <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.25 }}>
+                    {step.sub}
+                  </Typography>
+                </Box>
+              </Box>
+              {/* Step 1 is interactive: an inline tap-to-save carousel. Tapping
+                  a card (or its bookmark) saves it; saved cards show a filled
+                  bookmark. Share icon hidden to keep the action unambiguous. */}
+              {i === 0 && recipes.length > 0 && (
+                <Box sx={{ mt: 1.5 }}>
+                  <RecipeShelf
+                    recipes={recipes}
+                    savedIds={savedIds}
+                    onSave={onSave}
+                    onOpen={onSave}
+                    hideShare
+                    cardWidth={150}
+                    peek
+                  />
+                </Box>
+              )}
             </Box>
-            <Box sx={{ flex: 1 }}>
-              <Typography sx={{ fontSize: 15, fontWeight: 600, lineHeight: 1.3 }}>
-                {step.label}
-              </Typography>
-              <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.25 }}>
-                {step.sub}
-              </Typography>
-            </Box>
-          </Box>
-        ))}
+          );
+        })}
       </Stack>
 
-      <Button
-        fullWidth
-        variant="contained"
-        onClick={onGetStarted}
-        sx={{ borderRadius: 999, textTransform: 'none', fontWeight: 700, py: 1.25, fontSize: 15, mt: 4 }}
-      >
-        Get started
-      </Button>
+      {savedCount > 0 ? (
+        <Button
+          fullWidth
+          variant="contained"
+          onClick={onGetStarted}
+          sx={{ borderRadius: 999, textTransform: 'none', fontWeight: 700, py: 1.25, fontSize: 15, mt: 2 }}
+        >
+          Get started
+        </Button>
+      ) : (
+        <Button
+          fullWidth
+          onClick={onGetStarted}
+          sx={{ color: 'text.disabled', textTransform: 'none', fontSize: 13, mt: 2 }}
+        >
+          Skip for now
+        </Button>
+      )}
     </>
   );
 }
