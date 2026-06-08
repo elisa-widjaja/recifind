@@ -368,6 +368,78 @@ export async function handleAdminUsersList(args: {
   });
 }
 
+// KV key + TTL for the cached global Users-page counts. Written hourly by the
+// cron (computeUserCounts) and served by handleAdminUserCounts. 6h TTL is a
+// safety net well above the 1h cron cadence.
+export const USER_COUNTS_KV_KEY = 'admin:user-counts:v1';
+export const USER_COUNTS_TTL = 6 * 60 * 60;
+
+export interface UserCounts {
+  total: number;
+  recipes: Record<'0' | '1-9' | '10-19' | '20-49' | '50+', number>;
+  activity: Record<'active' | 'inactive' | 'ghost' | 'soft_deleted', number>;
+  signup: Record<'1' | '7' | '30' | '90', number>;
+  computed_at: string;
+}
+
+// Single aggregate over every profile. Each tally is scoped to non-deleted rows
+// except `soft_deleted`. active/ghost/inactive partition the non-deleted set
+// (disjoint, sum to total) using the SAME expressions as the list filters, so a
+// bucket's count equals what you'd get by selecting that filter. Signup windows
+// are cumulative (last-7d subset of last-30d), matching the list's signupAfter filter.
+export function buildUserCountsQuery(): string {
+  return `
+    SELECT
+      SUM(CASE WHEN p.deleted_at IS NULL THEN 1 ELSE 0 END) AS total,
+      SUM(CASE WHEN p.deleted_at IS NOT NULL THEN 1 ELSE 0 END) AS soft_deleted,
+
+      SUM(CASE WHEN p.deleted_at IS NULL AND ${RECIPE_BUCKETS['0']} THEN 1 ELSE 0 END) AS r0,
+      SUM(CASE WHEN p.deleted_at IS NULL AND ${RECIPE_BUCKETS['1-9']} THEN 1 ELSE 0 END) AS r1_9,
+      SUM(CASE WHEN p.deleted_at IS NULL AND ${RECIPE_BUCKETS['10-19']} THEN 1 ELSE 0 END) AS r10_19,
+      SUM(CASE WHEN p.deleted_at IS NULL AND ${RECIPE_BUCKETS['20-49']} THEN 1 ELSE 0 END) AS r20_49,
+      SUM(CASE WHEN p.deleted_at IS NULL AND ${RECIPE_BUCKETS['50+']} THEN 1 ELSE 0 END) AS r50p,
+
+      SUM(CASE WHEN ${IS_ACTIVE_EXPR} THEN 1 ELSE 0 END) AS active,
+      SUM(CASE WHEN p.deleted_at IS NULL AND (${GHOST_EXPR}) THEN 1 ELSE 0 END) AS ghost,
+      SUM(CASE WHEN p.deleted_at IS NULL AND NOT (${IS_ACTIVE_EXPR}) AND NOT (${GHOST_EXPR}) THEN 1 ELSE 0 END) AS inactive,
+
+      SUM(CASE WHEN p.deleted_at IS NULL AND julianday(p.created_at) >= julianday('now','-1 days') THEN 1 ELSE 0 END) AS d1,
+      SUM(CASE WHEN p.deleted_at IS NULL AND julianday(p.created_at) >= julianday('now','-7 days') THEN 1 ELSE 0 END) AS d7,
+      SUM(CASE WHEN p.deleted_at IS NULL AND julianday(p.created_at) >= julianday('now','-30 days') THEN 1 ELSE 0 END) AS d30,
+      SUM(CASE WHEN p.deleted_at IS NULL AND julianday(p.created_at) >= julianday('now','-90 days') THEN 1 ELSE 0 END) AS d90
+    FROM profiles p
+    LEFT JOIN admin_user_stats s ON s.user_id = p.user_id
+  `.trim();
+}
+
+export async function computeUserCounts(env: { DB: D1Database }): Promise<UserCounts> {
+  const row = (await env.DB.prepare(buildUserCountsQuery()).first()) as Record<string, number> | null;
+  const n = (k: string): number => Number(row?.[k] ?? 0);
+  return {
+    total: n('total'),
+    recipes: { '0': n('r0'), '1-9': n('r1_9'), '10-19': n('r10_19'), '20-49': n('r20_49'), '50+': n('r50p') },
+    activity: { active: n('active'), inactive: n('inactive'), ghost: n('ghost'), soft_deleted: n('soft_deleted') },
+    signup: { '1': n('d1'), '7': n('d7'), '30': n('d30'), '90': n('d90') },
+    computed_at: new Date().toISOString(),
+  };
+}
+
+export async function handleAdminUserCounts(args: {
+  env: { DB: D1Database; AI_PICKS_CACHE: KVNamespace };
+  user: { userId: string; email?: string };
+  adminEmails: string | undefined;
+}): Promise<Response> {
+  const denied = requireAdmin({ user: args.user, adminEmails: args.adminEmails });
+  if (denied) return denied;
+
+  const cached = (await args.env.AI_PICKS_CACHE.get(USER_COUNTS_KV_KEY, { type: 'json' })) as UserCounts | null;
+  if (cached) return json(200, cached);
+
+  const counts = await computeUserCounts(args.env);
+  await args.env.AI_PICKS_CACHE.put(USER_COUNTS_KV_KEY, JSON.stringify(counts), { expirationTtl: USER_COUNTS_TTL });
+  return json(200, counts);
+}
+
 // ---------------------------------------------------------------------------
 // /admin/users/:id — drill-down
 // ---------------------------------------------------------------------------

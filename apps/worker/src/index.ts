@@ -394,6 +394,14 @@ export default {
         return await handleAdminUsersList({ env, user, adminEmails: env.ADMIN_EMAILS, url });
       }
 
+      if (url.pathname === '/admin/users/counts' && request.method === 'GET') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const { handleAdminUserCounts } = await import('./routes/admin');
+        return await handleAdminUserCounts({ env, user, adminEmails: env.ADMIN_EMAILS });
+      }
+
       const adminUserDrilldownMatch = url.pathname.match(/^\/admin\/users\/([^/]+)$/);
       if (adminUserDrilldownMatch && request.method === 'GET') {
         if (!user) {
@@ -974,6 +982,17 @@ export default {
       console.log('[cron] syncAdminUserStats done', result);
     } catch (err) {
       console.error('[cron] syncAdminUserStats failed', err);
+    }
+
+    // Cache the global Users-page counts off the freshly-synced stats (isolated
+    // so a failure never blocks the sync above or the nudges below).
+    try {
+      const { computeUserCounts, USER_COUNTS_KV_KEY, USER_COUNTS_TTL } = await import('./routes/admin');
+      const counts = await computeUserCounts(env);
+      await env.AI_PICKS_CACHE.put(USER_COUNTS_KV_KEY, JSON.stringify(counts), { expirationTtl: USER_COUNTS_TTL });
+      console.log('[cron] user counts cached', { total: counts.total });
+    } catch (err) {
+      console.error('[cron] user counts cache failed', err);
     }
 
     const now = new Date().toISOString();

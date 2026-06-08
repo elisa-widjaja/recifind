@@ -41,6 +41,7 @@ export default function Users() {
   const [page, setPage] = useState(0);
   const [data, setData] = useState({ users: [], page: { returned: 0, has_more: false } });
   const [loading, setLoading] = useState(false);
+  const [counts, setCounts] = useState(null);
 
   useEffect(() => {
     setLoading(true);
@@ -58,6 +59,10 @@ export default function Users() {
       .then(setData)
       .finally(() => setLoading(false));
   }, [search, recipeBucket, activity, signupDays, page]);
+
+  useEffect(() => {
+    fetchAdmin('/admin/users/counts').then(setCounts).catch(() => {});
+  }, []);
 
   const columns = useMemo(() => [
     {
@@ -113,9 +118,19 @@ export default function Users() {
     });
   };
 
+  const withCount = (n) => (n == null ? '' : ` (${n.toLocaleString()})`);
+  const recipeLabel = (b) => b.label + (counts ? withCount(b.v === '' ? counts.total : counts.recipes[b.v]) : '');
+  const activityLabel = (b) => b.label + (counts ? withCount(b.v === '' ? counts.total : counts.activity[b.v]) : '');
+  const signupLabel = (b) => b.label + (counts ? withCount(b.v === '' ? counts.total : counts.signup[b.v]) : '');
+
   return (
     <Box>
       <Typography variant="h4" gutterBottom>Users</Typography>
+      {counts && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          All users: {counts.total.toLocaleString()} · soft-deleted: {counts.activity.soft_deleted.toLocaleString()}
+        </Typography>
+      )}
       <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
         <TextField size="small" placeholder="Search email or name…" value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(0); }} sx={{ minWidth: 300 }} />
@@ -128,7 +143,7 @@ export default function Users() {
             onChange={(e) => { setRecipeBucket(e.target.value); setPage(0); }}
             input={<OutlinedInput notched label="Recipes" />}
           >
-            {RECIPE_BUCKETS.map((b) => <MenuItem key={b.v} value={b.v}>{b.label}</MenuItem>)}
+            {RECIPE_BUCKETS.map((b) => <MenuItem key={b.v} value={b.v}>{recipeLabel(b)}</MenuItem>)}
           </Select>
         </FormControl>
         <FormControl size="small" sx={{ minWidth: 150 }}>
@@ -140,7 +155,7 @@ export default function Users() {
             onChange={(e) => { setActivity(e.target.value); setPage(0); }}
             input={<OutlinedInput notched label="Activity" />}
           >
-            {ACTIVITY_OPTIONS.map((b) => <MenuItem key={b.v} value={b.v}>{b.label}</MenuItem>)}
+            {ACTIVITY_OPTIONS.map((b) => <MenuItem key={b.v} value={b.v}>{activityLabel(b)}</MenuItem>)}
           </Select>
         </FormControl>
         <FormControl size="small" sx={{ minWidth: 150 }}>
@@ -152,7 +167,7 @@ export default function Users() {
             onChange={(e) => { setSignupDays(e.target.value); setPage(0); }}
             input={<OutlinedInput notched label="Signed up" />}
           >
-            {SIGNUP_OPTIONS.map((b) => <MenuItem key={b.v} value={b.v}>{b.label}</MenuItem>)}
+            {SIGNUP_OPTIONS.map((b) => <MenuItem key={b.v} value={b.v}>{signupLabel(b)}</MenuItem>)}
           </Select>
         </FormControl>
         <Box sx={{ flex: 1 }} />

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isAdminEmail } from './admin';
 import { writeAuditLog } from './admin';
 import { handleAdminMe } from './admin';
-import { buildUsersListQuery } from './admin';
+import { buildUsersListQuery, buildUserCountsQuery, computeUserCounts, handleAdminUserCounts, USER_COUNTS_KV_KEY } from './admin';
 import { syncAdminUserStats, fetchAllSupabaseLastSignIn } from './admin';
 import { buildSignupsPerDayQuery, buildViralCoefWeeklyQuery, buildGrowthCountersQuery, buildRetentionCohortsQuery, METRICS_EXCLUDED_EMAILS, buildWeeklySignupsActivationQuery, buildWeeklySavesQuery, launchWeeks, LAUNCH_DATE } from './admin';
 import { buildRecipeSearchQuery } from './admin';
@@ -1257,5 +1257,119 @@ describe('handleAdminUserDrilldown last_sign_in', () => {
     const body = await res.json();
     expect(body.profile.last_sign_in_at).toBe('2026-06-02T10:00:00Z');
     vi.unstubAllGlobals();
+  });
+});
+
+describe('buildUserCountsQuery', () => {
+  it('aggregates over profiles LEFT JOIN admin_user_stats with no GROUP BY', () => {
+    const sql = buildUserCountsQuery();
+    expect(sql).toMatch(/FROM profiles p/i);
+    expect(sql).toMatch(/LEFT JOIN admin_user_stats s ON s\.user_id = p\.user_id/i);
+    expect(sql).not.toMatch(/GROUP BY/i);
+  });
+
+  it('counts total (non-deleted) and soft_deleted separately', () => {
+    const sql = buildUserCountsQuery();
+    expect(sql).toMatch(/SUM\(CASE WHEN p\.deleted_at IS NULL THEN 1 ELSE 0 END\) AS total/i);
+    expect(sql).toMatch(/SUM\(CASE WHEN p\.deleted_at IS NOT NULL THEN 1 ELSE 0 END\) AS soft_deleted/i);
+  });
+
+  it('counts every recipe bucket scoped to non-deleted', () => {
+    const sql = buildUserCountsQuery();
+    expect(sql).toMatch(/COALESCE\(s\.recipe_count,0\) = 0 THEN 1 ELSE 0 END\) AS r0/i);
+    expect(sql).toMatch(/BETWEEN 1 AND 9 THEN 1 ELSE 0 END\) AS r1_9/i);
+    expect(sql).toMatch(/BETWEEN 10 AND 19 THEN 1 ELSE 0 END\) AS r10_19/i);
+    expect(sql).toMatch(/BETWEEN 20 AND 49 THEN 1 ELSE 0 END\) AS r20_49/i);
+    expect(sql).toMatch(/COALESCE\(s\.recipe_count,0\) >= 50 THEN 1 ELSE 0 END\) AS r50p/i);
+  });
+
+  it('counts activity buckets reusing the active + ghost expressions', () => {
+    const sql = buildUserCountsQuery();
+    expect(sql).toMatch(/julianday\(s\.last_sign_in_at\) >= julianday\('now','-30 days'\)[\s\S]*AS active/i);
+    expect(sql).toMatch(/5\.0\/1440\.0[\s\S]*AS ghost/i);
+    expect(sql).toMatch(/AS inactive/i);
+  });
+
+  it('counts cumulative signup windows (non-deleted)', () => {
+    const sql = buildUserCountsQuery();
+    expect(sql).toMatch(/julianday\('now','-1 days'\)[\s\S]*AS d1/i);
+    expect(sql).toMatch(/julianday\('now','-7 days'\)[\s\S]*AS d7/i);
+    expect(sql).toMatch(/julianday\('now','-30 days'\)[\s\S]*AS d30/i);
+    expect(sql).toMatch(/julianday\('now','-90 days'\)[\s\S]*AS d90/i);
+  });
+});
+
+describe('computeUserCounts', () => {
+  function mockDbReturning(row) {
+    return {
+      prepare: vi.fn(() => ({
+        first: vi.fn().mockResolvedValue(row),
+      })),
+    };
+  }
+
+  it('maps the aggregate row into the nested counts shape', async () => {
+    const db = mockDbReturning({
+      total: 1240, soft_deleted: 12,
+      r0: 430, r1_9: 220, r10_19: 90, r20_49: 40, r50p: 8,
+      active: 212, ghost: 430, inactive: 586,
+      d1: 5, d7: 40, d30: 160, d90: 380,
+    });
+    const counts = await computeUserCounts({ DB: db });
+    expect(counts.total).toBe(1240);
+    expect(counts.recipes).toEqual({ '0': 430, '1-9': 220, '10-19': 90, '20-49': 40, '50+': 8 });
+    expect(counts.activity).toEqual({ active: 212, inactive: 586, ghost: 430, soft_deleted: 12 });
+    expect(counts.signup).toEqual({ '1': 5, '7': 40, '30': 160, '90': 380 });
+    expect(typeof counts.computed_at).toBe('string');
+  });
+
+  it('coerces null/missing aggregate columns to 0', async () => {
+    const db = mockDbReturning(null);
+    const counts = await computeUserCounts({ DB: db });
+    expect(counts.total).toBe(0);
+    expect(counts.recipes['50+']).toBe(0);
+    expect(counts.activity.soft_deleted).toBe(0);
+    expect(counts.signup['90']).toBe(0);
+  });
+});
+
+describe('handleAdminUserCounts', () => {
+  const adminEmails = 'admin@example.com';
+  const admin = { userId: 'a1', email: 'admin@example.com' };
+
+  it('returns 403 for a non-admin without touching KV or DB', async () => {
+    const env = { DB: {}, AI_PICKS_CACHE: { get: vi.fn(), put: vi.fn() } };
+    const res = await handleAdminUserCounts({
+      env, adminEmails, user: { userId: 'u1', email: 'nope@example.com' },
+    });
+    expect(res.status).toBe(403);
+    expect(env.AI_PICKS_CACHE.get).not.toHaveBeenCalled();
+  });
+
+  it('serves the cached counts without hitting the DB', async () => {
+    const cached = { total: 1240, recipes: {}, activity: {}, signup: {}, computed_at: 'x' };
+    const env = {
+      DB: { prepare: vi.fn() },
+      AI_PICKS_CACHE: { get: vi.fn().mockResolvedValue(cached), put: vi.fn() },
+    };
+    const res = await handleAdminUserCounts({ env, adminEmails, user: admin });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(cached);
+    expect(env.DB.prepare).not.toHaveBeenCalled();
+    expect(env.AI_PICKS_CACHE.get).toHaveBeenCalledWith(USER_COUNTS_KV_KEY, { type: 'json' });
+  });
+
+  it('computes + caches on a cold cache', async () => {
+    const env = {
+      DB: { prepare: vi.fn(() => ({ first: vi.fn().mockResolvedValue({ total: 7 }) })) },
+      AI_PICKS_CACHE: { get: vi.fn().mockResolvedValue(null), put: vi.fn().mockResolvedValue(undefined) },
+    };
+    const res = await handleAdminUserCounts({ env, adminEmails, user: admin });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.total).toBe(7);
+    expect(env.AI_PICKS_CACHE.put).toHaveBeenCalledWith(
+      USER_COUNTS_KV_KEY, expect.any(String), { expirationTtl: 6 * 60 * 60 }
+    );
   });
 });
