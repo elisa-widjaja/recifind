@@ -1,9 +1,12 @@
 import { Box, Typography, IconButton } from '@mui/material';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
+import BookmarkIcon from '@mui/icons-material/Bookmark';
 import IosShareOutlinedIcon from '@mui/icons-material/IosShareOutlined';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import { buildVideoEmbedUrl, getVideoThumbnailUrl, formatDuration } from '../utils/videoEmbed';
 import RecipeThumbnail from './RecipeThumbnail';
+
+const EMPTY_SET = new Set();
 
 /**
  * Horizontal scrollable shelf of recipe cards.
@@ -15,6 +18,8 @@ import RecipeThumbnail from './RecipeThumbnail';
  *   onOpen         — (recipe) => void, called when card tapped
  *   cardWidth      — number (default 140), card width in px
  *   cardHeight     — number (default = cardWidth), thumbnail height in px
+ *   savedIds       — Set of recipe ids to render with a filled "saved" bookmark
+ *   hideShare      — boolean, hide the share icon when true (default false)
  */
 export default function RecipeShelf({
   recipes = [],
@@ -25,6 +30,8 @@ export default function RecipeShelf({
   cardHeight,
   gap = '12px',
   peek = false,
+  savedIds = EMPTY_SET,
+  hideShare = false,
 }) {
   if (!recipes.length) return null;
 
@@ -58,6 +65,8 @@ export default function RecipeShelf({
             cardWidth={cardWidth}
             thumbHeight={thumbHeight}
             peek={peek}
+            saved={savedIds.has(recipe.id)}
+            hideShare={hideShare}
           />
         ))}
       </Box>
@@ -79,7 +88,7 @@ export default function RecipeShelf({
   );
 }
 
-function RecipeCard({ recipe, onSave, onShare, onOpen, cardWidth, thumbHeight, peek }) {
+function RecipeCard({ recipe, onSave, onShare, onOpen, cardWidth, thumbHeight, peek, saved = false, hideShare = false }) {
   const embedUrl = buildVideoEmbedUrl(recipe.sourceUrl);
   const thumbSrc = getVideoThumbnailUrl(recipe.sourceUrl) || recipe.imageUrl;
 
@@ -172,19 +181,23 @@ function RecipeCard({ recipe, onSave, onShare, onOpen, cardWidth, thumbHeight, p
           <IconButton
             size="small"
             onClick={(e) => { e.stopPropagation(); onSave(recipe); }}
-            aria-label="Save recipe"
+            aria-label={saved ? 'Saved' : 'Save recipe'}
             sx={{ p: 0.5, mr: '9px' }}
           >
-            <BookmarkBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
+            {saved
+              ? <BookmarkIcon sx={{ fontSize: 18, color: 'primary.main' }} />
+              : <BookmarkBorderIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />}
           </IconButton>
-          <IconButton
-            size="small"
-            onClick={(e) => { e.stopPropagation(); onShare(recipe, e); }}
-            aria-label="Share recipe"
-            sx={{ p: 0.5 }}
-          >
-            <IosShareOutlinedIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
-          </IconButton>
+          {!hideShare && (
+            <IconButton
+              size="small"
+              onClick={(e) => { e.stopPropagation(); onShare(recipe, e); }}
+              aria-label="Share recipe"
+              sx={{ p: 0.5 }}
+            >
+              <IosShareOutlinedIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
+            </IconButton>
+          )}
         </Box>
       </Box>
     </Box>
