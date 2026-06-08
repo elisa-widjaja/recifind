@@ -1362,6 +1362,11 @@ function App() {
   // Bumped by pull-to-refresh on the Discover tab; remounts DiscoverPage so
   // its public feeds refetch (DiscoverPage fetches on mount only).
   const [discoverRefreshKey, setDiscoverRefreshKey] = useState(0);
+  // Curated recipes shown on the final onboarding screen for one-tap "first
+  // save". Public endpoint, no auth needed. Fetched lazily when the
+  // onboarding drawer opens (see effect below).
+  const [firstSaveRecipes, setFirstSaveRecipes] = useState([]);
+  const firstSaveFetchedRef = useRef(false);
   const [currentView, setCurrentView] = useState(() => {
     const saved = sessionStorage.getItem('currentView');
     // NOTE: 'friend-requests' is intentionally NOT a valid view — it has no
@@ -1375,6 +1380,23 @@ function App() {
   useEffect(() => {
     sessionStorage.setItem('currentView', currentView);
   }, [currentView]);
+
+  // Lazy-load the curated first-save carousel the first time the onboarding
+  // drawer opens. /public/editors-pick returns { recipes: [...] } with real
+  // images + full ingredients/steps, so a saved card is immediately usable.
+  useEffect(() => {
+    if (!onboardingDrawerOpen || firstSaveFetchedRef.current) return;
+    let cancelled = false;
+    fetch(`${API_BASE_URL}/public/editors-pick`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled) return;
+        firstSaveFetchedRef.current = true;
+        setFirstSaveRecipes((d?.recipes || []).slice(0, 8));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [onboardingDrawerOpen]);
 
   // Reset window scroll when switching views via the bottom nav. Without this,
   // jumping from a deeply-scrolled Home to Recipes would leave Recipes scrolled
@@ -2602,8 +2624,9 @@ function App() {
     }
   };
 
-  const handleSavePublicRecipe = async (recipe) => {
+  const handleSavePublicRecipe = async (recipe, source = 'discover') => {
     try {
+      const isFirst = recipes.length === 0;
       const token = (await supabase?.auth.getSession())?.data?.session?.access_token;
       if (!token) { openAuthDialog(); return; }
       // When the source recipe is owned by another user, pass originalUserId
@@ -2636,6 +2659,7 @@ function App() {
         return updated;
       });
       setSnackbarState({ open: true, message: `"${recipe.title}" saved to your collection!`, severity: 'success', duration: 2000 });
+      trackEvent('save_public_recipe', { source, first_save: isFirst });
       dismissSuggestion(recipe.id);
     } catch {
       setSnackbarState({ open: true, message: 'Failed to save recipe', severity: 'error' });
@@ -2846,7 +2870,7 @@ function App() {
   // collapsed by default (user just saw the same content in the drawer).
   const handleOnboardingComplete = async () => {
     setOnboardingDrawerOpen(false);
-    setCurrentView('home');
+    setCurrentView('discover');
     setChecklistKey((k) => k + 1);
     await markOnboardingSeen();
   };
@@ -2857,7 +2881,7 @@ function App() {
   // 2/3 steps, so no session flag is needed here anymore.
   const handleOnboardingClose = async () => {
     setOnboardingDrawerOpen(false);
-    setCurrentView('home');
+    setCurrentView('discover');
     setChecklistKey((k) => k + 1);
     await markOnboardingSeen();
   };
@@ -2867,7 +2891,7 @@ function App() {
   // auto-expands while under 2/3 steps, so the user still sees the steps.
   const handleOnboardingSkipForever = async () => {
     setOnboardingDrawerOpen(false);
-    setCurrentView('home');
+    setCurrentView('discover');
     setChecklistKey((k) => k + 1);
     await markOnboardingSeen();
   };
@@ -5580,6 +5604,8 @@ function App() {
         onComplete={handleOnboardingComplete}
         onClose={handleOnboardingClose}
         onSkipForever={handleOnboardingSkipForever}
+        firstSaveRecipes={firstSaveRecipes}
+        onSaveRecipe={(recipe) => handleSavePublicRecipe(recipe, 'onboarding')}
       />
 
       <AddFriendDrawer
