@@ -1028,7 +1028,7 @@ export default {
       }
 
       // Build and send the nudge email
-      const recipes = await getRecommendedRecipes(env.DB, userId);
+      const recipes = await getRecommendedRecipes(env.DB, userId, 6);
       const gifUrl: string | null = null; // Set after GIF upload
 
       const secret = env.DEV_API_KEY;
@@ -4793,14 +4793,14 @@ export function buildNudgeEmailHtml(
   recipes: RecommendedRecipe[],
   gifUrl: string | null
 ): string {
-  const recipeCardsHtml = recipes.map(r => {
+  const recipeCells = recipes.slice(0, 6).map(r => {
     const tag = r.mealTypes[0] || 'Recipe';
     const duration = r.durationMinutes ? `${r.durationMinutes} min` : '';
     const label = [duration, tag].filter(Boolean).join(' \u00b7 ');
     const imgHtml = r.imageUrl
-      ? `<img src="${r.imageUrl}" alt="${r.title}" width="260" height="180" style="width:100%;height:180px;object-fit:cover;display:block;" />`
-      : `<div style="width:100%;height:180px;background:#f0e6d6;text-align:center;line-height:180px;font-size:48px;">🍳</div>`;
-    return `<td style="width:50%;vertical-align:top;padding:0 6px;">
+      ? `<img src="${r.imageUrl}" alt="${r.title}" width="260" height="90" style="width:100%;height:90px;object-fit:cover;display:block;" />`
+      : `<div style="width:100%;height:90px;background:#f0e6d6;text-align:center;line-height:90px;font-size:32px;">🍳</div>`;
+    return `<td style="width:50%;vertical-align:top;padding:0 6px 12px;">
       <a href="${r.shareUrl}" style="text-decoration:none;color:inherit;display:block;border:1px solid #eee;border-radius:10px;overflow:hidden;">
         ${imgHtml}
         <div style="padding:10px 10px 14px;">
@@ -4809,7 +4809,15 @@ export function buildNudgeEmailHtml(
         </div>
       </a>
     </td>`;
-  }).slice(0, 2).join('\n    ');
+  });
+  // Chunk into rows of 2; pad a lone trailing cell so the grid stays aligned.
+  const recipeRows: string[] = [];
+  for (let i = 0; i < recipeCells.length; i += 2) {
+    const pair = recipeCells.slice(i, i + 2);
+    if (pair.length === 1) pair.push('<td style="width:50%;"></td>');
+    recipeRows.push(`<tr>${pair.join('')}</tr>`);
+  }
+  const recipeGridHtml = recipeRows.join('\n      ');
 
   const gifSection = gifUrl
     ? `<div style="padding:0 24px 8px;">
@@ -4857,7 +4865,7 @@ export function buildNudgeEmailHtml(
   </div>
 
   <div style="text-align:center;padding:20px 24px 32px;">
-    <a href="https://recifriend.com/?view=discover" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:14px 36px;border-radius:999px;font-size:16px;font-weight:700;">Save Your First Recipe →</a>
+    <a href="https://recifriend.com/discover" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:14px 36px;border-radius:999px;font-size:16px;font-weight:700;">Save Your First Recipe →</a>
   </div>
 
   <div style="border-top:1px solid #eee;margin:0 24px;"></div>
@@ -4868,10 +4876,13 @@ export function buildNudgeEmailHtml(
       <div style="font-size:18px;font-weight:700;color:#1a1a1a;">Recommended for you</div>
       <div style="color:#888;font-size:13px;margin-top:4px;">${recipes.length > 0 && recipes[0].mealTypes.length > 0 ? 'Based on your preferences' : 'Popular in the community'}</div>
     </td></tr>
-    <tr><td style="padding:0 16px 24px;">
-      <table cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
-      ${recipeCardsHtml}
-      </tr></table>
+    <tr><td style="padding:0 16px 8px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="100%">
+      ${recipeGridHtml}
+      </table>
+    </td></tr>
+    <tr><td style="text-align:center;padding:8px 24px 28px;">
+      <a href="https://recifriend.com/discover" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:12px 28px;border-radius:999px;font-size:14px;font-weight:700;">Discover more recipes</a>
     </td></tr>
   </table>
 

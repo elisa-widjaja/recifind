@@ -126,7 +126,7 @@ export async function handleTestNudgeEmail(args: {
     }
   }
 
-  const recipes = await getRecommendedRecipes(args.env.DB, profileUserId);
+  const recipes = await getRecommendedRecipes(args.env.DB, profileUserId, 6);
   const gifUrl: string | null = null;
 
   const secret = args.env.DEV_API_KEY;
