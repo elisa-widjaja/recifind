@@ -4857,7 +4857,7 @@ export function buildNudgeEmailHtml(
   </div>
 
   <div style="text-align:center;padding:20px 24px 32px;">
-    <a href="https://recifriend.com/recipes" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:14px 36px;border-radius:999px;font-size:16px;font-weight:700;">Save Your First Recipe →</a>
+    <a href="https://recifriend.com/?view=discover" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:14px 36px;border-radius:999px;font-size:16px;font-weight:700;">Save Your First Recipe →</a>
   </div>
 
   <div style="border-top:1px solid #eee;margin:0 24px;"></div>

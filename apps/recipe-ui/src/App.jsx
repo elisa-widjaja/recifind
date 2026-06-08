@@ -1286,6 +1286,8 @@ function writeDismissedSuggestions(ids) {
   }
 }
 
+const VALID_VIEWS = ['home', 'recipes', 'friends', 'discover', 'profile'];
+
 function App() {
   // Use window width directly for reliable mobile detection
   const [isMobile, setIsMobile] = useState(() => {
@@ -1373,13 +1375,29 @@ function App() {
     // render block (friend requests live inside the 'friends' FriendsPage).
     // Any stale persisted 'friend-requests' falls back to 'home' instead of
     // rendering a blank screen.
-    const VALID_VIEWS = ['home', 'recipes', 'friends', 'discover', 'profile'];
     return VALID_VIEWS.includes(saved) ? saved : 'home';
   }); // 'home' | 'recipes' | 'friends' | 'discover' | 'profile'
 
   useEffect(() => {
     sessionStorage.setItem('currentView', currentView);
   }, [currentView]);
+
+  // Must be declared AFTER the sessionStorage-persist effect: the setCurrentView
+  // below triggers a re-render that re-runs the persist effect with the new view,
+  // so the override is what gets persisted.
+  // One-shot landing-tab override from an inbound link (e.g. the nudge email
+  // CTA: recifriend.com/?view=discover). Validated against known views, then
+  // the param is removed so it doesn't stick across in-app navigation.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const v = params.get('view');
+    if (v && VALID_VIEWS.includes(v)) {
+      setCurrentView(v);
+      params.delete('view');
+      const qs = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''));
+    }
+  }, []);
 
   // Lazy-load the curated first-save carousel the first time the onboarding
   // drawer opens. /public/editors-pick returns { recipes: [...] } with real
