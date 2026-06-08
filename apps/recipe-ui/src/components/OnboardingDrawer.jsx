@@ -25,11 +25,11 @@ const CHECKLIST_STEPS = [
   },
   {
     label: 'Invite a friend',
-    sub: "See your friends' recipes and what they are cooking.",
+    sub: 'See what your friends are cooking.',
   },
   {
     label: 'Share a recipe with a friend',
-    sub: 'Send a recipe you love so it shows up in their feed.',
+    sub: 'Send recipes to your friends.',
   },
 ];
 
@@ -161,7 +161,7 @@ export default function OnboardingDrawer({
     >
 
       {/* Header row: X (left), Back + Next circle buttons (right) */}
-      <Box sx={{ px: '24px', pt: '8px', pb: '20px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <Box sx={{ px: '24px', pt: '28px', pb: '20px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         {/* X dismissal: if the user has reached the checklist (final) screen,
             treat closing as completion (checklist on home stays collapsed).
             If they dismiss earlier, signal an early-exit so home shows the
@@ -241,10 +241,10 @@ export default function OnboardingDrawer({
 // ── Helpers ────────────────────────────────────────────────────────────
 
 function H1({ children }) {
-  return <Typography component="h1" sx={{ fontSize: 28, fontWeight: 800, lineHeight: 1.15, color: 'inherit', mb: 0.5 }}>{children}</Typography>;
+  return <Typography component="h1" sx={{ fontSize: 18, fontWeight: 800, lineHeight: 1.15, color: 'inherit', mb: 0.5 }}>{children}</Typography>;
 }
-function Tagline({ children }) {
-  return <Typography sx={{ fontSize: 14, color: 'text.secondary', mb: 4 }}>{children}</Typography>;
+function Tagline({ children, mb = 4 }) {
+  return <Typography sx={{ fontSize: 14, color: 'text.secondary', mb }}>{children}</Typography>;
 }
 function H2({ children }) {
   return <Typography component="h2" sx={{ fontSize: 18, fontWeight: 700, color: 'inherit', mb: 1 }}>{children}</Typography>;
@@ -485,9 +485,9 @@ export function ChecklistScreen({ recipes = [], savedIds = new Set(), onSave = (
   return (
     <>
       <H1>You're all set</H1>
-      <Tagline>Three quick wins to get the most out of ReciFriend.</Tagline>
+      <Tagline mb={1.5}>Three quick wins to get the most out of ReciFriend.</Tagline>
 
-      <Stack spacing={2.25} sx={{ mb: 2 }}>
+      <Stack spacing={2.25} sx={{ mb: 1 }}>
         {CHECKLIST_STEPS.map((step, i) => {
           const done = i === 0 && savedCount > 0;
           return (
@@ -507,15 +507,19 @@ export function ChecklistScreen({ recipes = [], savedIds = new Set(), onSave = (
                   a card (or its bookmark) saves it; saved cards show a filled
                   bookmark. Share icon hidden to keep the action unambiguous. */}
               {i === 0 && recipes.length > 0 && (
-                <Box sx={{ mt: 1.5 }}>
+                // pl aligns the carousel's first card with the step label text
+                // (StepCircle 24px + the 12px row gap), not the check circle.
+                <Box sx={{ mt: 1.5, pl: '36px' }}>
                   <RecipeShelf
                     recipes={recipes}
                     savedIds={savedIds}
                     onSave={onSave}
                     onOpen={onSave}
                     hideShare
-                    cardWidth={150}
-                    peek
+                    cardWidth={180}
+                    cardHeight={90}
+                    gap="8px"
+                    bleed="right"
                   />
                 </Box>
               )}
@@ -529,7 +533,7 @@ export function ChecklistScreen({ recipes = [], savedIds = new Set(), onSave = (
           fullWidth
           variant="contained"
           onClick={onGetStarted}
-          sx={{ borderRadius: 999, textTransform: 'none', fontWeight: 700, py: 1.25, fontSize: 15, mt: 2 }}
+          sx={{ borderRadius: 999, textTransform: 'none', fontWeight: 700, py: 1.25, fontSize: 15, mt: 0.5 }}
         >
           Get started
         </Button>
@@ -537,7 +541,7 @@ export function ChecklistScreen({ recipes = [], savedIds = new Set(), onSave = (
         <Button
           fullWidth
           onClick={onGetStarted}
-          sx={{ color: 'text.disabled', textTransform: 'none', fontSize: 13, mt: 2 }}
+          sx={{ color: 'text.disabled', textTransform: 'none', fontSize: 13, mt: 0.5 }}
         >
           Skip for now
         </Button>

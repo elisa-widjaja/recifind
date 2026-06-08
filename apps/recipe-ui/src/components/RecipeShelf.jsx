@@ -20,6 +20,10 @@ const EMPTY_SET = new Set();
  *   cardHeight     — number (default = cardWidth), thumbnail height in px
  *   savedIds       — Set of recipe ids to render with a filled "saved" bookmark
  *   hideShare      — boolean, hide the share icon when true (default false)
+ *   bleed          — true (default): extend the shelf to both screen edges.
+ *                    'right': keep the first card flush with the container's content
+ *                    on the left, but run the shelf off the right edge so the next
+ *                    card peeks. false: stay flush with the container on both sides.
  */
 export default function RecipeShelf({
   recipes = [],
@@ -32,21 +36,24 @@ export default function RecipeShelf({
   peek = false,
   savedIds = EMPTY_SET,
   hideShare = false,
+  bleed = true,
 }) {
   if (!recipes.length) return null;
 
   const thumbHeight = cardHeight ?? cardWidth;
 
   return (
-    // Outer wrapper: negative margin extends the scroll container to screen edges
-    <Box sx={{ mx: -2, overflow: 'hidden', position: 'relative' }}>
-      {/* Inner scroll row: px:2 aligns first card with page content */}
+    // Outer wrapper: negative margin extends the scroll container past the
+    // container's padding. 'right' bleeds only the right side (-3 cancels the
+    // 24px drawer padding so cards run off the screen edge); true bleeds both.
+    <Box sx={{ ml: bleed === true ? -2 : 0, mr: bleed === true ? -2 : bleed === 'right' ? -3 : 0, overflow: 'hidden', position: 'relative' }}>
+      {/* Inner scroll row: px aligns first card with page content when bleeding both edges */}
       <Box
         sx={{
           display: 'flex',
           gap,
           overflowX: 'auto',
-          px: 2,
+          px: bleed === true ? 2 : 0,
           pb: 1,
           scrollbarWidth: 'none',
           '&::-webkit-scrollbar': { display: 'none' },
