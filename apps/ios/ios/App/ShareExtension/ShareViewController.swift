@@ -105,6 +105,7 @@ final class ShareViewController: UIViewController {
         case cancelled
         case fallback              // A2: open main-app drawer via deep link (legacy)
         case viewInApp(recipeId: String, ownerId: String?)
+        case viewRecipesList       // fresh save: open the recipe collection page
         case signIn                // logged-out: write App Group, open sign-in in app
     }
 
@@ -126,6 +127,10 @@ final class ShareViewController: UIViewController {
             }
         case .viewInApp(let recipeId, let ownerId):
             openRecipeInApp(recipeId: recipeId, ownerId: ownerId) { [weak self] _ in
+                self?.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+            }
+        case .viewRecipesList:
+            openRecipesListInApp { [weak self] _ in
                 self?.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
             }
         case .signIn:
@@ -165,6 +170,13 @@ final class ShareViewController: UIViewController {
             }
         }
         guard let url = components.url else { completion(false); return }
+        openURL(url, completion: completion)
+    }
+
+    private func openRecipesListInApp(completion: @escaping (Bool) -> Void) {
+        // recifriend://recipes (no id) -> main app's deep-link parser resolves to
+        // the recipe collection page (recipes_list kind).
+        guard let url = URL(string: "recifriend://recipes") else { completion(false); return }
         openURL(url, completion: completion)
     }
 

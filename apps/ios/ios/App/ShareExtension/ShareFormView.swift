@@ -252,7 +252,13 @@ final class ShareFormViewModel: ObservableObject {
     func openInApp() {
         guard let id = savedRecipeId else { return }
         autoDismissTask?.cancel()
-        onFinish(.viewInApp(recipeId: id, ownerId: savedOwnerId))
+        // Fresh save -> recipe collection page; re-save (already in collection)
+        // -> the recipe detail so the user can see/share the existing entry.
+        if isDuplicate {
+            onFinish(.viewInApp(recipeId: id, ownerId: savedOwnerId))
+        } else {
+            onFinish(.viewRecipesList)
+        }
     }
 
     func signIn() {
