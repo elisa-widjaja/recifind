@@ -10,7 +10,8 @@
           "/recipes/*",
           "/friend-requests",
           "/friends",
-          "/add-recipe"
+          "/add-recipe",
+          "/discover"
         ]
       }
     ]
