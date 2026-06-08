@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import OnboardingDrawer from './OnboardingDrawer';
 import { ChecklistScreen } from './OnboardingDrawer';
 
 const RECIPES = [
@@ -54,5 +55,42 @@ describe('ChecklistScreen', () => {
     rerender(<ChecklistScreen recipes={RECIPES} savedIds={new Set(['r1'])} onSave={() => {}} onGetStarted={onGetStarted} />);
     fireEvent.click(screen.getByRole('button', { name: /^get started$/i }));
     expect(onGetStarted).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('OnboardingDrawer first-save wiring', () => {
+  const RECIPES_D = [{ id: 'r1', title: 'Garlic Pasta', sourceUrl: '', imageUrl: '' }];
+
+  async function gotoChecklist() {
+    // Welcome -> Dietary -> Cooking-for -> Cuisines -> Checklist. Each Next runs
+    // an async goNext (saves prefs), so await each screen's unique heading
+    // before clicking again, otherwise synchronous clicks race the transition.
+    fireEvent.click(screen.getByRole('button', { name: /get started/i })); // welcome CTA
+    await screen.findByText('Dietary preferences');
+    fireEvent.click(screen.getByLabelText('Next'));
+    await screen.findByText('I am cooking for');
+    fireEvent.click(screen.getByLabelText('Next'));
+    await screen.findByText('Favorite cuisines');
+    fireEvent.click(screen.getByLabelText('Next'));
+    await screen.findByText("You're all set");
+  }
+
+  it('saves a tapped card via onSaveRecipe and flips the button to Get started', async () => {
+    const onSaveRecipe = vi.fn().mockResolvedValue(undefined);
+    render(
+      <OnboardingDrawer
+        open
+        initialPrefs={{ dietaryPrefs: [], cookingFor: '', cuisinePrefs: [] }}
+        onSavePrefs={vi.fn().mockResolvedValue(undefined)}
+        onComplete={vi.fn()}
+        firstSaveRecipes={RECIPES_D}
+        onSaveRecipe={onSaveRecipe}
+      />
+    );
+    await gotoChecklist();
+    expect(screen.getByRole('button', { name: /skip for now/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Save recipe'));
+    expect(onSaveRecipe).toHaveBeenCalledWith(RECIPES_D[0]);
+    expect(await screen.findByRole('button', { name: /^get started$/i })).toBeInTheDocument();
   });
 });

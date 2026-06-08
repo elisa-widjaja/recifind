@@ -47,12 +47,15 @@ export default function OnboardingDrawer({
   onComplete,
   onSkipForever,
   onClose,
+  firstSaveRecipes = [],
+  onSaveRecipe,
 }) {
   const [screen, setScreen] = useState(SCREEN_WELCOME);
   const [dietary, setDietary] = useState(() => initialPrefs?.dietaryPrefs ?? []);
   const [cookingFor, setCookingFor] = useState(() => initialPrefs?.cookingFor ?? '');
   const [cuisinePrefs, setCuisinePrefs] = useState(() => initialPrefs?.cuisinePrefs ?? []);
   const [saving, setSaving] = useState(false);
+  const [savedIds, setSavedIds] = useState(() => new Set());
   const scrollRef = useRef(null);
 
   // Reset state ONCE per drawer-open. We must not depend on initialPrefs
@@ -68,6 +71,7 @@ export default function OnboardingDrawer({
     setDietary(initialPrefs?.dietaryPrefs ?? []);
     setCookingFor(initialPrefs?.cookingFor ?? '');
     setCuisinePrefs(initialPrefs?.cuisinePrefs ?? []);
+    setSavedIds(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -109,6 +113,19 @@ export default function OnboardingDrawer({
     setScreen((s) => s + 1);
   };
   const goBack = () => setScreen((s) => Math.max(SCREEN_WELCOME, s - 1));
+
+  // Save a tapped card via the parent, then record its id locally so the
+  // card shows its saved state and step 1 flips to done. Optimistic: we add
+  // the id immediately; a failed save still surfaces the parent's error
+  // snackbar, and a retry tap is harmless (server upserts by source_url).
+  const handleCardSave = async (recipe) => {
+    setSavedIds((prev) => {
+      const next = new Set(prev);
+      next.add(recipe.id);
+      return next;
+    });
+    try { await onSaveRecipe?.(recipe); } catch { /* parent surfaces errors */ }
+  };
 
   return (
     <Drawer
@@ -208,7 +225,13 @@ export default function OnboardingDrawer({
           />
         )}
         {screen === SCREEN_CHECKLIST && (
-          <ChecklistScreen onGetStarted={onComplete} onBack={goBack} />
+          <ChecklistScreen
+            recipes={firstSaveRecipes}
+            savedIds={savedIds}
+            onSave={handleCardSave}
+            onGetStarted={onComplete}
+            onBack={goBack}
+          />
         )}
       </Box>
     </Drawer>
