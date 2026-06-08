@@ -9,6 +9,7 @@ describe('deep link dispatcher', () => {
     onRecipeDetail: () => {},
     onRecipesList: () => {},
     onOpenPendingShare: () => {},
+    onDiscover: () => {},
   });
 
   it('routes auth callback to onAuthCallback', async () => {
@@ -48,6 +49,13 @@ describe('deep link dispatcher', () => {
     await dispatch('https://recifriend.com/recipes/');
     expect(onRecipesList).toHaveBeenCalledTimes(3);
     expect(onRecipeDetail).not.toHaveBeenCalled();
+  });
+
+  it('routes /discover to onDiscover', async () => {
+    const onDiscover = vi.fn();
+    const dispatch = createDispatcher({ ...noopHandlers(), onDiscover });
+    await dispatch('https://recifriend.com/discover');
+    expect(onDiscover).toHaveBeenCalled();
   });
 
   it('silently ignores malicious URLs', async () => {

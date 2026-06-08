@@ -1390,12 +1390,15 @@ function App() {
   // the param is removed so it doesn't stick across in-app navigation.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const pathIsDiscover = window.location.pathname === '/discover' || window.location.pathname === '/discover/';
     const v = params.get('view');
-    if (v && VALID_VIEWS.includes(v)) {
-      setCurrentView(v);
+    const target = pathIsDiscover ? 'discover' : (v && VALID_VIEWS.includes(v) ? v : null);
+    if (target) {
+      setCurrentView(target);
       params.delete('view');
       const qs = params.toString();
-      window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''));
+      // Normalize back to root so /discover or ?view= doesn't stick across nav.
+      window.history.replaceState({}, '', '/' + (qs ? `?${qs}` : ''));
     }
   }, []);
 
@@ -2258,6 +2261,10 @@ function App() {
         // of behind the existing dialog.
         closeDialogRef.current?.();
         setCurrentView('recipes');
+      },
+      onDiscover: () => {
+        closeDialogRef.current?.();
+        setCurrentView('discover');
       },
     });
     return dispatch(urlString);
