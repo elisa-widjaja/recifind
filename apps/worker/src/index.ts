@@ -572,6 +572,16 @@ export default {
         return await handleAdminMetricsTimeseries({ env, user, adminEmails: env.ADMIN_EMAILS, url });
       }
 
+      if (url.pathname === '/admin/metrics/seed-conversions' && request.method === 'GET') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const { handleAdminSeedConversions } = await import('./routes/admin');
+        return await handleAdminSeedConversions({
+          env, user, adminEmails: env.ADMIN_EMAILS, url, seeds: SEEDED_SUGGESTIONS,
+        });
+      }
+
       if (url.pathname === '/admin/audit-log' && request.method === 'GET') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');
