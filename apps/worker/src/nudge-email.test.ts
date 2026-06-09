@@ -36,4 +36,10 @@ describe('buildNudgeEmailHtml', () => {
     const html = buildNudgeEmailHtml('Sam', mockRecipes, null);
     expect(html).not.toContain('view=discover');
   });
+
+  it('points the Invite Friends CTA at /friends?add=1', () => {
+    const html = buildNudgeEmailHtml('Sam', mockRecipes, null);
+    expect(html).toContain('href="https://recifriend.com/friends?add=1"');
+    expect(html).toContain('Invite Friends');
+  });
 });

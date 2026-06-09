@@ -4912,7 +4912,7 @@ export function buildNudgeEmailHtml(
       <p style="font-size:14px;opacity:0.9;margin:12px 0 16px;line-height:1.5;">
         Invite 5 friends and when each friend adds 5 recipes, you'll earn a <strong>gift card</strong> and a <strong>mystery goody bag</strong>!
       </p>
-      <a href="https://recifriend.com/friends" style="display:inline-block;background:#fff;color:#764ba2;text-decoration:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:700;">Invite Friends →</a>
+      <a href="https://recifriend.com/friends?add=1" style="display:inline-block;background:#fff;color:#764ba2;text-decoration:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:700;">Invite Friends →</a>
     </div>
   </div>
 
