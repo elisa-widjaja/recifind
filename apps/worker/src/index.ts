@@ -4831,7 +4831,7 @@ export function buildNudgeEmailHtml(
       <a href="${r.shareUrl}" style="text-decoration:none;color:inherit;display:block;border:1px solid #eee;border-radius:10px;overflow:hidden;">
         ${imgHtml}
         <div style="padding:10px 10px 14px;">
-          <div style="font-size:12px;font-weight:700;color:#1a1a1a;text-transform:uppercase;line-height:1.35;max-height:33px;overflow:hidden;">${r.title}</div>
+          <div style="font-size:12px;font-weight:700;color:#1a1a1a;text-transform:uppercase;line-height:17px;height:34px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${r.title}</div>
           <div style="font-size:11px;color:#888;margin-top:8px;">${label}</div>
         </div>
       </a>

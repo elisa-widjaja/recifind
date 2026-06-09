@@ -42,4 +42,12 @@ describe('buildNudgeEmailHtml', () => {
     expect(html).toContain('href="https://recifriend.com/friends?add=1"');
     expect(html).toContain('Invite Friends');
   });
+
+  it('clamps recipe titles to a fixed 2-line height so cards align', () => {
+    const html = buildNudgeEmailHtml('Sam', mockRecipes, null);
+    // Fixed-height 2-line clamp (not a variable max-height) keeps every card the
+    // same height regardless of title length.
+    expect(html).toContain('-webkit-line-clamp:2');
+    expect(html).not.toContain('max-height:33px');
+  });
 });
