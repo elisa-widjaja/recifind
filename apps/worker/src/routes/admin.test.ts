@@ -1386,6 +1386,9 @@ describe('buildSeedFunnelQuery', () => {
     expect(sql).toContain('AS requestsPending');
     expect(sql).toContain('AS connections');
     expect(sql).toContain('AS activated');
+    // requestsPending must exclude force-accepted rows (admin force-accept UPDATEs
+    // status rather than deleting), else they'd double-count in connections too.
+    expect(sql).toContain("fr.status = 'pending'");
     // each subquery floors on the launch param
     expect(sql).toContain('fr.created_at >= ?');
     expect(sql).toContain('f.connected_at >= ?');

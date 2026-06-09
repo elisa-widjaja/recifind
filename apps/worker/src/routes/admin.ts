@@ -795,7 +795,9 @@ export const SEED_SHELF_LAUNCH = '2026-06-08';
 //                     request rows are deleted on accept/decline, so this is the
 //                     live pending set.
 //   connections     -- accepted connections to the seed (friends.connected_at).
-//   activated       -- connectors who saved >=1 recipe AFTER connecting.
+//   activated       -- connectors who saved >=1 recipe AFTER connecting. Counts
+//                     hidden recipes too, matching the existing has_recipe
+//                     activation metric (activation = the act of saving).
 // Caller derives intent = requestsPending + connections. `excludeEmails` drops
 // owner/test requesters & connectors (same idiom as the other metric builders).
 export function buildSeedFunnelQuery(
@@ -808,7 +810,7 @@ export function buildSeedFunnelQuery(
   const sql = `
     SELECT
       (SELECT COUNT(*) FROM friend_requests fr
-         WHERE fr.to_user_id = ? AND fr.created_at >= ?
+         WHERE fr.to_user_id = ? AND fr.created_at >= ? AND fr.status = 'pending'
            AND fr.from_user_id NOT IN (SELECT user_id FROM profiles WHERE ${excludedFilter})
       ) AS requestsPending,
       (SELECT COUNT(*) FROM friends f
