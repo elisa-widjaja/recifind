@@ -438,8 +438,7 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, onTapCard
         <DialogTitle>Hide suggestion?</DialogTitle>
         <DialogContent>
           <Typography>
-            We won&apos;t suggest {pendingDismiss?.name || 'this person'} again
-            in this session.
+            We won&apos;t suggest {pendingDismiss?.name || 'this person'} again.
           </Typography>
         </DialogContent>
         <DialogActions sx={{ px: '24px' }}>
