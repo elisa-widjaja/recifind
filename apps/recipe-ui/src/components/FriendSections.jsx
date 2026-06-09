@@ -500,13 +500,21 @@ function FriendActivityTicker({ title, items, onOpenRecipe, onOpenFriendRequest,
       {Header}
       <Box
         sx={{
-          height: FA_ROW_HEIGHT * FA_VISIBLE + (FA_VISIBLE - 1) * FA_GAP,
-          overflow: 'hidden',
+          // Fixed 3-row window only when the ticker actually scrolls (4+ items).
+          // With <= FA_VISIBLE items there's no animation, so size to the rows
+          // present — otherwise a single item leaves ~150px of dead space before
+          // the next section. 'auto' also avoids clipping a 2-line activity card.
+          height: canScroll
+            ? FA_ROW_HEIGHT * FA_VISIBLE + (FA_VISIBLE - 1) * FA_GAP
+            : 'auto',
+          overflow: canScroll ? 'hidden' : 'visible',
           position: 'relative',
           px: `${FA_SIDE_PAD}px`,
           mx: `-${FA_SIDE_PAD}px`,
-          maskImage: 'linear-gradient(to bottom, transparent 0, black 24px, black calc(100% - 24px), transparent 100%)',
-          WebkitMaskImage: 'linear-gradient(to bottom, transparent 0, black 24px, black calc(100% - 24px), transparent 100%)',
+          // The top/bottom fade only makes sense for the scrolling window; on a
+          // short static list it would fade the card's own edges.
+          maskImage: canScroll ? 'linear-gradient(to bottom, transparent 0, black 24px, black calc(100% - 24px), transparent 100%)' : 'none',
+          WebkitMaskImage: canScroll ? 'linear-gradient(to bottom, transparent 0, black 24px, black calc(100% - 24px), transparent 100%)' : 'none',
         }}
       >
         <Box
