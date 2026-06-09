@@ -43,8 +43,8 @@ describe('soft-deleted user filtering (regression)', () => {
     const captured: string[] = [];
     // Minimal D1Database mock: capture each prepared SQL string and return a
     // chainable stub whose .all()/.first() return empty results so the function
-    // exercises every prepared statement (FOF + pref-fallback) without short-
-    // circuiting on real data.
+    // exercises every prepared statement (sent-requests lookup, FOF query, and
+    // seed-tier fallback) without short-circuiting on real data.
     const stmt = {
       bind: vi.fn().mockReturnThis(),
       all: vi.fn().mockResolvedValue({ results: [] }),
@@ -57,11 +57,10 @@ describe('soft-deleted user filtering (regression)', () => {
       }),
     } as unknown as D1Database;
 
-    // Force the pref-fallback branch to execute too: stub the self-profile
-    // lookup to return prefs that produce LIKE clauses. We can't easily inject
-    // this through the mock above without distinguishing calls, so we accept
-    // that with no prefs the second profiles query may not run — the FOF JOIN
-    // is the representative path and is always executed.
+    // Both the FOF query and the seed-tier fallback run because FOF returns
+    // empty results (< 5), which triggers the seed query (resolves founder /
+    // top-contributor accounts by email). Both queries include deleted_at IS
+    // NULL, so the assertion below covers both paths.
     const { handleFriendSuggestions } = await import('../index');
     await handleFriendSuggestions(mockDb, 'user-1');
 
