@@ -9,6 +9,10 @@ describe('handleFriendSuggestions', () => {
     bind: vi.fn().mockReturnThis(),
     all: vi.fn().mockResolvedValue({ results: toIds.map(id => ({ to_user_id: id })) }),
   });
+  const allMock = (results: unknown[]) => ({
+    bind: vi.fn().mockReturnThis(),
+    all: vi.fn().mockResolvedValue({ results }),
+  });
 
   it('returns FOF suggestions tagged kind="fof" with mutualCount, sorted desc', async () => {
     const fofResults = [
@@ -18,18 +22,9 @@ describe('handleFriendSuggestions', () => {
     const mockDb = {
       prepare: vi.fn()
         .mockReturnValueOnce(sentQueryMock())
-        .mockReturnValueOnce({
-          bind: vi.fn().mockReturnThis(),
-          all: vi.fn().mockResolvedValue({ results: fofResults }),
-        })
-        .mockReturnValueOnce({
-          bind: vi.fn().mockReturnThis(),
-          first: vi.fn().mockResolvedValue({ dietary_prefs: '["Vegetarian"]', meal_type_prefs: '["Dinner"]' }),
-        })
-        .mockReturnValueOnce({
-          bind: vi.fn().mockReturnThis(),
-          all: vi.fn().mockResolvedValue({ results: [] }),
-        }),
+        .mockReturnValueOnce(allMock(fofResults))
+        // FOF < 5 -> seed query runs; no seeded accounts match here.
+        .mockReturnValueOnce(allMock([])),
     } as unknown as D1Database;
 
     const result = await handleFriendSuggestions(mockDb, 'user-a');
@@ -62,14 +57,8 @@ describe('handleFriendSuggestions', () => {
       prepare: vi.fn()
         // user-a has already sent a request to user-b
         .mockReturnValueOnce(sentQueryMock(['user-b']))
-        .mockReturnValueOnce({
-          bind: vi.fn().mockReturnThis(),
-          all: vi.fn().mockResolvedValue({ results: fofResults }),
-        })
-        .mockReturnValueOnce({
-          bind: vi.fn().mockReturnThis(),
-          first: vi.fn().mockResolvedValue(null),
-        }),
+        .mockReturnValueOnce(allMock(fofResults))
+        .mockReturnValueOnce(allMock([])),
     } as unknown as D1Database;
 
     const result = await handleFriendSuggestions(mockDb, 'user-a');
@@ -81,8 +70,6 @@ describe('handleFriendSuggestions', () => {
   });
 
   it('hides nameless suggestions (null/blank display_name) so no gibberish card renders', async () => {
-    // Two FOF rows: one named, one with a null name (relay/Hide-My-Email user
-    // not yet caught by the backfill). The nameless one must not surface.
     const fofResults = [
       { userId: 'user-b', name: 'Maya R.', mutualCount: 2 },
       { userId: 'user-x', name: null, mutualCount: 5 },
@@ -91,14 +78,8 @@ describe('handleFriendSuggestions', () => {
     const mockDb = {
       prepare: vi.fn()
         .mockReturnValueOnce(sentQueryMock())
-        .mockReturnValueOnce({
-          bind: vi.fn().mockReturnThis(),
-          all: vi.fn().mockResolvedValue({ results: fofResults }),
-        })
-        .mockReturnValueOnce({
-          bind: vi.fn().mockReturnThis(),
-          first: vi.fn().mockResolvedValue(null),
-        }),
+        .mockReturnValueOnce(allMock(fofResults))
+        .mockReturnValueOnce(allMock([])),
     } as unknown as D1Database;
 
     const result = await handleFriendSuggestions(mockDb, 'user-a');
@@ -107,74 +88,58 @@ describe('handleFriendSuggestions', () => {
     expect(result.suggestions[0].userId).toBe('user-b');
   });
 
-  it('returns empty array when no FOF and no prefs', async () => {
+  it('returns empty array when no FOF and no seeded accounts match', async () => {
     const mockDb = {
       prepare: vi.fn()
         .mockReturnValueOnce(sentQueryMock())
-        .mockReturnValueOnce({
-          bind: vi.fn().mockReturnThis(),
-          all: vi.fn().mockResolvedValue({ results: [] }),
-        })
-        .mockReturnValueOnce({
-          bind: vi.fn().mockReturnThis(),
-          first: vi.fn().mockResolvedValue(null),
-        }),
+        .mockReturnValueOnce(allMock([]))
+        .mockReturnValueOnce(allMock([])),
     } as unknown as D1Database;
 
     const result = await handleFriendSuggestions(mockDb, 'user-a');
     expect(result.suggestions).toHaveLength(0);
   });
 
-  it('falls back to pref-match when FOF < 5 and tags rows kind="pref" with sharedPref', async () => {
+  it('falls back to seeded accounts when FOF < 5, tagged kind="seed" with label, founder first', async () => {
     const fofResults = [
       { userId: 'user-b', name: 'Maya R.', mutualCount: 1 },
     ];
-    const prefResults = [
-      { userId: 'user-d', name: 'Priya S.', dietary_prefs: '["Vegetarian","Gluten-free"]', meal_type_prefs: null },
-      { userId: 'user-e', name: 'Nora K.', dietary_prefs: null, meal_type_prefs: '["Dinner"]' },
+    // Returned out of config order to prove the handler re-orders founder first.
+    const seedResults = [
+      { userId: 'user-mochi', name: 'Mochi', avatarUrl: null, email: 'mochislime02@gmail.com' },
+      { userId: 'user-elisa', name: 'Elisa W.', avatarUrl: null, email: 'elisa.widjaja@gmail.com' },
     ];
     const mockDb = {
       prepare: vi.fn()
         .mockReturnValueOnce(sentQueryMock())
-        .mockReturnValueOnce({
-          bind: vi.fn().mockReturnThis(),
-          all: vi.fn().mockResolvedValue({ results: fofResults }),
-        })
-        .mockReturnValueOnce({
-          bind: vi.fn().mockReturnThis(),
-          first: vi.fn().mockResolvedValue({ dietary_prefs: '["Vegetarian"]', meal_type_prefs: '["Dinner"]' }),
-        })
-        .mockReturnValueOnce({
-          bind: vi.fn().mockReturnThis(),
-          all: vi.fn().mockResolvedValue({ results: prefResults }),
-        }),
+        .mockReturnValueOnce(allMock(fofResults))
+        .mockReturnValueOnce(allMock(seedResults)),
     } as unknown as D1Database;
 
     const result = await handleFriendSuggestions(mockDb, 'user-a');
 
     expect(result.suggestions).toHaveLength(3);
     expect(result.suggestions[0].kind).toBe('fof');
+    // Founder ordered before top contributor regardless of row order.
     expect(result.suggestions[1]).toEqual({
-      userId: 'user-d',
-      name: 'Priya S.',
+      userId: 'user-elisa',
+      name: 'Elisa W.',
       avatarUrl: null,
-      kind: 'pref',
-      sharedPref: 'Vegetarian',
+      kind: 'seed',
+      label: 'ReciFriend Founder',
       requestSent: false,
     });
-    // Nora K. has no dietary overlap (only meal-type), so sharedPref is empty
-    // — client renders "Fellow home cook" for empty sharedPref.
     expect(result.suggestions[2]).toEqual({
-      userId: 'user-e',
-      name: 'Nora K.',
+      userId: 'user-mochi',
+      name: 'Mochi',
       avatarUrl: null,
-      kind: 'pref',
-      sharedPref: '',
+      kind: 'seed',
+      label: 'Top contributor',
       requestSent: false,
     });
   });
 
-  it('skips pref-match when FOF >= 5', async () => {
+  it('skips the seeded fallback when FOF >= 5', async () => {
     const fofResults = [
       { userId: 'u1', name: 'A', mutualCount: 3 },
       { userId: 'u2', name: 'B', mutualCount: 2 },
@@ -185,17 +150,14 @@ describe('handleFriendSuggestions', () => {
     const mockDb = {
       prepare: vi.fn()
         .mockReturnValueOnce(sentQueryMock())
-        .mockReturnValueOnce({
-          bind: vi.fn().mockReturnThis(),
-          all: vi.fn().mockResolvedValue({ results: fofResults }),
-        }),
+        .mockReturnValueOnce(allMock(fofResults)),
     } as unknown as D1Database;
 
     const result = await handleFriendSuggestions(mockDb, 'user-a');
 
     expect(result.suggestions).toHaveLength(5);
     expect(result.suggestions.every(s => s.kind === 'fof')).toBe(true);
-    // Only the sent-set + FOF queries — no profile fetch, no pref query.
+    // Only the sent-set + FOF queries — no seed query.
     expect((mockDb.prepare as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(2);
   });
 });

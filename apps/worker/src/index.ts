@@ -3324,13 +3324,23 @@ export async function resolveEmailFromUserId(db: D1Database, userId: string): Pr
   return row?.email ?? null;
 }
 
+// Curated accounts surfaced in the friend-suggestion shelf when a user's real
+// social graph (friend-of-friend) is thin. They go through the normal
+// friend-request flow — no auto-accept. Order matters: founder first.
+// Both emails are owner-controlled and are already in METRICS_EXCLUDED_EMAILS,
+// so seeded connections don't inflate the has_friends activation segment.
+export const SEEDED_SUGGESTIONS: ReadonlyArray<{ email: string; label: string }> = [
+  { email: 'elisa.widjaja@gmail.com', label: 'ReciFriend Founder' },
+  { email: 'mochislime02@gmail.com', label: 'Top contributor' },
+];
+
 export async function handleFriendSuggestions(
   db: D1Database,
   userId: string
 ): Promise<{
   suggestions: Array<
     | { userId: string; name: string; avatarUrl: string | null; kind: 'fof'; mutualCount: number; requestSent: boolean }
-    | { userId: string; name: string; avatarUrl: string | null; kind: 'pref'; sharedPref: string; requestSent: boolean }
+    | { userId: string; name: string; avatarUrl: string | null; kind: 'seed'; label: string; requestSent: boolean }
   >;
 }> {
   // Pre-load this user's pending sent-request set so we can surface a
@@ -3386,62 +3396,50 @@ export async function handleFriendSuggestions(
     return { suggestions: fofSuggestions };
   }
 
-  // --- Pref-match fallback ---
+  // --- Seeded fallback ---
+  // FOF is thin (< 5). Instead of suggesting unlabeled strangers, top up with a
+  // small, curated set of labeled accounts (founder + a top contributor),
+  // resolved by email. These use the normal friend-request flow — no
+  // auto-accept. Excludes self, already-friends, and dismissed, mirroring FOF;
+  // a pending sent-request is surfaced (requestSent) rather than excluded.
   const alreadySuggested = new Set(fofSuggestions.map(s => s.userId));
-  const myProfile = await db.prepare(
-    'SELECT dietary_prefs, meal_type_prefs FROM profiles WHERE user_id = ? AND deleted_at IS NULL'
-  ).bind(userId).first<{ dietary_prefs: string | null; meal_type_prefs: string | null }>();
+  const seedEmails = SEEDED_SUGGESTIONS.map(s => s.email);
+  const emailPlaceholders = seedEmails.map(() => '?').join(', ');
 
-  const myDietaryPrefs: string[] = myProfile?.dietary_prefs ? JSON.parse(myProfile.dietary_prefs) : [];
-  const myMealPrefs: string[] = myProfile?.meal_type_prefs ? JSON.parse(myProfile.meal_type_prefs) : [];
-  const allMyPrefs = [...myDietaryPrefs, ...myMealPrefs].filter(p => p && p !== 'None / all good');
-
-  if (allMyPrefs.length === 0) {
-    return { suggestions: fofSuggestions };
-  }
-
-  const remaining = 10 - fofSuggestions.length;
-  const likeClauses = allMyPrefs.map(() => `(p.dietary_prefs LIKE ? OR p.meal_type_prefs LIKE ?)`).join(' OR ');
-  const likeBinds = allMyPrefs.flatMap(pref => [`%${pref}%`, `%${pref}%`]);
-
-  const prefRows = await db.prepare(`
-    SELECT p.user_id AS userId, p.display_name AS name, p.avatar_url AS avatarUrl, p.dietary_prefs, p.meal_type_prefs
+  const seedRows = await db.prepare(`
+    SELECT p.user_id AS userId, p.display_name AS name, p.avatar_url AS avatarUrl, p.email AS email
     FROM profiles p
-    WHERE p.user_id != ?
+    WHERE p.email IN (${emailPlaceholders})
+      AND p.user_id != ?
       AND p.user_id NOT IN (SELECT friend_id FROM friends WHERE user_id = ?)
       AND p.user_id NOT IN (SELECT dismissed_user_id FROM dismissed_suggestions WHERE user_id = ?)
       AND p.deleted_at IS NULL
       AND p.display_name IS NOT NULL AND TRIM(p.display_name) <> ''
-      AND (${likeClauses})
-    ORDER BY p.display_name ASC
-    LIMIT ?
-  `).bind(userId, userId, userId, ...likeBinds, remaining).all<{
+  `).bind(...seedEmails, userId, userId, userId).all<{
     userId: string;
     name: string;
     avatarUrl: string | null;
-    dietary_prefs: string | null;
-    meal_type_prefs: string | null;
+    email: string;
   }>();
 
-  const prefSuggestions = (prefRows.results || [])
+  const labelByEmail = new Map(SEEDED_SUGGESTIONS.map(s => [s.email, s.label]));
+  const orderByEmail = new Map(SEEDED_SUGGESTIONS.map((s, i) => [s.email, i]));
+
+  const seedSuggestions = (seedRows.results || [])
     .filter(row => !alreadySuggested.has(row.userId))
     .filter(row => row.name && String(row.name).trim())
-    .map(row => {
-      // Only surface dietary prefs in the label — meal-type overlaps fall back
-      // to a generic "Fellow home cook" string on the client.
-      const theirDietaryPrefs: string[] = row.dietary_prefs ? JSON.parse(row.dietary_prefs) : [];
-      const sharedPref = myDietaryPrefs.find(p => theirDietaryPrefs.includes(p)) || '';
-      return {
-        userId: row.userId,
-        name: row.name,
-        avatarUrl: row.avatarUrl ?? null,
-        kind: 'pref' as const,
-        sharedPref,
-        requestSent: sentToIds.has(row.userId),
-      };
-    });
+    // Preserve config order (founder first) regardless of DB row order.
+    .sort((a, b) => (orderByEmail.get(a.email) ?? 99) - (orderByEmail.get(b.email) ?? 99))
+    .map(row => ({
+      userId: row.userId,
+      name: row.name,
+      avatarUrl: row.avatarUrl ?? null,
+      kind: 'seed' as const,
+      label: labelByEmail.get(row.email) || '',
+      requestSent: sentToIds.has(row.userId),
+    }));
 
-  return { suggestions: [...fofSuggestions, ...prefSuggestions] };
+  return { suggestions: [...fofSuggestions, ...seedSuggestions] };
 }
 
 async function handleDismissSuggestion(request: Request, env: Env, user: AuthenticatedUser) {
