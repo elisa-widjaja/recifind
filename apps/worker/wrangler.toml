@@ -32,6 +32,9 @@ AUTH_AUDIENCE = "authenticated"
 AUTH_JWKS_URL = "https://jpjuaaxwfpemecbwwthk.supabase.co/auth/v1/.well-known/jwks.json"
 SUPABASE_URL = "https://jpjuaaxwfpemecbwwthk.supabase.co"
 SUPABASE_STORAGE_BUCKET = "recipe-previews"
+# Nudge-email kill switch: "false" pauses the hourly send (cron still syncs admin stats).
+# Set back to "true" once the nudge email is finalized.
+NUDGE_EMAILS_ENABLED = "false"
 
 # Secrets (set via wrangler secret put):
 # - DEV_API_KEY

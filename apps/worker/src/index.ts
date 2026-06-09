@@ -35,6 +35,9 @@ export interface Env {
   APNS_HOST?: string;
   // === [/S05] ===
   ADMIN_EMAILS?: string;
+  // Kill switch for the hourly nudge-email send. "false" pauses sending
+  // (cron still runs admin-stats sync + user-counts cache). Any other value sends.
+  NUDGE_EMAILS_ENABLED?: string;
 }
 
 interface Recipe {
@@ -993,6 +996,13 @@ export default {
       console.log('[cron] user counts cached', { total: counts.total });
     } catch (err) {
       console.error('[cron] user counts cache failed', err);
+    }
+
+    // Kill switch: pause nudge-email sending while leaving the rest of the cron running.
+    // Flip via NUDGE_EMAILS_ENABLED in wrangler.toml [vars]; "false" = paused.
+    if (env.NUDGE_EMAILS_ENABLED === 'false') {
+      console.log('[cron] nudge emails paused (NUDGE_EMAILS_ENABLED=false)');
+      return;
     }
 
     const now = new Date().toISOString();
