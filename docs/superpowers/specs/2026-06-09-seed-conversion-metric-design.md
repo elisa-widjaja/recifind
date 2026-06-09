@@ -19,9 +19,24 @@ no-save).
   "Top contributor"). Single source of truth; the metric must read from it, not a
   copy, so adding a 3rd seed later is automatically reflected.
 - Tapping "Add Friend" on a shelf card sends a normal friend request, inserting a
-  row into `friend_requests` (`to_user_id`, `from_user_id`, `status`, `created_at`).
+  row into `friend_requests` (`to_user_id`, `from_user_id`, `status`, `created_at`)
+  and `friend_requests_sent`.
 - An accepted connection inserts bidirectional rows into `friends`
   (`user_id`, `friend_id`, ..., `connected_at`).
+- **CRITICAL — request rows are deleted on resolution.** Accept, decline, AND cancel
+  all `DELETE` the `friend_requests` and `friend_requests_sent` rows
+  (index.ts ~3785/3827/3839). So neither table retains a record of a *resolved*
+  request. There is NO durable "total requests ever sent" count:
+  - A request still awaiting acceptance lives in `friend_requests` (status pending).
+  - An accepted request lives only in `friends` (the `friend_requests` row is gone).
+  - A declined/cancelled request leaves no trace anywhere.
+- Because the seed accounts are owner-controlled and Phase 1 has **no auto-accept**,
+  a request to a seed is in practice either **pending** (owner has not yet accepted on
+  that account) or **accepted** (`friends`); declines do not occur. So measurable
+  intent = pending + connections. Both are queryable.
+- All timestamp columns (`friend_requests.created_at`, `friends.connected_at`,
+  `recipes.created_at`) are `TEXT NOT NULL` ISO-8601 strings (verified in 0001_init),
+  so a lexical `>= '2026-06-08'` floor is valid.
 - Existing admin metrics live in `apps/worker/src/routes/admin.ts`, surfaced via
   admin-gated routes registered in `index.ts` (e.g. `GET /admin/metrics/timeseries`
   -> `handleAdminMetricsTimeseries`). They follow a testable `build*Query` ->
@@ -30,8 +45,10 @@ no-save).
 
 ## Decisions (locked in brainstorm)
 
-1. **Depth = full funnel** (requests -> connections -> activated-after), per seed and
-   as a total. Not intent-only, not connections-only.
+1. **Depth = full funnel**, per seed and as a total. Because resolved request rows are
+   deleted (see Background), the three measurable numbers are
+   **requestsPending -> connections -> activated**, where intent is read as
+   `requestsPending + connections`. Not intent-only, not connections-only.
 2. **Surface = standalone admin JSON endpoint** `GET /admin/metrics/seed-conversions`.
    No `apps/admin-ui` change yet; promote to a dashboard widget later if the numbers
    warrant it.
@@ -72,9 +89,9 @@ if (url.pathname === '/admin/metrics/seed-conversions' && request.method === 'GE
    Build an email -> user_id map.
 3. For each entry in `seeds` (preserving order, so founder first): if a user_id was
    resolved, run `buildSeedFunnelQuery(userId, SEED_SHELF_LAUNCH, METRICS_EXCLUDED_EMAILS)`
-   and read `{ requests, connections, activated }`; otherwise emit zeros with
-   `userId: null`.
-4. Sum the three counts into `totals`.
+   and read `{ requestsPending, connections, activated }`; otherwise emit zeros with
+   `userId: null`. Derive `intent = requestsPending + connections` per seed.
+4. Sum `requestsPending`, `connections`, `activated` (and `intent`) into `totals`.
 5. `return json({ launchFloor: SEED_SHELF_LAUNCH, seeds: [...], totals }, 200, withCors())`.
 
 ### Query builder (admin.ts) — `buildSeedFunnelQuery(seedUserId, launchIso, excludeEmails)`
@@ -89,7 +106,7 @@ SELECT
   (SELECT COUNT(*) FROM friend_requests fr
      WHERE fr.to_user_id = ? AND fr.created_at >= ?
        AND fr.from_user_id NOT IN (SELECT user_id FROM profiles WHERE <excludedFilter>)
-  ) AS requests,
+  ) AS requestsPending,
   (SELECT COUNT(*) FROM friends f
      WHERE f.friend_id = ? AND f.connected_at >= ?
        AND f.user_id NOT IN (SELECT user_id FROM profiles WHERE <excludedFilter>)
@@ -102,18 +119,17 @@ SELECT
   ) AS activated
 ```
 
+- **requestsPending** = requests to the seed still awaiting acceptance (resolved
+  requests are deleted, so this is the live pending set, floored at launch).
+- **connections** = accepted connections to the seed.
+- **activated** = of those connectors, how many saved >= 1 recipe AFTER connecting
+  (`recipes.created_at >= friends.connected_at`) — the causal "the connection warmed
+  them" signal, not "saved ever".
+- Intent is derived in the handler as `requestsPending + connections`.
+
 `params` order: for each of the three subqueries, `[seedUserId, launchIso,
 ...excludeEmails]` (D1 placeholders are positional and cannot be reused, so seedId +
 launch are bound once per subquery).
-
-**Timestamp comparison:** `created_at` / `connected_at` are ISO-8601 strings, so
-lexical `>= '2026-06-08'` correctly includes 2026-06-08 onward. The plan MUST verify
-this column format against the schema before relying on it; if any are stored as
-epoch integers, convert the floor accordingly.
-
-**Activation definition:** a connector counts as "activated" if they saved >= 1
-recipe AFTER connecting to the seed (`recipes.created_at >= friends.connected_at`).
-This is the causal signal (the connection warmed them), not "saved ever".
 
 ## Output shape
 
@@ -121,23 +137,35 @@ This is the causal signal (the connection warmed them), not "saved ever".
 {
   "launchFloor": "2026-06-08",
   "seeds": [
-    { "label": "ReciFriend Founder", "email": "elisa.widjaja@gmail.com",
-      "userId": "8e4dfd5e-...", "requests": 12, "connections": 9, "activated": 4 },
-    { "label": "Top contributor", "email": "mochislime02@gmail.com",
-      "userId": "dfa74750-...", "requests": 5, "connections": 3, "activated": 1 }
+    { "label": "ReciFriend Founder", "email": "elisa.widjaja@gmail.com", "userId": "8e4dfd5e-...",
+      "requestsPending": 8, "connections": 4, "activated": 2, "intent": 12 },
+    { "label": "Top contributor", "email": "mochislime02@gmail.com", "userId": "dfa74750-...",
+      "requestsPending": 3, "connections": 2, "activated": 1, "intent": 5 }
   ],
-  "totals": { "requests": 17, "connections": 12, "activated": 5 }
+  "totals": { "requestsPending": 11, "connections": 6, "activated": 3, "intent": 17 }
 }
 ```
 
-Read as a funnel: requests -> connections -> activated, per seed and overall.
+Read as a funnel: `intent` (requestsPending + connections) -> connections -> activated,
+per seed and overall. A high `requestsPending` with low `connections` means people are
+tapping but you have not accepted on the seed accounts yet (see Edge cases).
 
 ## Edge cases
 
 - Seed email not in `profiles` -> that seed reports `userId: null` and zero counts; no
   crash, no query run for it.
-- A pending (unaccepted) request shows in `requests` but not `connections` — the
-  intended funnel leak.
+- **Manual-accept dependency (operational, important):** the seed accounts do not
+  auto-accept. Until you log into the founder / top-contributor account and accept the
+  pending requests, they stay in `requestsPending` and `connections` stays 0. A high
+  `requestsPending` / low `connections` reflects an un-done accept pass, not poor
+  intent. Do an accept pass before reading the funnel (or revisit founder auto-accept
+  later — out of scope here).
+- **Declined / cancelled requests are invisible** (rows deleted, no trace). For the
+  owner-controlled seed accounts this is acceptable: you would accept, not decline, so
+  intent is well approximated by `requestsPending + connections`.
+- **Pre-launch organic edge:** a request sent to a seed BEFORE launch but accepted
+  AFTER launch counts in `connections` (floored on `connected_at`). Low volume and
+  acceptable; noted as a known minor impurity.
 - `friends` stores bidirectional rows; counting `friend_id = <seed>` counts each real
   connector once (the real-user-side row), not double.
 - D1 cost: 1 resolve query + 1 funnel query per seed (3 total today). All indexed
@@ -153,7 +181,8 @@ Unit tests in `apps/worker/src/routes/admin.test.ts` (existing mock-D1 pattern):
   params contain no email binds.
 - `handleAdminSeedConversions`: non-admin caller is rejected (401/403); an admin
   caller with mocked rows returns the `{ launchFloor, seeds, totals }` shape with
-  correct totals summed across seeds, and a missing-seed reports `userId: null` + zeros.
+  `intent = requestsPending + connections` derived per seed, correct totals summed
+  across seeds, and a missing-seed reporting `userId: null` + zeros.
 
 ## Out of scope
 
