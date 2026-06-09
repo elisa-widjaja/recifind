@@ -93,6 +93,7 @@ export function parseDeepLink(raw: string): DeepLink | null {
     if (pendingToken) return { kind: 'friend_invite', token: pendingToken, invite_kind: 'pending' };
     const openToken = url.searchParams.get('invite');
     if (openToken) return { kind: 'friend_invite', token: openToken, invite_kind: 'open' };
+    if (url.searchParams.get('add') === '1') return { kind: 'friends_list', open_add: true };
     return { kind: 'friends_list' };
   }
 

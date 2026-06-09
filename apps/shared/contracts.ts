@@ -58,7 +58,7 @@ export type DeepLink =
   | { kind: 'add_recipe'; url: string; title?: string }
   | { kind: 'friend_requests'; accept_id?: string }
   | { kind: 'friend_invite'; token: string; invite_kind: 'pending' | 'open' }
-  | { kind: 'friends_list' }
+  | { kind: 'friends_list'; open_add?: boolean }
   | { kind: 'recipe_detail'; recipe_id: string; owner_id?: string }
   | { kind: 'recipes_list' }
   | { kind: 'discover' }

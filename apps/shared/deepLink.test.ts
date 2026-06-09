@@ -239,3 +239,19 @@ describe('parseDeepLink — /discover', () => {
     expect(parseDeepLink('recifriend://discover')).toEqual({ kind: 'discover' });
   });
 });
+
+describe('parseDeepLink — /friends?add=1 (open add-friend drawer)', () => {
+  it('flags open_add for /friends?add=1', () => {
+    expect(parseDeepLink('https://recifriend.com/friends?add=1')).toEqual({ kind: 'friends_list', open_add: true });
+  });
+  it('bare /friends has no open_add flag', () => {
+    expect(parseDeepLink('https://recifriend.com/friends')).toEqual({ kind: 'friends_list' });
+  });
+  it('add=1 is ignored when an invite_token is present (invite wins)', () => {
+    expect(parseDeepLink('https://recifriend.com/friends?invite_token=abc&add=1'))
+      .toEqual({ kind: 'friend_invite', token: 'abc', invite_kind: 'pending' });
+  });
+  it('parses the recifriend://friends?add=1 custom scheme', () => {
+    expect(parseDeepLink('recifriend://friends?add=1')).toEqual({ kind: 'friends_list', open_add: true });
+  });
+});
