@@ -4,7 +4,7 @@ import { writeAuditLog } from './admin';
 import { handleAdminMe } from './admin';
 import { buildUsersListQuery, buildUserCountsQuery, computeUserCounts, handleAdminUserCounts, USER_COUNTS_KV_KEY } from './admin';
 import { syncAdminUserStats, fetchAllSupabaseLastSignIn } from './admin';
-import { buildSignupsPerDayQuery, buildViralCoefWeeklyQuery, buildGrowthCountersQuery, buildRetentionCohortsQuery, METRICS_EXCLUDED_EMAILS, buildWeeklySignupsActivationQuery, buildWeeklySavesQuery, launchWeeks, LAUNCH_DATE } from './admin';
+import { buildSignupsPerDayQuery, buildViralCoefWeeklyQuery, buildGrowthCountersQuery, buildRetentionCohortsQuery, METRICS_EXCLUDED_EMAILS, buildWeeklySignupsActivationQuery, buildWeeklySavesQuery, launchWeeks, LAUNCH_DATE, buildSeedFunnelQuery, SEED_SHELF_LAUNCH, handleAdminSeedConversions } from './admin';
 import { buildRecipeSearchQuery } from './admin';
 import { deriveImageStatus } from './admin';
 
@@ -1373,5 +1373,42 @@ describe('handleAdminUserCounts', () => {
     expect(env.AI_PICKS_CACHE.put).toHaveBeenCalledWith(
       USER_COUNTS_KV_KEY, expect.any(String), { expirationTtl: 6 * 60 * 60 }
     );
+  });
+});
+
+describe('buildSeedFunnelQuery', () => {
+  it('exposes the launch floor constant', () => {
+    expect(SEED_SHELF_LAUNCH).toBe('2026-06-08');
+  });
+
+  it('builds the 3-step funnel with exclusions and per-subquery binds', () => {
+    const { sql, params } = buildSeedFunnelQuery('seed-1', '2026-06-08', ['owner@x.com', 'test@x.com']);
+    expect(sql).toContain('AS requestsPending');
+    expect(sql).toContain('AS connections');
+    expect(sql).toContain('AS activated');
+    // each subquery floors on the launch param
+    expect(sql).toContain('fr.created_at >= ?');
+    expect(sql).toContain('f.connected_at >= ?');
+    // activation = saved AFTER connecting
+    expect(sql).toContain('r.created_at >= f.connected_at');
+    // exclusion subselect present with one placeholder per excluded email
+    expect(sql).toContain('email IN (?, ?)');
+    // params: [seed, launch, ...excl] repeated once per subquery (3x)
+    expect(params).toEqual([
+      'seed-1', '2026-06-08', 'owner@x.com', 'test@x.com',
+      'seed-1', '2026-06-08', 'owner@x.com', 'test@x.com',
+      'seed-1', '2026-06-08', 'owner@x.com', 'test@x.com',
+    ]);
+  });
+
+  it('degrades the exclusion filter to constant-false with no excludeEmails', () => {
+    const { sql, params } = buildSeedFunnelQuery('seed-1', '2026-06-08', []);
+    expect(sql).toContain('WHERE 0');
+    expect(sql).not.toContain('email IN');
+    expect(params).toEqual([
+      'seed-1', '2026-06-08',
+      'seed-1', '2026-06-08',
+      'seed-1', '2026-06-08',
+    ]);
   });
 });

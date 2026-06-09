@@ -783,6 +783,53 @@ export function buildWeeklySavesQuery(anchorIso: string, excludeEmails: string[]
   };
 }
 
+// Floor for seed-shelf attribution. The worker shipped the seeded "Suggested
+// friends" tier on 2026-06-08 (web gets the correct UX same day; iOS only from a
+// post-seed build 31+). Connections before this are the seeds' pre-existing real
+// friendships, not shelf-driven. Bump to the App Store approval date if you want
+// the official window to start when the full UX is live on iOS.
+export const SEED_SHELF_LAUNCH = '2026-06-08';
+
+// Per-seed conversion funnel, floored at `launchIso`:
+//   requestsPending -- requests to the seed still awaiting acceptance. Resolved
+//                     request rows are deleted on accept/decline, so this is the
+//                     live pending set.
+//   connections     -- accepted connections to the seed (friends.connected_at).
+//   activated       -- connectors who saved >=1 recipe AFTER connecting.
+// Caller derives intent = requestsPending + connections. `excludeEmails` drops
+// owner/test requesters & connectors (same idiom as the other metric builders).
+export function buildSeedFunnelQuery(
+  seedUserId: string,
+  launchIso: string,
+  excludeEmails: string[] = []
+): BuiltQuery {
+  const ph = excludeEmails.map(() => '?').join(', ');
+  const excludedFilter = excludeEmails.length ? `email IN (${ph})` : '0';
+  const sql = `
+    SELECT
+      (SELECT COUNT(*) FROM friend_requests fr
+         WHERE fr.to_user_id = ? AND fr.created_at >= ?
+           AND fr.from_user_id NOT IN (SELECT user_id FROM profiles WHERE ${excludedFilter})
+      ) AS requestsPending,
+      (SELECT COUNT(*) FROM friends f
+         WHERE f.friend_id = ? AND f.connected_at >= ?
+           AND f.user_id NOT IN (SELECT user_id FROM profiles WHERE ${excludedFilter})
+      ) AS connections,
+      (SELECT COUNT(*) FROM friends f
+         WHERE f.friend_id = ? AND f.connected_at >= ?
+           AND f.user_id NOT IN (SELECT user_id FROM profiles WHERE ${excludedFilter})
+           AND EXISTS (SELECT 1 FROM recipes r
+                       WHERE r.user_id = f.user_id AND r.created_at >= f.connected_at)
+      ) AS activated
+  `.trim();
+  const params = [
+    seedUserId, launchIso, ...excludeEmails,
+    seedUserId, launchIso, ...excludeEmails,
+    seedUserId, launchIso, ...excludeEmails,
+  ];
+  return { sql, params };
+}
+
 export async function handleAdminMetricsTimeseries(args: {
   env: { DB: D1Database; SUPABASE_URL: string; SUPABASE_SERVICE_ROLE_KEY?: string };
   user: { userId: string; email?: string };
