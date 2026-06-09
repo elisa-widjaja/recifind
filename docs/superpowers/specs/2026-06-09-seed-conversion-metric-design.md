@@ -30,6 +30,12 @@ no-save).
   - A request still awaiting acceptance lives in `friend_requests` (status pending).
   - An accepted request lives only in `friends` (the `friend_requests` row is gone).
   - A declined/cancelled request leaves no trace anywhere.
+  - **EXCEPTION — admin force-accept:** `handleAdminForceAccept` (admin.ts ~1077)
+    does `UPDATE friend_requests SET status = 'accepted'` instead of deleting, so an
+    accepted row can persist in `friend_requests` with `status = 'accepted'`.
+    Therefore the `requestsPending` count MUST filter `status = 'pending'`, or a
+    force-accepted request would be double-counted (in both requestsPending AND
+    connections).
 - Because the seed accounts are owner-controlled and Phase 1 has **no auto-accept**,
   a request to a seed is in practice either **pending** (owner has not yet accepted on
   that account) or **accepted** (`friends`); declines do not occur. So measurable
@@ -104,7 +110,7 @@ filter degrades to a constant-false (`0`) like the other builders.
 ```sql
 SELECT
   (SELECT COUNT(*) FROM friend_requests fr
-     WHERE fr.to_user_id = ? AND fr.created_at >= ?
+     WHERE fr.to_user_id = ? AND fr.created_at >= ? AND fr.status = 'pending'
        AND fr.from_user_id NOT IN (SELECT user_id FROM profiles WHERE <excludedFilter>)
   ) AS requestsPending,
   (SELECT COUNT(*) FROM friends f
