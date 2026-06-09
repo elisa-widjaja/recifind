@@ -2958,7 +2958,7 @@ function App() {
     }
   };
 
-  // Tapping a "Friends You May Know" suggestion opens the same drawer as
+  // Tapping a "Suggested friends" suggestion opens the same drawer as
   // tapping a friend, but loads from /users/:id/recipes (no friendship
   // required). Reuses the friend-recipes drawer's UI by setting selectedFriend
   // to a friend-shaped object; isSuggestion lets the drawer hide friend-only

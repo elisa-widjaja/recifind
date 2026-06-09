@@ -930,7 +930,7 @@ export default {
       }
 
       // GET /users/:id/recipes — preview a non-friend's shared recipes.
-      // Used by the "Friends You May Know" suggestion cards: tap a suggestion
+      // Used by the "Suggested friends" suggestion cards: tap a suggestion
       // to peek at their shared recipes before deciding to send a friend
       // request. Returns the same `shared_with_friends = 1` set as the friends
       // endpoint but without the friendship check, since that flag is the

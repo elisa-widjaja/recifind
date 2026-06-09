@@ -579,6 +579,9 @@ describe('buildGrowthCountersQuery', () => {
 
   it('ships a non-empty default exclusion list', () => {
     expect(METRICS_EXCLUDED_EMAILS).toContain('elisa.widjaja@gmail.com');
+    // Seeded suggestion accounts must stay excluded so founder/top-contributor
+    // connections don't inflate the has_friends activation segment.
+    expect(METRICS_EXCLUDED_EMAILS).toContain('mochislime02@gmail.com');
   });
 });
 
