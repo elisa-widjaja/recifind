@@ -832,6 +832,60 @@ export function buildSeedFunnelQuery(
   return { sql, params };
 }
 
+// GET /admin/metrics/seed-conversions
+// Funnel of cold-start conversions driven by the seeded "Suggested friends"
+// shelf, per seed and overall. `seeds` is passed in from index.ts
+// (SEEDED_SUGGESTIONS) so this stays a single source of truth without importing
+// from index.ts (which would be circular).
+export async function handleAdminSeedConversions(args: {
+  env: { DB: D1Database };
+  user: { userId: string; email?: string };
+  adminEmails: string | undefined;
+  url: URL;
+  seeds: ReadonlyArray<{ email: string; label: string }>;
+}): Promise<Response> {
+  const denied = requireAdmin({ user: args.user, adminEmails: args.adminEmails });
+  if (denied) return denied;
+
+  const emails = args.seeds.map((s) => s.email);
+  const ph = emails.map(() => '?').join(', ');
+  const resolved = emails.length
+    ? await args.env.DB
+        .prepare(`SELECT user_id AS userId, email FROM profiles WHERE email IN (${ph})`)
+        .bind(...emails)
+        .all<{ userId: string; email: string }>()
+    : { results: [] as Array<{ userId: string; email: string }> };
+  const idByEmail = new Map((resolved.results || []).map((r) => [r.email, r.userId]));
+
+  const seeds: Array<{
+    label: string; email: string; userId: string | null;
+    requestsPending: number; connections: number; activated: number; intent: number;
+  }> = [];
+  let tReq = 0, tConn = 0, tAct = 0;
+
+  for (const s of args.seeds) {
+    const userId = idByEmail.get(s.email) ?? null;
+    let requestsPending = 0, connections = 0, activated = 0;
+    if (userId) {
+      const q = buildSeedFunnelQuery(userId, SEED_SHELF_LAUNCH, METRICS_EXCLUDED_EMAILS);
+      const row = await args.env.DB.prepare(q.sql).bind(...q.params)
+        .first<{ requestsPending: number; connections: number; activated: number }>();
+      requestsPending = Number(row?.requestsPending ?? 0);
+      connections = Number(row?.connections ?? 0);
+      activated = Number(row?.activated ?? 0);
+    }
+    const intent = requestsPending + connections;
+    tReq += requestsPending; tConn += connections; tAct += activated;
+    seeds.push({ label: s.label, email: s.email, userId, requestsPending, connections, activated, intent });
+  }
+
+  return json(200, {
+    launchFloor: SEED_SHELF_LAUNCH,
+    seeds,
+    totals: { requestsPending: tReq, connections: tConn, activated: tAct, intent: tReq + tConn },
+  });
+}
+
 export async function handleAdminMetricsTimeseries(args: {
   env: { DB: D1Database; SUPABASE_URL: string; SUPABASE_SERVICE_ROLE_KEY?: string };
   user: { userId: string; email?: string };

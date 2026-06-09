@@ -1415,3 +1415,78 @@ describe('buildSeedFunnelQuery', () => {
     ]);
   });
 });
+
+describe('handleAdminSeedConversions', () => {
+  const SEEDS = [
+    { email: 'elisa.widjaja@gmail.com', label: 'ReciFriend Founder' },
+    { email: 'mochislime02@gmail.com', label: 'Top contributor' },
+  ];
+  const adminEmails = 'admin@recifriend.com';
+
+  it('rejects a non-admin caller with 403', async () => {
+    const res = await handleAdminSeedConversions({
+      env: { DB: {} as unknown as D1Database },
+      user: { userId: 'u', email: 'nobody@x.com' },
+      adminEmails,
+      url: new URL('https://x/admin/metrics/seed-conversions'),
+      seeds: SEEDS,
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('returns the funnel per seed with derived intent and summed totals', async () => {
+    const funnelRows = [
+      { requestsPending: 8, connections: 4, activated: 2 }, // founder
+      { requestsPending: 3, connections: 2, activated: 1 }, // top contributor
+    ];
+    let funnelCall = 0;
+    const mockDb = {
+      prepare: vi.fn(() => ({
+        bind: vi.fn().mockReturnThis(),
+        // resolve query reads .all(); funnel queries read .first()
+        all: vi.fn().mockResolvedValue({ results: [
+          { userId: 'id-founder', email: 'elisa.widjaja@gmail.com' },
+          { userId: 'id-mochi', email: 'mochislime02@gmail.com' },
+        ] }),
+        first: vi.fn().mockImplementation(() => Promise.resolve(funnelRows[funnelCall++])),
+      })),
+    } as unknown as D1Database;
+
+    const res = await handleAdminSeedConversions({
+      env: { DB: mockDb }, user: { userId: 'u', email: 'admin@recifriend.com' },
+      adminEmails, url: new URL('https://x/'), seeds: SEEDS,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.launchFloor).toBe('2026-06-08');
+    expect(body.seeds[0]).toEqual({
+      label: 'ReciFriend Founder', email: 'elisa.widjaja@gmail.com', userId: 'id-founder',
+      requestsPending: 8, connections: 4, activated: 2, intent: 12,
+    });
+    expect(body.seeds[1].intent).toBe(5);
+    expect(body.totals).toEqual({ requestsPending: 11, connections: 6, activated: 3, intent: 17 });
+  });
+
+  it('reports userId null and zeros for an unresolved seed', async () => {
+    const mockDb = {
+      prepare: vi.fn(() => ({
+        bind: vi.fn().mockReturnThis(),
+        all: vi.fn().mockResolvedValue({ results: [
+          { userId: 'id-founder', email: 'elisa.widjaja@gmail.com' },
+        ] }),
+        first: vi.fn().mockResolvedValue({ requestsPending: 8, connections: 4, activated: 2 }),
+      })),
+    } as unknown as D1Database;
+
+    const res = await handleAdminSeedConversions({
+      env: { DB: mockDb }, user: { userId: 'u', email: 'admin@recifriend.com' },
+      adminEmails, url: new URL('https://x/'), seeds: SEEDS,
+    });
+    const body = await res.json();
+    const mochi = body.seeds.find((s: { email: string }) => s.email === 'mochislime02@gmail.com');
+    expect(mochi).toEqual({
+      label: 'Top contributor', email: 'mochislime02@gmail.com', userId: null,
+      requestsPending: 0, connections: 0, activated: 0, intent: 0,
+    });
+  });
+});
