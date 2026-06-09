@@ -20,26 +20,13 @@ function gradientFor(userId) {
   return SUGGESTION_GRADIENTS[first % SUGGESTION_GRADIENTS.length];
 }
 
-// Onboarding stores dietary prefs with an emoji prefix (e.g. "🥦 Vegetarian").
-// Map the known values to a short, friendly, single-line reason. Anything
-// unmapped — "✅ None / all good", meal-type values, future prefs — falls
-// back to the generic line instead of rendering raw "Also into ✅ None…".
-const PREF_REASON = {
-  '🥦 Vegetarian': 'Also vegetarian',
-  '🌱 Vegan': 'Also vegan',
-  '🌾 Gluten-free': 'Also gluten-free',
-  '🥛 Dairy-free': 'Also dairy-free',
-  '💪 High protein': 'Also high-protein',
-  '🐟 Pescatarian': 'Also pescatarian',
-  '🥩 Meat lover': 'Fellow meat lover',
-};
-
 function reasonText(s) {
   if (s.kind === 'fof') {
     const n = s.mutualCount;
     return `${n} mutual ${n === 1 ? 'friend' : 'friends'}`;
   }
-  return PREF_REASON[s.sharedPref] || 'Fellow home cook';
+  // seed (founder / top contributor): the label IS the reason line.
+  return s.label || '';
 }
 
 function initialOf(name) {
@@ -94,7 +81,7 @@ const COMPACT_STYLE = {
 };
 
 /**
- * Self-contained "Friends you may know" shelf.
+ * Self-contained "Suggested friends" shelf.
  * Props:
  *   accessToken: string (required for live fetch + add-friend POST)
  *   onOpenFriends?: () => void — if provided, renders "See all"
@@ -198,7 +185,7 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, onTapCard
       <Box>
         <Box sx={{ display: 'flex', justifyContent: v.headerJustify, alignItems: 'center', mb: 2 }}>
           <Typography sx={{ fontWeight: 700, fontSize: 13, color: 'text.primary' }}>
-            Friends You May Know
+            Suggested friends
           </Typography>
         </Box>
         <Box
@@ -254,7 +241,7 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, onTapCard
     <Box>
       <Box sx={{ display: 'flex', justifyContent: v.headerJustify, alignItems: 'center', mb: 2 }}>
         <Typography sx={{ fontWeight: 700, fontSize: 13, color: 'text.primary' }}>
-          Friends You May Know
+          Suggested friends
         </Typography>
         {onOpenFriends && (
           <Typography

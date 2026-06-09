@@ -5,10 +5,9 @@ import SuggestionsShelf from './SuggestionsShelf';
 const SUGGESTIONS = [
   { userId: 'u1', name: 'Maya R.', kind: 'fof', mutualCount: 2 },
   { userId: 'u2', name: 'James T.', kind: 'fof', mutualCount: 1 },
-  // Backend sends the emoji-prefixed onboarding value.
-  { userId: 'u3', name: 'Priya S.', kind: 'pref', sharedPref: '🥦 Vegetarian' },
-  // "None / all good" / unmapped → generic line, never raw "Also into ✅ …".
-  { userId: 'u4', name: 'Sam K.', kind: 'pref', sharedPref: '✅ None / all good' },
+  // Seeded accounts: the label IS the reason line.
+  { userId: 'u3', name: 'Elisa W.', kind: 'seed', label: 'ReciFriend Founder' },
+  { userId: 'u4', name: 'Mochi', kind: 'seed', label: 'Top contributor' },
 ];
 
 describe('SuggestionsShelf', () => {
@@ -26,18 +25,18 @@ describe('SuggestionsShelf', () => {
     expect(screen.getByText('2 mutual friends')).toBeInTheDocument();
     expect(screen.getByText('James T.')).toBeInTheDocument();
     expect(screen.getByText('1 mutual friend')).toBeInTheDocument();
-    expect(screen.getByText('Priya S.')).toBeInTheDocument();
-    expect(screen.getByText('Also vegetarian')).toBeInTheDocument();
-    expect(screen.getByText('Sam K.')).toBeInTheDocument();
-    expect(screen.getByText('Fellow home cook')).toBeInTheDocument();
+    expect(screen.getByText('Elisa W.')).toBeInTheDocument();
+    expect(screen.getByText('ReciFriend Founder')).toBeInTheDocument();
+    expect(screen.getByText('Mochi')).toBeInTheDocument();
+    expect(screen.getByText('Top contributor')).toBeInTheDocument();
   });
 
-  it('renders "Friends You May Know" header and "See all" when onOpenFriends is provided', () => {
+  it('renders "Suggested friends" header and "See all" when onOpenFriends is provided', () => {
     const onOpenFriends = vi.fn();
     render(
       <SuggestionsShelf accessToken="t" suggestions={SUGGESTIONS} onOpenFriends={onOpenFriends} />
     );
-    expect(screen.getByText('Friends You May Know')).toBeInTheDocument();
+    expect(screen.getByText('Suggested friends')).toBeInTheDocument();
     const seeAll = screen.getByText('See all');
     fireEvent.click(seeAll);
     expect(onOpenFriends).toHaveBeenCalledTimes(1);
