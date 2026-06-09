@@ -48,13 +48,14 @@ describe('ChecklistScreen', () => {
     expect(onSave).toHaveBeenCalledWith(RECIPES[0]);
   });
 
-  it('calls onGetStarted from both the skip and the get-started states', () => {
+  it('routes Skip for now to discover and Get started to recipes', () => {
     const onGetStarted = vi.fn();
     const { rerender } = render(<ChecklistScreen recipes={RECIPES} savedIds={new Set()} onSave={() => {}} onGetStarted={onGetStarted} />);
     fireEvent.click(screen.getByRole('button', { name: /skip for now/i }));
     rerender(<ChecklistScreen recipes={RECIPES} savedIds={new Set(['r1'])} onSave={() => {}} onGetStarted={onGetStarted} />);
     fireEvent.click(screen.getByRole('button', { name: /^get started$/i }));
-    expect(onGetStarted).toHaveBeenCalledTimes(2);
+    expect(onGetStarted).toHaveBeenNthCalledWith(1, 'discover');
+    expect(onGetStarted).toHaveBeenNthCalledWith(2, 'recipes');
   });
 });
 

@@ -532,7 +532,7 @@ export function ChecklistScreen({ recipes = [], savedIds = new Set(), onSave = (
         <Button
           fullWidth
           variant="contained"
-          onClick={onGetStarted}
+          onClick={() => onGetStarted('recipes')}
           sx={{ borderRadius: 999, textTransform: 'none', fontWeight: 700, py: 1.25, fontSize: 15, mt: 0.5 }}
         >
           Get started
@@ -540,7 +540,7 @@ export function ChecklistScreen({ recipes = [], savedIds = new Set(), onSave = (
       ) : (
         <Button
           fullWidth
-          onClick={onGetStarted}
+          onClick={() => onGetStarted('discover')}
           sx={{ color: 'text.disabled', textTransform: 'none', fontSize: 13, mt: 0.5 }}
         >
           Skip for now

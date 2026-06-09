@@ -2906,9 +2906,13 @@ function App() {
   // OnboardingDrawer "Get started" (or X tapped on the final checklist
   // screen) — close, mark seen, land on home with the checklist
   // collapsed by default (user just saw the same content in the drawer).
-  const handleOnboardingComplete = async () => {
+  const handleOnboardingComplete = async (landingView) => {
     setOnboardingDrawerOpen(false);
-    setCurrentView('discover');
+    // "Get started" (shown after a save) lands the user on their Recipes
+    // collection to see the recipe they just saved; "Skip for now" and the
+    // X-dismiss land on Discover. Guard against non-string args (e.g. a click
+    // event) so the Discover default holds.
+    setCurrentView(landingView === 'recipes' ? 'recipes' : 'discover');
     setChecklistKey((k) => k + 1);
     await markOnboardingSeen();
   };
