@@ -4707,20 +4707,37 @@ export async function getRecommendedRecipes(
     }
   }
 
-  // Fallback: curated community recipes. Emails can't resolve relative
-  // image URLs (e.g. `/images/recipes/foo.jpg` works in-app but not in
-  // Gmail/Apple Mail), so restrict to Supabase-re-hosted absolute URLs.
-  if (rawRecipes.length === 0) {
-    const fallback = await getTrendingRecipes(db);
-    const emailSafe = fallback.filter(r => r.imageUrl.startsWith('https://') && r.imageUrl.includes('supabase'));
-    rawRecipes = emailSafe.sort(() => Math.random() - 0.5).slice(0, limit).map(r => ({
-      id: r.id,
-      userId: r.userId,
-      title: r.title,
-      durationMinutes: r.durationMinutes,
-      mealTypes: r.mealTypes,
-      imageUrl: r.imageUrl,
-    }));
+  // Top up from the curator's email-safe catalogue when the preference-matched
+  // supply is below the limit (covers both the empty case and a partial match,
+  // so the email reliably fills `limit` cards). The curator account has plenty
+  // of Supabase-re-hosted recipes; the narrow trending set did not, so query the
+  // curator directly without the preference filter. Emails can't resolve
+  // relative image URLs (e.g. `/images/recipes/foo.jpg` works in-app but not in
+  // Gmail/Apple Mail), so restrict to Supabase-re-hosted absolute URLs, apply
+  // the same clean-row quality bar, and dedupe against what we already picked.
+  if (rawRecipes.length < limit) {
+    const have = new Set(rawRecipes.map(r => r.id));
+    const rows = await db.prepare(
+      `SELECT id, user_id, title, duration_minutes, meal_types, image_url, ingredients, steps FROM recipes r
+       WHERE r.user_id = ?
+         AND r.shared_with_friends = 1
+         AND r.hidden_at IS NULL
+         AND r.image_url LIKE 'https://%supabase%'
+       ORDER BY RANDOM() LIMIT 30`
+    ).bind(EDITORS_PICK_USER_ID).all();
+    const topUp = (rows.results as Array<Record<string, unknown>>)
+      .filter(isCleanDiscoveryRow)
+      .filter(r => !have.has(String(r.id)))
+      .slice(0, limit - rawRecipes.length)
+      .map((r) => ({
+        id: String(r.id),
+        userId: String(r.user_id),
+        title: String(r.title),
+        durationMinutes: r.duration_minutes as number | null,
+        mealTypes: (() => { try { return JSON.parse(r.meal_types as string); } catch { return []; } })(),
+        imageUrl: String(r.image_url || ''),
+      }));
+    rawRecipes = [...rawRecipes, ...topUp];
   }
 
   // Universal-Link path form (`/recipes/{id}?user={owner}`) so iOS opens the
@@ -4882,7 +4899,7 @@ export function buildNudgeEmailHtml(
       </table>
     </td></tr>
     <tr><td style="text-align:center;padding:8px 24px 28px;">
-      <a href="https://recifriend.com/discover" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:12px 28px;border-radius:999px;font-size:14px;font-weight:700;">Discover more recipes</a>
+      <a href="https://recifriend.com/discover" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:14px 36px;border-radius:999px;font-size:16px;font-weight:700;">Discover more recipes</a>
     </td></tr>
   </table>
 
