@@ -867,6 +867,10 @@ export async function handleAdminSeedConversions(args: {
     const userId = idByEmail.get(s.email) ?? null;
     let requestsPending = 0, connections = 0, activated = 0;
     if (userId) {
+      // METRICS_EXCLUDED_EMAILS is applied to the requester/connector side only
+      // (NOT IN from_user_id / user_id), not to the seed target. Both seed emails
+      // are in that list, so a request/connection BETWEEN the two seeds (founder <->
+      // top contributor) is excluded, while real users connecting TO a seed count.
       const q = buildSeedFunnelQuery(userId, SEED_SHELF_LAUNCH, METRICS_EXCLUDED_EMAILS);
       const row = await args.env.DB.prepare(q.sql).bind(...q.params)
         .first<{ requestsPending: number; connections: number; activated: number }>();
