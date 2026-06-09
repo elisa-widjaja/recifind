@@ -1390,14 +1390,21 @@ function App() {
   // the param is removed so it doesn't stick across in-app navigation.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const pathIsDiscover = window.location.pathname === '/discover' || window.location.pathname === '/discover/';
+    const pathname = window.location.pathname;
+    const pathIsDiscover = pathname === '/discover' || pathname === '/discover/';
+    const pathIsFriendsAdd = (pathname === '/friends' || pathname === '/friends/') && params.get('add') === '1';
     const v = params.get('view');
-    const target = pathIsDiscover ? 'discover' : (v && VALID_VIEWS.includes(v) ? v : null);
+    const target = pathIsFriendsAdd ? 'friends' : (pathIsDiscover ? 'discover' : (v && VALID_VIEWS.includes(v) ? v : null));
     if (target) {
       setCurrentView(target);
+      if (pathIsFriendsAdd) {
+        setFriendsInitialTab('connections');
+        setAddFriendDrawerOpen(true);
+      }
       params.delete('view');
+      params.delete('add');
       const qs = params.toString();
-      // Normalize back to root so /discover or ?view= doesn't stick across nav.
+      // Normalize back to root so the path/params don't stick across in-app nav.
       window.history.replaceState({}, '', '/' + (qs ? `?${qs}` : ''));
     }
   }, []);
@@ -2226,7 +2233,13 @@ function App() {
           sessionStorage.setItem(inviteKind === 'open' ? 'pending_open_invite' : 'pending_invite_token', token);
         }
       },
-      onFriendsList: () => { setCurrentView('friends'); },
+      onFriendsList: (openAdd) => {
+        if (openAdd) {
+          setFriendsInitialTab('connections');
+          setAddFriendDrawerOpen(true);
+        }
+        setCurrentView('friends');
+      },
       onRecipeDetail: (recipeId, ownerId) => {
         const local = recipesRef.current.find((r) => r.id === recipeId);
         if (local) { handleOpenRecipeDetailsRef.current?.(local); return; }

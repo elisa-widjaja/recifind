@@ -74,6 +74,20 @@ describe('deep link dispatcher', () => {
     expect(handlers.onRecipeDetail).not.toHaveBeenCalled();
     expect(handlers.onRecipesList).not.toHaveBeenCalled();
   });
+
+  it('passes open_add to onFriendsList for /friends?add=1', async () => {
+    const onFriendsList = vi.fn();
+    const dispatch = createDispatcher({ ...noopHandlers(), onFriendsList });
+    await dispatch('https://recifriend.com/friends?add=1');
+    expect(onFriendsList).toHaveBeenCalledWith(true);
+  });
+
+  it('calls onFriendsList without a flag for bare /friends', async () => {
+    const onFriendsList = vi.fn();
+    const dispatch = createDispatcher({ ...noopHandlers(), onFriendsList });
+    await dispatch('https://recifriend.com/friends');
+    expect(onFriendsList).toHaveBeenCalledWith(undefined);
+  });
 });
 
 describe('dispatcher — new kinds and title', () => {
