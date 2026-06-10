@@ -4184,12 +4184,14 @@ function App() {
       }, accessToken).then(() => {
         trackEvent('send_friend_request');
         setIsAuthDialogOpen(false);
-        setSnackbarState({ open: true, message: 'Friend request sent to Elisa 💛', severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
+        // Generic copy: the handler accepts any add_friend userId, not just the founder.
+        setSnackbarState({ open: true, message: 'Friend request sent! 💛', severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
         fetchFriendRequests();
       }).catch((error) => {
         const msg = error?.message || '';
         const benign = msg.includes('already friends') || msg.includes('already sent');
-        setSnackbarState({ open: true, message: benign ? 'You\'re already connected with Elisa.' : 'Could not send the request.', severity: benign ? 'info' : 'error' });
+        setIsAuthDialogOpen(false);
+        setSnackbarState({ open: true, message: benign ? 'You\'re already connected.' : 'Could not send the request.', severity: benign ? 'info' : 'error' });
       });
     }
 

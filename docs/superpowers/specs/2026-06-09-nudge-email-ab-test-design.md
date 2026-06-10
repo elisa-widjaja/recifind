@@ -90,9 +90,10 @@ A new `?add_friend={userId}` deep link in `apps/recipe-ui/src/App.jsx`, mirrorin
 existing `accept_friend` capture pattern (module-load capture -> sessionStorage ->
 fire after auth):
 - On load, capture `add_friend`, strip it from the URL.
-- If logged in: `POST /friends/request { userId }`; show a toast
-  `Friend request sent to Elisa 💛` on success. If the request already exists / is
-  already a friend (non-5xx), treat as success (idempotent UX).
+- If logged in: `POST /friends/request { userId }`; show a generic success toast
+  `Friend request sent! 💛` (the handler accepts any userId, so it must NOT hardcode
+  the founder's name). If the request already exists / is already a friend (non-5xx),
+  treat as benign info (`You're already connected.`) — idempotent UX.
 - If logged out: stash in sessionStorage and fire after sign-in (same as `accept_friend`).
 - This is generic (`add_friend={anyUserId}`) and also feeds the seed-conversion metric
   (a request to the founder shows up there). No founder-specific hardcoding in the URL
