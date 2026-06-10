@@ -1968,6 +1968,16 @@ function fnv1a32(s: string): number {
   return h >>> 0;
 }
 
+// Deterministic 0-99 bucket for nudge A/B assignment. Reuses fnv1a32 (no crypto,
+// stable across runtimes). bucket < NUDGE_V2_PCT -> v2.
+export function nudgeVariantBucket(userId: string): number {
+  return fnv1a32(userId) % 100;
+}
+
+export function pickNudgeVariant(userId: string, v2Pct: number): 'v1' | 'v2' {
+  return nudgeVariantBucket(userId) < v2Pct ? 'v2' : 'v1';
+}
+
 // Week index for rotation. UTC-anchored weekly buckets so a US/EU/Asia
 // reader switches picks at the same instant. now is parameterized for
 // deterministic tests.

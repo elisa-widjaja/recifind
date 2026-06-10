@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildNudgeEmailHtml } from './index';
+import { buildNudgeEmailHtml, nudgeVariantBucket, pickNudgeVariant } from './index';
 
 // Shape matches the worker's RecommendedRecipe interface (id, userId, title,
 // durationMinutes, mealTypes, imageUrl, shareUrl) so it typechecks structurally.
@@ -49,5 +49,32 @@ describe('buildNudgeEmailHtml', () => {
     // same height regardless of title length.
     expect(html).toContain('-webkit-line-clamp:2');
     expect(html).not.toContain('max-height:33px');
+  });
+});
+
+describe('nudgeVariantBucket', () => {
+  it('is deterministic and in [0,100)', () => {
+    const b = nudgeVariantBucket('user-abc');
+    expect(b).toBe(nudgeVariantBucket('user-abc'));
+    expect(b).toBeGreaterThanOrEqual(0);
+    expect(b).toBeLessThan(100);
+  });
+  it('spreads across the range for varied ids', () => {
+    const buckets = new Set(Array.from({ length: 50 }, (_, i) => nudgeVariantBucket(`u-${i}`)));
+    expect(buckets.size).toBeGreaterThan(20);
+  });
+});
+
+describe('pickNudgeVariant', () => {
+  it('all v1 when pct=0', () => {
+    expect(pickNudgeVariant('anyone', 0)).toBe('v1');
+  });
+  it('all v2 when pct=100', () => {
+    expect(pickNudgeVariant('anyone', 100)).toBe('v2');
+  });
+  it('splits by bucket when pct=50', () => {
+    const id = 'split-test';
+    const expected = nudgeVariantBucket(id) < 50 ? 'v2' : 'v1';
+    expect(pickNudgeVariant(id, 50)).toBe(expected);
   });
 });
