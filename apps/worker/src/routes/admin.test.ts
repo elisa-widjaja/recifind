@@ -4,7 +4,7 @@ import { writeAuditLog } from './admin';
 import { handleAdminMe } from './admin';
 import { buildUsersListQuery, buildUserCountsQuery, computeUserCounts, handleAdminUserCounts, USER_COUNTS_KV_KEY } from './admin';
 import { syncAdminUserStats, fetchAllSupabaseLastSignIn } from './admin';
-import { buildSignupsPerDayQuery, buildViralCoefWeeklyQuery, buildGrowthCountersQuery, buildRetentionCohortsQuery, METRICS_EXCLUDED_EMAILS, buildWeeklySignupsActivationQuery, buildWeeklySavesQuery, launchWeeks, LAUNCH_DATE, buildSeedFunnelQuery, SEED_SHELF_LAUNCH, handleAdminSeedConversions, handleAdminNudgeRequeue } from './admin';
+import { buildSignupsPerDayQuery, buildViralCoefWeeklyQuery, buildGrowthCountersQuery, buildRetentionCohortsQuery, METRICS_EXCLUDED_EMAILS, buildWeeklySignupsActivationQuery, buildWeeklySavesQuery, launchWeeks, LAUNCH_DATE, buildSeedFunnelQuery, SEED_SHELF_LAUNCH, handleAdminSeedConversions, handleAdminNudgeRequeue, buildNudgeAbQuery, handleAdminNudgeAb } from './admin';
 import { buildRecipeSearchQuery } from './admin';
 import { deriveImageStatus } from './admin';
 
@@ -1515,5 +1515,46 @@ describe('handleAdminNudgeRequeue', () => {
     expect(sql).toContain('sent = 0');
     expect(sql).toContain('variant = NULL');
     expect(sql).toContain('NOT IN (SELECT DISTINCT user_id FROM recipes)');
+  });
+});
+
+describe('buildNudgeAbQuery', () => {
+  it('counts sent + activated-after-send per variant, excludes NULL + owner emails', () => {
+    const { sql } = buildNudgeAbQuery(['owner@x.com']);
+    expect(sql).toContain("variant IN ('v1','v2')");
+    expect(sql).toContain('n.sent = 1');
+    expect(sql).toContain('r.created_at >= n.sent_at');
+    expect(sql).toContain('email IN (?)');
+    expect(sql).toContain('GROUP BY');
+  });
+});
+
+describe('handleAdminNudgeAb', () => {
+  const adminEmails = 'admin@recifriend.com';
+  it('rejects a non-admin with 403', async () => {
+    const res = await handleAdminNudgeAb({
+      env: { DB: {} as unknown as D1Database }, user: { userId: 'u', email: 'nobody@x.com' },
+      adminEmails, url: new URL('https://x/'),
+    });
+    expect(res.status).toBe(403);
+  });
+  it('returns per-variant rows + totals with computed rates', async () => {
+    const mockDb = { prepare: vi.fn().mockReturnValue({
+      bind: vi.fn().mockReturnThis(),
+      all: vi.fn().mockResolvedValue({ results: [
+        { variant: 'v1', sent: 100, activated: 12 },
+        { variant: 'v2', sent: 100, activated: 20 },
+      ] }),
+    }) } as unknown as D1Database;
+    const res = await handleAdminNudgeAb({
+      env: { DB: mockDb }, user: { userId: 'u', email: 'admin@recifriend.com' },
+      adminEmails, url: new URL('https://x/'),
+    });
+    const body = await res.json();
+    expect(body.variants).toEqual([
+      { variant: 'v1', sent: 100, activated: 12, rate: 0.12 },
+      { variant: 'v2', sent: 100, activated: 20, rate: 0.2 },
+    ]);
+    expect(body.totals).toEqual({ sent: 200, activated: 32, rate: 0.16 });
   });
 });

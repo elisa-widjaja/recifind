@@ -592,6 +592,14 @@ export default {
         return await handleAdminNudgeRequeue({ env, user, adminEmails: env.ADMIN_EMAILS, url });
       }
 
+      if (url.pathname === '/admin/metrics/nudge-ab' && request.method === 'GET') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const { handleAdminNudgeAb } = await import('./routes/admin');
+        return await handleAdminNudgeAb({ env, user, adminEmails: env.ADMIN_EMAILS, url });
+      }
+
       if (url.pathname === '/admin/audit-log' && request.method === 'GET') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');

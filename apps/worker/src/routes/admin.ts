@@ -1455,3 +1455,49 @@ export async function handleAdminNudgeRequeue(args: {
   const requeued = (r as { meta?: { changes?: number } })?.meta?.changes ?? 0;
   return json(200, { requeued });
 }
+
+// ---------------------------------------------------------------------------
+// GET /admin/metrics/nudge-ab — per-variant (v1/v2) nudge activation funnel
+// ---------------------------------------------------------------------------
+
+export function buildNudgeAbQuery(excludeEmails: string[] = []): BuiltQuery {
+  const ph = excludeEmails.map(() => '?').join(', ');
+  const excludedFilter = excludeEmails.length ? `email IN (${ph})` : '0';
+  return {
+    sql: `
+      SELECT n.variant AS variant,
+             COUNT(*) AS sent,
+             SUM(CASE WHEN EXISTS (
+               SELECT 1 FROM recipes r
+               WHERE r.user_id = n.user_id AND r.created_at >= n.sent_at
+             ) THEN 1 ELSE 0 END) AS activated
+      FROM nudge_emails n
+      WHERE n.sent = 1
+        AND n.variant IN ('v1','v2')
+        AND n.user_id NOT IN (SELECT user_id FROM profiles WHERE ${excludedFilter})
+      GROUP BY n.variant
+    `.trim(),
+    params: [...excludeEmails],
+  };
+}
+
+export async function handleAdminNudgeAb(args: {
+  env: { DB: D1Database };
+  user: { userId: string; email?: string };
+  adminEmails: string | undefined;
+  url: URL;
+}): Promise<Response> {
+  const denied = requireAdmin({ user: args.user, adminEmails: args.adminEmails });
+  if (denied) return denied;
+  const q = buildNudgeAbQuery(METRICS_EXCLUDED_EMAILS);
+  const rows = await args.env.DB.prepare(q.sql).bind(...q.params)
+    .all<{ variant: string; sent: number; activated: number }>();
+  const rate = (a: number, s: number) => (s > 0 ? Math.round((a / s) * 1000) / 1000 : 0);
+  const variants = (rows.results || []).map(r => ({
+    variant: r.variant, sent: Number(r.sent), activated: Number(r.activated),
+    rate: rate(Number(r.activated), Number(r.sent)),
+  }));
+  const sent = variants.reduce((a, v) => a + v.sent, 0);
+  const activated = variants.reduce((a, v) => a + v.activated, 0);
+  return json(200, { variants, totals: { sent, activated, rate: rate(activated, sent) } });
+}
