@@ -1515,6 +1515,7 @@ describe('handleAdminNudgeRequeue', () => {
     expect(sql).toContain('sent = 0');
     expect(sql).toContain('variant = NULL');
     expect(sql).toContain('NOT IN (SELECT DISTINCT user_id FROM recipes)');
+    expect(sql).toContain('sent = 1'); // only re-queue previously-sent rows, never unsent ones
   });
 });
 
