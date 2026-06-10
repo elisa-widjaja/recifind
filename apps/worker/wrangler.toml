@@ -35,6 +35,8 @@ SUPABASE_STORAGE_BUCKET = "recipe-previews"
 # Nudge-email kill switch: "false" pauses the hourly send (cron still syncs admin stats).
 # Set back to "true" once the nudge email is finalized.
 NUDGE_EMAILS_ENABLED = "false"
+# Percent of nudge sends that get the v2 (hero) email; rest get v1. "0" = all v1 (rollback).
+NUDGE_V2_PCT = "0"
 
 # Secrets (set via wrangler secret put):
 # - DEV_API_KEY

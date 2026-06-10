@@ -38,6 +38,8 @@ export interface Env {
   // Kill switch for the hourly nudge-email send. "false" pauses sending
   // (cron still runs admin-stats sync + user-counts cache). Any other value sends.
   NUDGE_EMAILS_ENABLED?: string;
+  // Percent (0-100) of nudge sends assigned the v2 hero email; rest get v1. "0" = all v1.
+  NUDGE_V2_PCT?: string;
 }
 
 interface Recipe {
