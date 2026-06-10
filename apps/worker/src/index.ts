@@ -5010,7 +5010,7 @@ export function buildNudgeEmailHtmlV2(
       ${hero.imageUrl ? `<img src="${hero.imageUrl}" alt="${hero.title}" style="width:100%;height:200px;object-fit:cover;display:block;" />` : ''}
       <div style="padding:16px;">
         <div style="font-size:18px;font-weight:700;color:#1a1a1a;line-height:1.3;">${hero.title}</div>
-        <div style="font-size:12px;color:#888;margin-top:6px;">${[hero.durationMinutes ? `${hero.durationMinutes} min` : '', hero.mealTypes[0] || ''].filter(Boolean).join(' · ')}</div>
+        <div style="font-size:12px;color:#888;margin-top:6px;">${[hero.durationMinutes ? `${hero.durationMinutes} min` : '', hero.mealTypes[0] || 'Recipe'].filter(Boolean).join(' · ')}</div>
       </div>
     </a>
   </div>

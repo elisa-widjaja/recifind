@@ -136,6 +136,9 @@ describe('buildNudgeEmailHtmlV2', () => {
     expect(html).toContain('https://recifriend.com/discover');
     expect(html).toContain('<!--FOUNDER-->');
     expect(html).not.toContain('Save Your First Recipe');
+    // Unsubscribe placeholders must survive (cron .replace()s them).
+    expect(html).toContain('__USER_ID__');
+    expect(html).toContain('__TOKEN__');
   });
   it('degrades gracefully with no recipes (no hero/grid, still founder module)', () => {
     const html = buildNudgeEmailHtmlV2('Sam', [], '<!--FOUNDER-->');
