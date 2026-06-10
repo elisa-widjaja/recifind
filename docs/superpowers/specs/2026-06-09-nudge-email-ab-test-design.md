@@ -30,9 +30,15 @@ never saved) and lift activation (first recipe save). Two levers:
    all v2. The existing `NUDGE_EMAILS_ENABLED` master kill switch is unchanged.
 4. **Deterministic assignment** by hashing `user_id` to a 0-99 bucket; bucket <
    `NUDGE_V2_PCT` -> v2, else v1. Stable, reproducible, no RNG.
-5. **Founder module copy is fixed** (below); founder recipes are pulled live from the
-   founder's public collection. Founder = the first entry in `SEEDED_SUGGESTIONS`
-   (`elisa.widjaja@gmail.com`), resolved to a user id at send time (no hardcoded id).
+5. **Founder module copy is fixed** (below); the founder recipe cards are her
+   **favorites**, not a random repeat of the "Recommended for you" grid. Important
+   grounding: `getRecommendedRecipes` already pulls from the founder/curator account
+   `EDITORS_PICK_USER_ID = '8e4dfd5e-...'` (== `elisa.widjaja@gmail.com`, the
+   `SEEDED_SUGGESTIONS` founder) across her WHOLE shared collection at random;
+   `getEditorsPick` pulls the same account filtered to `is_favorite = 1` (rotated
+   weekly). So the founder module reuses **`getEditorsPick(db)`** for distinct,
+   curated content and uses `EDITORS_PICK_USER_ID` as the founder id for the connect
+   link. Dedupe against whatever the email already shows so no card repeats.
 
 ## v2 email copy (desire-led hero)
 
@@ -66,20 +72,17 @@ both emails.
 - **Body:**
   > Hi, I'm Elisa. I built ReciFriend on nights and weekends to fix my own messy recipe
   > situation. Here are a few of mine to start you off.
-- **Founder recipe cards:** up to 3 of the founder's public recipes, rendered with the
-  same card style as the "Recommended for you" grid, each linking to its detail
-  (saveable). Source query:
-  ```sql
-  SELECT id, title, image_url, meal_types, duration_minutes
-  FROM recipes
-  WHERE user_id = ? AND shared_with_friends = 1 AND hidden_at IS NULL
-  ORDER BY created_at DESC LIMIT 3
-  ```
-- **Soft secondary CTA:** **`Connect with Elisa →`** -> `https://recifriend.com/?add_friend={founderUserId}`
+- **Founder recipe cards:** up to 3 of the founder's **favorites**, sourced by reusing
+  `getEditorsPick(db)` (her `is_favorite = 1` recipes, already clean-filtered and
+  weekly-rotated), **deduped** against the recipe ids the email already shows (the v2
+  hero + the recommended grid, or v1's recommended grid) so no card repeats. Map each
+  to the same card shape/style as the "Recommended for you" grid and link to its detail
+  (`https://recifriend.com/recipes/{id}?user={userId}`, saveable).
+- **Soft secondary CTA:** **`Connect with Elisa →`** -> `https://recifriend.com/?add_friend={EDITORS_PICK_USER_ID}`
   (the deep link below). Framed soft; no promise of instant connection (the founder
   does not auto-accept).
-- If the founder has 0 public recipes, omit the cards but keep the heading, body, and
-  Connect CTA.
+- If there are 0 founder favorites left after dedupe, omit the cards but keep the
+  heading, body, and Connect CTA.
 
 ## "Connect with Elisa" deep link (frontend)
 
@@ -100,14 +103,16 @@ fire after auth):
 - **Schema:** add a nullable `variant TEXT` column to `nudge_emails`
   (`ALTER TABLE nudge_emails ADD COLUMN variant TEXT`). Applied as a manual remote D1
   op (`wrangler d1 execute --remote`), consistent with this project's manual-migration
-  policy. Historical rows keep `variant = NULL` (treated as v1 in reporting).
+  policy. Historical rows keep `variant = NULL` and are EXCLUDED from the A/B metric.
 - **Assignment (cron, in the send loop, only for rows that will actually be sent):**
-  1. Resolve the founder user id once per cron run (email -> id) and fetch the founder
-     recipes once per run (reused across recipients).
+  1. Fetch the founder favorites once per cron run via `getEditorsPick(env.DB)` (reused
+     across recipients); the founder id is `EDITORS_PICK_USER_ID`.
   2. For each 0-recipe recipient: `const variant = (await bucketForUser(userId)) < v2Pct ? 'v2' : 'v1'` where
-     `v2Pct = parseInt(env.NUDGE_V2_PCT ?? '0', 10)` clamped to [0,100].
-  3. Build the founder module HTML once per run; build the email with `buildNudgeEmailHtml`
-     (v1) or `buildNudgeEmailHtmlV2` (v2), injecting the founder module.
+     `v2Pct = clamp(parseInt(env.NUDGE_V2_PCT ?? '0', 10) || 0, 0, 100)`.
+  3. Per recipient: build the founder module HTML by deduping the founder favorites
+     against the recipe ids this email already shows (v2: hero + recommended grid; v1:
+     recommended grid), taking up to 3; then build the email with `buildNudgeEmailHtml`
+     (v1) or `buildNudgeEmailHtmlV2` (v2), injecting the founder module HTML.
   4. On send, record the variant: `UPDATE nudge_emails SET sent = 1, sent_at = ?, variant = ? WHERE user_id = ?`.
 - **`bucketForUser(userId): Promise<number>`** — SHA-256 the `user_id`, take the first 4
   bytes as a uint32, `% 100`. Deterministic, well-distributed, no RNG.
@@ -182,9 +187,10 @@ out of scope now).
 - **`buildNudgeEmailHtml` (v1)**: still contains the original 3-step + "Save Your First
   Recipe" markers AND now the founder module; the old invite-rewards/`?add=1` block is
   gone.
-- **`buildFounderModuleHtml`**: renders heading/body, up to 3 founder recipe cards
-  linking to their detail URLs, and the `Connect with Elisa` CTA -> `?add_friend={id}`;
-  omits cards when founder recipes is empty.
+- **`buildFounderModuleHtml`**: renders heading/body, up to 3 founder-favorite cards
+  linking to their detail URLs, the `Connect with Elisa` CTA -> `?add_friend={EDITORS_PICK_USER_ID}`;
+  excludes favorites whose id is in the passed-in "already shown" set (dedup); omits
+  cards (keeps heading/body/CTA) when the deduped favorites list is empty.
 - **Re-queue handler**: non-admin -> 403; admin -> resets only still-0-recipe sent=1
   rows, returns the count; does not touch rows for users with recipes.
 - **nudge-ab metric**: builder SQL floors activation on `created_at >= sent_at`, counts
