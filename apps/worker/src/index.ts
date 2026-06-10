@@ -584,6 +584,14 @@ export default {
         });
       }
 
+      if (url.pathname === '/admin/nudge/requeue' && request.method === 'POST') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const { handleAdminNudgeRequeue } = await import('./routes/admin');
+        return await handleAdminNudgeRequeue({ env, user, adminEmails: env.ADMIN_EMAILS, url });
+      }
+
       if (url.pathname === '/admin/audit-log' && request.method === 'GET') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');

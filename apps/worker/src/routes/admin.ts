@@ -1432,3 +1432,26 @@ export async function handleAdminAuditLog(args: {
   const rows = await args.env.DB.prepare(sql).bind(...params).all();
   return json(200, { entries: rows.results || [], page: { limit, offset } });
 }
+
+// ---------------------------------------------------------------------------
+// POST /admin/nudge/requeue — reset still-0-recipe previously-sent nudge rows so the
+// cron re-sends them with a fresh A/B variant. Idempotent.
+// ---------------------------------------------------------------------------
+
+export async function handleAdminNudgeRequeue(args: {
+  env: { DB: D1Database };
+  user: { userId: string; email?: string };
+  adminEmails: string | undefined;
+  url: URL;
+}): Promise<Response> {
+  const denied = requireAdmin({ user: args.user, adminEmails: args.adminEmails });
+  if (denied) return denied;
+  const now = new Date().toISOString();
+  const r = await args.env.DB.prepare(
+    `UPDATE nudge_emails
+     SET sent = 0, sent_at = NULL, variant = NULL, send_after = ?
+     WHERE sent = 1 AND user_id NOT IN (SELECT DISTINCT user_id FROM recipes)`
+  ).bind(now).run();
+  const requeued = (r as { meta?: { changes?: number } })?.meta?.changes ?? 0;
+  return json(200, { requeued });
+}

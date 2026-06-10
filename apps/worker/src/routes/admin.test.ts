@@ -4,7 +4,7 @@ import { writeAuditLog } from './admin';
 import { handleAdminMe } from './admin';
 import { buildUsersListQuery, buildUserCountsQuery, computeUserCounts, handleAdminUserCounts, USER_COUNTS_KV_KEY } from './admin';
 import { syncAdminUserStats, fetchAllSupabaseLastSignIn } from './admin';
-import { buildSignupsPerDayQuery, buildViralCoefWeeklyQuery, buildGrowthCountersQuery, buildRetentionCohortsQuery, METRICS_EXCLUDED_EMAILS, buildWeeklySignupsActivationQuery, buildWeeklySavesQuery, launchWeeks, LAUNCH_DATE, buildSeedFunnelQuery, SEED_SHELF_LAUNCH, handleAdminSeedConversions } from './admin';
+import { buildSignupsPerDayQuery, buildViralCoefWeeklyQuery, buildGrowthCountersQuery, buildRetentionCohortsQuery, METRICS_EXCLUDED_EMAILS, buildWeeklySignupsActivationQuery, buildWeeklySavesQuery, launchWeeks, LAUNCH_DATE, buildSeedFunnelQuery, SEED_SHELF_LAUNCH, handleAdminSeedConversions, handleAdminNudgeRequeue } from './admin';
 import { buildRecipeSearchQuery } from './admin';
 import { deriveImageStatus } from './admin';
 
@@ -1488,5 +1488,32 @@ describe('handleAdminSeedConversions', () => {
       label: 'Top contributor', email: 'mochislime02@gmail.com', userId: null,
       requestsPending: 0, connections: 0, activated: 0, intent: 0,
     });
+  });
+});
+
+describe('handleAdminNudgeRequeue', () => {
+  const adminEmails = 'admin@recifriend.com';
+  it('rejects a non-admin with 403', async () => {
+    const res = await handleAdminNudgeRequeue({
+      env: { DB: {} as unknown as D1Database }, user: { userId: 'u', email: 'nobody@x.com' },
+      adminEmails, url: new URL('https://x/admin/nudge/requeue'),
+    });
+    expect(res.status).toBe(403);
+  });
+  it('resets still-0-recipe sent rows and returns the count', async () => {
+    const run = vi.fn().mockResolvedValue({ meta: { changes: 7 } });
+    const bind = vi.fn().mockReturnValue({ run });
+    const mockDb = { prepare: vi.fn().mockReturnValue({ bind }) } as unknown as D1Database;
+    const res = await handleAdminNudgeRequeue({
+      env: { DB: mockDb }, user: { userId: 'u', email: 'admin@recifriend.com' },
+      adminEmails, url: new URL('https://x/'),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ requeued: 7 });
+    const sql = (mockDb.prepare as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(sql).toContain('UPDATE nudge_emails');
+    expect(sql).toContain('sent = 0');
+    expect(sql).toContain('variant = NULL');
+    expect(sql).toContain('NOT IN (SELECT DISTINCT user_id FROM recipes)');
   });
 });
