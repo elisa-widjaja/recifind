@@ -96,7 +96,7 @@ describe('dedupeFavorites', () => {
 describe('buildFounderModuleHtml', () => {
   it('renders heading, body, favorite cards, and the Connect CTA to ?add_friend', () => {
     const html = buildFounderModuleHtml([FAV('a'), FAV('b')]);
-    expect(html).toContain('Recipes from the founder');
+    expect(html).toContain('A few of my favorites');
     expect(html).toContain("Hi, I'm Elisa");
     expect(html).toContain('Fav a');
     expect(html).toContain(`/recipes/a?user=${EDITORS_PICK_USER_ID}`);
@@ -105,7 +105,7 @@ describe('buildFounderModuleHtml', () => {
   });
   it('keeps heading/body/CTA but no cards when favorites is empty', () => {
     const html = buildFounderModuleHtml([]);
-    expect(html).toContain('Recipes from the founder');
+    expect(html).toContain('A few of my favorites');
     expect(html).toContain('Connect with Elisa');
     expect(html).not.toContain('<img');
   });

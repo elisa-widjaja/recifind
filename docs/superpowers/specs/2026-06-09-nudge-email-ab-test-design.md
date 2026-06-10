@@ -68,10 +68,10 @@ CTA + founder module (no hero/grid).
 Replaces the existing "Invite friends, earn rewards" `<div>` block at the bottom of
 both emails.
 
-- **Heading:** `Recipes from the founder`
+- **Heading:** `A few of my favorites`
 - **Body:**
-  > Hi, I'm Elisa. I built ReciFriend on nights and weekends to fix my own messy recipe
-  > situation. Here are a few of mine to start you off.
+  > Hi, I'm Elisa, the founder. These are some of the recipes I actually cook at home.
+  > Save any that look good. Connect with me if you'd like to swap more.
 - **Founder recipe cards:** up to 3 of the founder's **favorites**, sourced by reusing
   `getEditorsPick(db)` (her `is_favorite = 1` recipes, already clean-filtered and
   weekly-rotated), **deduped** against the recipe ids the email already shows (the v2

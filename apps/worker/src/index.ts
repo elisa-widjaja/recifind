@@ -4904,8 +4904,8 @@ export function buildFounderModuleHtml(favorites: RecommendedRecipe[]): string {
   return `<div style="border-top:1px solid #eee;margin:0 24px;"></div>
   <table cellpadding="0" cellspacing="0" border="0" width="100%">
     <tr><td style="padding:32px 24px 12px;">
-      <div style="font-size:18px;font-weight:700;color:#1a1a1a;">Recipes from the founder</div>
-      <div style="color:#555;font-size:14px;line-height:1.6;margin-top:8px;">Hi, I'm Elisa. I built ReciFriend on nights and weekends to fix my own messy recipe situation. Here are a few of mine to start you off.</div>
+      <div style="font-size:18px;font-weight:700;color:#1a1a1a;">A few of my favorites</div>
+      <div style="color:#555;font-size:14px;line-height:1.6;margin-top:8px;">Hi, I'm Elisa, the founder. These are some of the recipes I actually cook at home. Save any that look good. Connect with me if you'd like to swap more.</div>
     </td></tr>
     ${grid}
     <tr><td style="text-align:center;padding:8px 24px 28px;">
