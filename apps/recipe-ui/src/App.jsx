@@ -147,6 +147,7 @@ import { SharedAuthStore } from './native/SharedAuthStore';
 // === [/S12] ===
 import { formatDuration } from './utils/videoEmbed';
 import { estimateDurationMinutes } from './utils/estimateDuration';
+import { landingViewForRecipeCount } from './utils/landing';
 import recipesData from '../recipes.json';
 import recipesFromPdfData from '../recipes_from_pdf.json';
 
@@ -2527,6 +2528,25 @@ function App() {
     // Welcome content lives inside OnboardingDrawer's first screen now —
     // no separate WelcomeModal Dialog.
     setOnboardingDrawerOpen(true);
+  }, [isAuthChecked, session, userProfile]);
+
+  // Recipe-count landing for RETURNING (already-onboarded) users: decide ONCE per
+  // app launch where to land. 0-3 recipes -> Discover (keep them saving), 4+ ->
+  // Home feed. Read the count from the local cache so there's no fetch lag (and no
+  // flash from landing on Home then jumping). First-time users are skipped here —
+  // the onboarding drawer + its completion routing own their first-session landing,
+  // and the once-per-launch ref keeps a later userProfile change (e.g. onboarding
+  // completing) from clobbering that.
+  const landingAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!isAuthChecked || !session || landingAppliedRef.current) return;
+    const onboarded = localStorage.getItem('onboarding_seen') || userProfile?.onboardingSeen;
+    // Onboarding status not known yet (no local flag, profile still loading): wait.
+    if (!onboarded && !userProfile) return;
+    landingAppliedRef.current = true; // decide exactly once per launch
+    if (!onboarded) return;           // first-timer: onboarding flow owns the landing
+    const count = loadRecipesFromCache(session.user?.id)?.recipes?.length ?? 0;
+    setCurrentView(landingViewForRecipeCount(count));
   }, [isAuthChecked, session, userProfile]);
 
   // ── Profile API functions ─────────────────────────────────────────
