@@ -95,8 +95,10 @@ export async function handleTestNudgeEmail(args: {
 
   // Imported lazily to avoid a load-time circular dependency between
   // routes/admin.ts and index.ts (index.ts also imports from this file).
-  const { sendEmailNotification, computeHmac, getRecommendedRecipes, buildNudgeEmailHtml } =
-    await import('../index');
+  const {
+    sendEmailNotification, computeHmac, getRecommendedRecipes, buildNudgeEmailHtml,
+    buildNudgeEmailHtmlV2, getEditorsPick, dedupeFavorites, buildFounderModuleHtml,
+  } = await import('../index');
 
   const url = new URL(args.request.url);
   const toEmail = url.searchParams.get('to');
@@ -129,25 +131,40 @@ export async function handleTestNudgeEmail(args: {
   const recipes = await getRecommendedRecipes(args.env.DB, profileUserId, 6);
   const gifUrl: string | null = null;
 
+  // Preview either variant: /admin/test-nudge-email?to=...&variant=v2
+  const variant = url.searchParams.get('variant') === 'v2' ? 'v2' : 'v1';
+
+  // Build the founder module the same way the cron does, so the preview is faithful.
+  const favRaw = await getEditorsPick(args.env.DB);
+  const founderFavorites = favRaw.map(r => ({
+    id: r.id, userId: r.userId, title: r.title, durationMinutes: r.durationMinutes,
+    mealTypes: r.mealTypes, imageUrl: r.imageUrl,
+    shareUrl: `https://recifriend.com/recipes/${encodeURIComponent(r.id)}?user=${encodeURIComponent(r.userId)}`,
+  }));
+  const shownIds = new Set(recipes.map(r => r.id));
+  const founderModuleHtml = buildFounderModuleHtml(dedupeFavorites(founderFavorites, shownIds, 3));
+
   const secret = args.env.DEV_API_KEY;
   if (!secret) {
     return json(500, { error: 'Server misconfiguration: missing signing key' });
   }
   const unsubToken = await computeHmac(secret, profileUserId);
-  let html = buildNudgeEmailHtml(displayName, recipes, gifUrl);
+  let html = variant === 'v2'
+    ? buildNudgeEmailHtmlV2(displayName, recipes, founderModuleHtml)
+    : buildNudgeEmailHtml(displayName, recipes, gifUrl, founderModuleHtml);
   html = html.replace('__USER_ID__', encodeURIComponent(profileUserId));
   html = html.replace('__TOKEN__', unsubToken);
 
-  const emailResult = await sendEmailNotification(
-    args.env,
-    toEmail,
-    `Your recipes are waiting, ${displayName}!`,
-    html
-  );
+  const subject = variant === 'v2'
+    ? (recipes[0] ? `Worth saving tonight, ${displayName} 🍴` : `Your next favorite recipe, ${displayName} 🍴`)
+    : `Your recipes are waiting, ${displayName}!`;
+
+  const emailResult = await sendEmailNotification(args.env, toEmail, subject, html);
 
   return json(200, {
     ok: emailResult.ok,
     sentTo: toEmail,
+    variant,
     recipesIncluded: recipes.length,
     resendStatus: emailResult.status,
     resendResponse: emailResult.body,
