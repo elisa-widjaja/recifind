@@ -5007,6 +5007,76 @@ export function buildNudgeEmailHtml(
 </html>`;
 }
 
+export function buildNudgeEmailHtmlV2(
+  displayName: string,
+  recipes: RecommendedRecipe[],
+  founderModuleHtml: string
+): string {
+  const hero = recipes[0];
+  const morePicks = recipes.slice(1, 5);
+  const heroHtml = hero ? `
+  <div style="padding:8px 24px 0;">
+    <a href="${hero.shareUrl}" style="text-decoration:none;color:inherit;display:block;border:1px solid #eee;border-radius:12px;overflow:hidden;">
+      ${hero.imageUrl ? `<img src="${hero.imageUrl}" alt="${hero.title}" style="width:100%;height:200px;object-fit:cover;display:block;" />` : ''}
+      <div style="padding:16px;">
+        <div style="font-size:18px;font-weight:700;color:#1a1a1a;line-height:1.3;">${hero.title}</div>
+        <div style="font-size:12px;color:#888;margin-top:6px;">${[hero.durationMinutes ? `${hero.durationMinutes} min` : '', hero.mealTypes[0] || ''].filter(Boolean).join(' · ')}</div>
+      </div>
+    </a>
+  </div>
+  <div style="text-align:center;padding:16px 24px 4px;">
+    <a href="${hero.shareUrl}" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:14px 36px;border-radius:999px;font-size:16px;font-weight:700;">Save this recipe →</a>
+  </div>
+  <div style="padding:4px 24px 8px;color:#555;font-size:14px;line-height:1.6;text-align:center;">One tap and it's yours: ingredients, steps, and hands-free cook mode, ready whenever you cook. That first save is where ReciFriend clicks.</div>` : '';
+
+  const moreCells = morePicks.map(r => {
+    const label = [r.durationMinutes ? `${r.durationMinutes} min` : '', r.mealTypes[0] || 'Recipe'].filter(Boolean).join(' · ');
+    const img = r.imageUrl
+      ? `<img src="${r.imageUrl}" alt="${r.title}" width="260" height="90" style="width:100%;height:90px;object-fit:cover;display:block;" />`
+      : `<div style="width:100%;height:90px;background:#f0e6d6;text-align:center;line-height:90px;font-size:32px;">🍳</div>`;
+    return `<td style="width:50%;vertical-align:top;padding:0 6px 12px;"><a href="${r.shareUrl}" style="text-decoration:none;color:inherit;display:block;border:1px solid #eee;border-radius:10px;overflow:hidden;">${img}<div style="padding:10px 10px 14px;"><div style="font-size:12px;font-weight:700;color:#1a1a1a;text-transform:uppercase;line-height:17px;height:34px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${r.title}</div><div style="font-size:11px;color:#888;margin-top:8px;">${label}</div></div></a></td>`;
+  });
+  const moreRows: string[] = [];
+  for (let i = 0; i < moreCells.length; i += 2) {
+    const pair = moreCells.slice(i, i + 2);
+    if (pair.length === 1) pair.push('<td style="width:50%;"></td>');
+    moreRows.push(`<tr>${pair.join('')}</tr>`);
+  }
+  const moreHtml = moreCells.length ? `
+  <div style="padding:8px 16px 0;">
+    <div style="padding:0 8px;font-size:16px;font-weight:700;color:#1a1a1a;">More picks for you</div>
+    <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:8px;">${moreRows.join('\n')}</table>
+  </div>` : '';
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+<div style="display:none;max-height:0;overflow:hidden;">One tap saves it: ingredients, steps, and cook mode included.</div>
+<div style="max-width:600px;margin:0 auto;background:#fff;">
+  <div style="background:#6200EA;padding:32px 24px;text-align:center;">
+    <div style="font-size:28px;font-weight:700;color:#fff;">🍳 ReciFriend</div>
+    <div style="color:rgba(255,255,255,0.9);margin-top:8px;font-size:15px;">Your personal recipe collection</div>
+  </div>
+  <div style="padding:28px 24px 4px;">
+    <div style="font-size:22px;font-weight:700;color:#1a1a1a;">Hey ${displayName}, one good recipe to get you started.</div>
+  </div>
+  ${heroHtml}
+  ${moreHtml}
+  <div style="text-align:center;padding:8px 24px 24px;">
+    <a href="https://recifriend.com/discover" style="display:inline-block;background:transparent;color:#6200EA;border:1px solid #6200EA;text-decoration:none;padding:12px 30px;border-radius:999px;font-size:15px;font-weight:700;">Browse more recipes →</a>
+  </div>
+  ${founderModuleHtml}
+  <div style="background:#f9f9f9;padding:24px;text-align:center;border-top:1px solid #eee;">
+    <div style="color:#999;font-size:12px;line-height:1.6;">You're receiving this because you signed up for ReciFriend.<br>
+      <a href="https://api.recifriend.com/unsubscribe?userId=__USER_ID__&token=__TOKEN__" style="color:#999;">Unsubscribe</a>
+    </div>
+  </div>
+</div>
+</body>
+</html>`;
+}
+
 // ── End friends helpers ──────────────────────────────────────────────
 
 function buildImagePath(recipeId: string) {
