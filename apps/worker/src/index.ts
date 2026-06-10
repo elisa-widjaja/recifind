@@ -1017,6 +1017,14 @@ export default {
       return;
     }
 
+    const v2Pct = Math.min(Math.max(parseInt(env.NUDGE_V2_PCT ?? '0', 10) || 0, 0), 100);
+    const founderFavRaw = await getEditorsPick(env.DB); // founder's is_favorite recipes
+    const founderFavorites: RecommendedRecipe[] = founderFavRaw.map(r => ({
+      id: r.id, userId: r.userId, title: r.title, durationMinutes: r.durationMinutes,
+      mealTypes: r.mealTypes, imageUrl: r.imageUrl,
+      shareUrl: `https://recifriend.com/recipes/${encodeURIComponent(r.id)}?user=${encodeURIComponent(r.userId)}`,
+    }));
+
     const now = new Date().toISOString();
     const BATCH_SIZE = 20;
 
@@ -1051,25 +1059,31 @@ export default {
 
       // Build and send the nudge email
       const recipes = await getRecommendedRecipes(env.DB, userId, 6);
-      const gifUrl: string | null = null; // Set after GIF upload
+      const variant = pickNudgeVariant(userId, v2Pct);
+
+      // Dedup founder favorites against whatever this email already shows.
+      const shownIds = new Set(recipes.map(r => r.id));
+      const founderModuleHtml = buildFounderModuleHtml(dedupeFavorites(founderFavorites, shownIds, 3));
 
       const secret = env.DEV_API_KEY;
       if (!secret) return; // Can't sign unsubscribe tokens without DEV_API_KEY
       const unsubToken = await computeHmac(secret, userId);
-      let html = buildNudgeEmailHtml(displayName, recipes, gifUrl, '');
+
+      let html = variant === 'v2'
+        ? buildNudgeEmailHtmlV2(displayName, recipes, founderModuleHtml)
+        : buildNudgeEmailHtml(displayName, recipes, null, founderModuleHtml);
       html = html.replace('__USER_ID__', encodeURIComponent(userId));
       html = html.replace('__TOKEN__', unsubToken);
 
-      await sendEmailNotification(
-        env,
-        email,
-        `Your recipes are waiting, ${displayName}!`,
-        html
-      );
+      const subject = variant === 'v2'
+        ? (recipes[0] ? `Worth saving tonight, ${displayName} 🍴` : `Your next favorite recipe, ${displayName} 🍴`)
+        : `Your recipes are waiting, ${displayName}!`;
+
+      await sendEmailNotification(env, email, subject, html);
 
       await env.DB.prepare(
-        'UPDATE nudge_emails SET sent = 1, sent_at = ? WHERE user_id = ?'
-      ).bind(now, userId).run();
+        'UPDATE nudge_emails SET sent = 1, sent_at = ?, variant = ? WHERE user_id = ?'
+      ).bind(now, variant, userId).run();
     }
   },
 };
