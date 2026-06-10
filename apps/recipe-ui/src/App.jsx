@@ -257,6 +257,16 @@ function writeCachedProfile(userId, profile) {
   }
 }
 
+// Exported for unit testing — captures add_friend from a URL and stashes it in storage.
+export function captureAddFriendParam(url, storage) {
+  const id = url.searchParams.get('add_friend');
+  if (id) {
+    storage.setItem('pending_add_friend', id);
+    url.searchParams.delete('add_friend');
+  }
+  return id || null;
+}
+
 // Capture accept_friend and invite_token URL params immediately at module load time.
 {
   const _url = new URL(window.location.href);
@@ -264,6 +274,11 @@ function writeCachedProfile(userId, profile) {
   if (_acceptId) {
     sessionStorage.setItem('pending_accept_friend', _acceptId);
     _url.searchParams.delete('accept_friend');
+    window.history.replaceState({}, '', _url.toString());
+  }
+  const _addFriendId = _url.searchParams.get('add_friend');
+  if (_addFriendId) {
+    captureAddFriendParam(_url, sessionStorage);
     window.history.replaceState({}, '', _url.toString());
   }
   const _inviteToken = _url.searchParams.get('invite_token');
@@ -3088,7 +3103,9 @@ function App() {
             ? `${window.location.origin}?invite=${encodeURIComponent(pendingOpenInvite)}`
             : (pendingShareToken && pendingSaveShare)
               ? `${window.location.origin}?share=${encodeURIComponent(pendingShareToken)}`
-              : window.location.origin;
+              : sessionStorage.getItem('pending_add_friend')
+                ? `${window.location.origin}?add_friend=${encodeURIComponent(sessionStorage.getItem('pending_add_friend'))}`
+                : window.location.origin;
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo }
@@ -4136,7 +4153,7 @@ function App() {
 
     if (!accessToken) {
       const pendingOpenInviteCheck = sessionStorage.getItem('pending_open_invite');
-      if (pendingInviteCheck || pendingId || pendingOpenInviteCheck) {
+      if (pendingInviteCheck || pendingId || pendingOpenInviteCheck || sessionStorage.getItem('pending_add_friend')) {
         setIsAuthDialogOpen(true);
       }
       return;
@@ -4155,6 +4172,24 @@ function App() {
         fetchFriends();
       }).catch(() => {
         setSnackbarState({ open: true, message: 'Could not accept the friend request. It may have been cancelled.', severity: 'error' });
+      });
+    }
+
+    const pendingAddFriend = sessionStorage.getItem('pending_add_friend');
+    if (accessToken && pendingAddFriend) {
+      sessionStorage.removeItem('pending_add_friend');
+      callRecipesApi('/friends/request', {
+        method: 'POST',
+        body: JSON.stringify({ userId: pendingAddFriend }),
+      }, accessToken).then(() => {
+        trackEvent('send_friend_request');
+        setIsAuthDialogOpen(false);
+        setSnackbarState({ open: true, message: 'Friend request sent to Elisa 💛', severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
+        fetchFriendRequests();
+      }).catch((error) => {
+        const msg = error?.message || '';
+        const benign = msg.includes('already friends') || msg.includes('already sent');
+        setSnackbarState({ open: true, message: benign ? 'You\'re already connected with Elisa.' : 'Could not send the request.', severity: benign ? 'info' : 'error' });
       });
     }
 
