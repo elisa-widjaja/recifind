@@ -1913,7 +1913,7 @@ export async function getTrendingRecipes(
 // public recipes that she has marked as favorites. The set is updated by
 // hearting/unhearting recipes in her account; no code change needed to
 // adjust the picks.
-const EDITORS_PICK_USER_ID = '8e4dfd5e-bb6a-4890-98cd-d9ac6ce655a2';
+export const EDITORS_PICK_USER_ID = '8e4dfd5e-bb6a-4890-98cd-d9ac6ce655a2';
 const EDITORS_PICK_WEEKLY_LIMIT = 7;
 
 // Title smells common in unedited Instagram/TikTok imports: hashtags,
@@ -4833,6 +4833,55 @@ async function getRecipesForUser(
   }
 
   return getEditorsPick(db);
+}
+
+export function dedupeFavorites(
+  favorites: RecommendedRecipe[],
+  shownIds: Set<string>,
+  limit = 3
+): RecommendedRecipe[] {
+  return favorites.filter(f => !shownIds.has(f.id)).slice(0, limit);
+}
+
+// Founder module shared by v1 and v2. `favorites` is already deduped + capped.
+export function buildFounderModuleHtml(favorites: RecommendedRecipe[]): string {
+  const cards = favorites.map(r => {
+    const tag = r.mealTypes[0] || 'Recipe';
+    const duration = r.durationMinutes ? `${r.durationMinutes} min` : '';
+    const label = [duration, tag].filter(Boolean).join(' · ');
+    const imgHtml = r.imageUrl
+      ? `<img src="${r.imageUrl}" alt="${r.title}" width="260" height="90" style="width:100%;height:90px;object-fit:cover;display:block;" />`
+      : `<div style="width:100%;height:90px;background:#f0e6d6;text-align:center;line-height:90px;font-size:32px;">🍳</div>`;
+    return `<td style="width:50%;vertical-align:top;padding:0 6px 12px;">
+      <a href="${r.shareUrl}" style="text-decoration:none;color:inherit;display:block;border:1px solid #eee;border-radius:10px;overflow:hidden;">
+        ${imgHtml}
+        <div style="padding:10px 10px 14px;">
+          <div style="font-size:12px;font-weight:700;color:#1a1a1a;text-transform:uppercase;line-height:17px;height:34px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${r.title}</div>
+          <div style="font-size:11px;color:#888;margin-top:8px;">${label}</div>
+        </div>
+      </a>
+    </td>`;
+  });
+  const rows: string[] = [];
+  for (let i = 0; i < cards.length; i += 2) {
+    const pair = cards.slice(i, i + 2);
+    if (pair.length === 1) pair.push('<td style="width:50%;"></td>');
+    rows.push(`<tr>${pair.join('')}</tr>`);
+  }
+  const grid = cards.length
+    ? `<tr><td style="padding:0 16px 8px;"><table cellpadding="0" cellspacing="0" border="0" width="100%">${rows.join('\n')}</table></td></tr>`
+    : '';
+  return `<div style="border-top:1px solid #eee;margin:0 24px;"></div>
+  <table cellpadding="0" cellspacing="0" border="0" width="100%">
+    <tr><td style="padding:32px 24px 12px;">
+      <div style="font-size:18px;font-weight:700;color:#1a1a1a;">Recipes from the founder</div>
+      <div style="color:#555;font-size:14px;line-height:1.6;margin-top:8px;">Hi, I'm Elisa. I built ReciFriend on nights and weekends to fix my own messy recipe situation. Here are a few of mine to start you off.</div>
+    </td></tr>
+    ${grid}
+    <tr><td style="text-align:center;padding:8px 24px 28px;">
+      <a href="https://recifriend.com/?add_friend=${EDITORS_PICK_USER_ID}" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:14px 36px;border-radius:999px;font-size:16px;font-weight:700;">Connect with Elisa →</a>
+    </td></tr>
+  </table>`;
 }
 
 export function buildNudgeEmailHtml(

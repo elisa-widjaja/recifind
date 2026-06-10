@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildNudgeEmailHtml, nudgeVariantBucket, pickNudgeVariant } from './index';
+import { buildNudgeEmailHtml, nudgeVariantBucket, pickNudgeVariant, dedupeFavorites, buildFounderModuleHtml, EDITORS_PICK_USER_ID } from './index';
 
 // Shape matches the worker's RecommendedRecipe interface (id, userId, title,
 // durationMinutes, mealTypes, imageUrl, shareUrl) so it typechecks structurally.
@@ -76,5 +76,39 @@ describe('pickNudgeVariant', () => {
     const id = 'split-test';
     const expected = nudgeVariantBucket(id) < 50 ? 'v2' : 'v1';
     expect(pickNudgeVariant(id, 50)).toBe(expected);
+  });
+});
+
+import { dedupeFavorites, buildFounderModuleHtml, EDITORS_PICK_USER_ID } from './index';
+
+const FAV = (id: string) => ({
+  id, userId: EDITORS_PICK_USER_ID, title: `Fav ${id}`,
+  durationMinutes: 20, mealTypes: ['Dinner'], imageUrl: 'https://x.supabase.co/i.jpg',
+  shareUrl: `https://recifriend.com/recipes/${id}?user=${EDITORS_PICK_USER_ID}`,
+});
+
+describe('dedupeFavorites', () => {
+  it('removes ids already shown and caps at the limit', () => {
+    const favs = [FAV('a'), FAV('b'), FAV('c'), FAV('d')];
+    const out = dedupeFavorites(favs, new Set(['b']), 2);
+    expect(out.map(f => f.id)).toEqual(['a', 'c']);
+  });
+});
+
+describe('buildFounderModuleHtml', () => {
+  it('renders heading, body, favorite cards, and the Connect CTA to ?add_friend', () => {
+    const html = buildFounderModuleHtml([FAV('a'), FAV('b')]);
+    expect(html).toContain('Recipes from the founder');
+    expect(html).toContain("Hi, I'm Elisa");
+    expect(html).toContain('Fav a');
+    expect(html).toContain(`/recipes/a?user=${EDITORS_PICK_USER_ID}`);
+    expect(html).toContain(`?add_friend=${EDITORS_PICK_USER_ID}`);
+    expect(html).toContain('Connect with Elisa');
+  });
+  it('keeps heading/body/CTA but no cards when favorites is empty', () => {
+    const html = buildFounderModuleHtml([]);
+    expect(html).toContain('Recipes from the founder');
+    expect(html).toContain('Connect with Elisa');
+    expect(html).not.toContain('<img');
   });
 });
