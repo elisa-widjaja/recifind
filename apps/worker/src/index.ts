@@ -1056,7 +1056,7 @@ export default {
       const secret = env.DEV_API_KEY;
       if (!secret) return; // Can't sign unsubscribe tokens without DEV_API_KEY
       const unsubToken = await computeHmac(secret, userId);
-      let html = buildNudgeEmailHtml(displayName, recipes, gifUrl);
+      let html = buildNudgeEmailHtml(displayName, recipes, gifUrl, '');
       html = html.replace('__USER_ID__', encodeURIComponent(userId));
       html = html.replace('__TOKEN__', unsubToken);
 
@@ -4887,7 +4887,8 @@ export function buildFounderModuleHtml(favorites: RecommendedRecipe[]): string {
 export function buildNudgeEmailHtml(
   displayName: string,
   recipes: RecommendedRecipe[],
-  gifUrl: string | null
+  gifUrl: string | null,
+  founderModuleHtml: string
 ): string {
   const recipeCells = recipes.slice(0, 6).map(r => {
     const tag = r.mealTypes[0] || 'Recipe';
@@ -4982,18 +4983,7 @@ export function buildNudgeEmailHtml(
     </td></tr>
   </table>
 
-  <div style="border-top:1px solid #eee;margin:0 24px;"></div>
-
-  <div style="padding:32px 24px;">
-    <div style="background:linear-gradient(135deg,#667eea,#764ba2);border-radius:12px;padding:24px;text-align:center;color:#fff;">
-      <div style="font-size:24px;margin-bottom:8px;">🎁</div>
-      <div style="font-size:18px;font-weight:700;">Invite friends, earn rewards!</div>
-      <p style="font-size:14px;opacity:0.9;margin:12px 0 16px;line-height:1.5;">
-        Invite 5 friends and when each friend adds 5 recipes, you'll earn a <strong>gift card</strong> and a <strong>mystery goody bag</strong>!
-      </p>
-      <a href="https://recifriend.com/friends?add=1" style="display:inline-block;background:#fff;color:#764ba2;text-decoration:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:700;">Invite Friends →</a>
-    </div>
-  </div>
+  ${founderModuleHtml}
 
   <div style="background:#f9f9f9;padding:24px;text-align:center;border-top:1px solid #eee;">
     <div style="color:#999;font-size:12px;line-height:1.6;">

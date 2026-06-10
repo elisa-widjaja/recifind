@@ -15,36 +15,36 @@ const mockRecipes = Array.from({ length: 6 }, (_, i) => ({
 
 describe('buildNudgeEmailHtml', () => {
   it('renders all 6 recommended recipe cards', () => {
-    const html = buildNudgeEmailHtml('Sam', mockRecipes, null);
+    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, '');
     const imgCount = html.split('object-fit:cover').length - 1;
     expect(imgCount).toBe(6);
   });
 
   it('uses half-height (90px) thumbnails, not 180px', () => {
-    const html = buildNudgeEmailHtml('Sam', mockRecipes, null);
+    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, '');
     expect(html).toContain('height:90px');
     expect(html).not.toContain('height:180px');
   });
 
   it('has a "Discover more recipes" CTA pointing at /discover', () => {
-    const html = buildNudgeEmailHtml('Sam', mockRecipes, null);
+    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, '');
     expect(html).toContain('Discover more recipes');
     expect(html).toContain('href="https://recifriend.com/discover"');
   });
 
   it('no longer uses the ?view=discover query route', () => {
-    const html = buildNudgeEmailHtml('Sam', mockRecipes, null);
+    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, '');
     expect(html).not.toContain('view=discover');
   });
 
-  it('points the Invite Friends CTA at /friends?add=1', () => {
-    const html = buildNudgeEmailHtml('Sam', mockRecipes, null);
-    expect(html).toContain('href="https://recifriend.com/friends?add=1"');
-    expect(html).toContain('Invite Friends');
+  it('no longer has the invite-rewards block (replaced by founder module)', () => {
+    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, '');
+    expect(html).not.toContain('earn rewards');
+    expect(html).not.toContain('?add=1');
   });
 
   it('clamps recipe titles to a fixed 2-line height so cards align', () => {
-    const html = buildNudgeEmailHtml('Sam', mockRecipes, null);
+    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, '');
     // Fixed-height 2-line clamp (not a variable max-height) keeps every card the
     // same height regardless of title length.
     expect(html).toContain('-webkit-line-clamp:2');
@@ -115,6 +115,16 @@ const REC = (id: string) => ({
   id, userId: 'curator', title: `Rec ${id}`, durationMinutes: 15,
   mealTypes: ['Lunch'], imageUrl: 'https://x.supabase.co/i.jpg',
   shareUrl: `https://recifriend.com/recipes/${id}?user=curator`,
+});
+
+describe('buildNudgeEmailHtml (v1) founder swap', () => {
+  it('keeps the original hook + injects founder module, drops the invite-rewards block', () => {
+    const html = buildNudgeEmailHtml('Sam', [REC('a')], null, '<!--FOUNDER-->');
+    expect(html).toContain('Save Your First Recipe');   // original v1 hook intact
+    expect(html).toContain('<!--FOUNDER-->');            // founder module injected
+    expect(html).not.toContain('earn rewards');          // invite-rewards block gone
+    expect(html).not.toContain('?add=1');                // invite CTA gone
+  });
 });
 
 describe('buildNudgeEmailHtmlV2', () => {
