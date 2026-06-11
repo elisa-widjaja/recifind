@@ -79,9 +79,12 @@ export function parseDeepLink(raw: string): DeepLink | null {
   // the accept handler directly via the dispatcher.
   if (fullPath === '/friend-requests' || fullPath === '/friend-requests/') {
     const acceptId = url.searchParams.get('accept_friend');
-    return acceptId
-      ? { kind: 'friend_requests', accept_id: acceptId }
-      : { kind: 'friend_requests' };
+    if (acceptId) return { kind: 'friend_requests', accept_id: acceptId };
+    // ?add_friend=<userId> sends an OUTGOING request to that user (the founder
+    // email's Connect button), then lands on the Pending tab.
+    const addId = url.searchParams.get('add_friend');
+    if (addId) return { kind: 'friend_requests', add_id: addId };
+    return { kind: 'friend_requests' };
   }
 
   // /friends — friend-invite landing. `?invite_token=<id>` is the email invite

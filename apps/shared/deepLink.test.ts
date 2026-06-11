@@ -114,6 +114,18 @@ describe('parseDeepLink — /friend-requests', () => {
     const result = parseDeepLink('https://recifriend.com/friend-requests?other=x');
     expect(result).toEqual({ kind: 'friend_requests' });
   });
+  it('extracts add_friend query param into add_id (outgoing request)', () => {
+    expect(parseDeepLink('https://recifriend.com/friend-requests?add_friend=founder-1')).toEqual({
+      kind: 'friend_requests',
+      add_id: 'founder-1',
+    });
+  });
+  it('accept_friend takes precedence over add_friend when both are present', () => {
+    expect(parseDeepLink('https://recifriend.com/friend-requests?accept_friend=u1&add_friend=u2')).toEqual({
+      kind: 'friend_requests',
+      accept_id: 'u1',
+    });
+  });
 });
 
 describe('parseDeepLink /friends', () => {

@@ -96,8 +96,9 @@ export async function handleTestNudgeEmail(args: {
   // Imported lazily to avoid a load-time circular dependency between
   // routes/admin.ts and index.ts (index.ts also imports from this file).
   const {
-    sendEmailNotification, computeHmac, getRecommendedRecipes, buildNudgeEmailHtml,
-    buildNudgeEmailHtmlV2, getEditorsPick, dedupeFavorites, buildFounderModuleHtml,
+    sendEmailNotification, computeHmac, getNudgeRecommended, buildNudgeEmailHtml,
+    buildNudgeEmailHtmlV2, buildFounderCardHtml, getFounderProfile, getNudgeHero, getFounderShelf,
+    NUDGE_V1_FOUNDER_BODY, NUDGE_V2_FOUNDER_BODY,
   } = await import('../index');
 
   const url = new URL(args.request.url);
@@ -128,36 +129,38 @@ export async function handleTestNudgeEmail(args: {
     }
   }
 
-  const recipes = await getRecommendedRecipes(args.env.DB, profileUserId, 6);
-  const gifUrl: string | null = null;
-
   // Preview either variant: /admin/test-nudge-email?to=...&variant=v2
   const variant = url.searchParams.get('variant') === 'v2' ? 'v2' : 'v1';
 
-  // Build the founder module the same way the cron does, so the preview is faithful.
-  const favRaw = await getEditorsPick(args.env.DB);
-  const founderFavorites = favRaw.map(r => ({
-    id: r.id, userId: r.userId, title: r.title, durationMinutes: r.durationMinutes,
-    mealTypes: r.mealTypes, imageUrl: r.imageUrl,
-    shareUrl: `https://recifriend.com/recipes/${encodeURIComponent(r.id)}?user=${encodeURIComponent(r.userId)}`,
-  }));
-  const shownIds = new Set(recipes.map(r => r.id));
-  const founderModuleHtml = buildFounderModuleHtml(dedupeFavorites(founderFavorites, shownIds, 3));
+  // Build the founder card + variant pieces the same way the cron does, so the
+  // preview is faithful.
+  const founderProfile = await getFounderProfile(args.env.DB);
 
   const secret = args.env.DEV_API_KEY;
   if (!secret) {
     return json(500, { error: 'Server misconfiguration: missing signing key' });
   }
   const unsubToken = await computeHmac(secret, profileUserId);
-  let html = variant === 'v2'
-    ? buildNudgeEmailHtmlV2(displayName, recipes, founderModuleHtml)
-    : buildNudgeEmailHtml(displayName, recipes, gifUrl, founderModuleHtml);
+
+  let html: string;
+  let recipesIncluded: number;
+  let subject: string;
+  if (variant === 'v2') {
+    const hero = await getNudgeHero(args.env.DB);
+    const shelf = await getFounderShelf(args.env.DB, hero?.id ?? '', 6);
+    const v2FounderCard = buildFounderCardHtml({ ...founderProfile, body: NUDGE_V2_FOUNDER_BODY });
+    html = buildNudgeEmailHtmlV2(displayName, hero, v2FounderCard, shelf);
+    recipesIncluded = (hero ? 1 : 0) + shelf.length;
+    subject = hero ? `Tonight's dinner, sorted: ${hero.title}` : `Your next favorite recipe, ${displayName}`;
+  } else {
+    const recipes = await getNudgeRecommended(args.env.DB, 6);
+    const v1FounderCard = buildFounderCardHtml({ ...founderProfile, body: NUDGE_V1_FOUNDER_BODY });
+    html = buildNudgeEmailHtml(displayName, recipes, null, v1FounderCard);
+    recipesIncluded = recipes.length;
+    subject = `Your recipes are waiting, ${displayName}!`;
+  }
   html = html.replace('__USER_ID__', encodeURIComponent(profileUserId));
   html = html.replace('__TOKEN__', unsubToken);
-
-  const subject = variant === 'v2'
-    ? (recipes[0] ? `Worth saving tonight, ${displayName} 🍴` : `Your next favorite recipe, ${displayName} 🍴`)
-    : `Your recipes are waiting, ${displayName}!`;
 
   const emailResult = await sendEmailNotification(args.env, toEmail, subject, html);
 
@@ -165,7 +168,7 @@ export async function handleTestNudgeEmail(args: {
     ok: emailResult.ok,
     sentTo: toEmail,
     variant,
-    recipesIncluded: recipes.length,
+    recipesIncluded,
     resendStatus: emailResult.status,
     resendResponse: emailResult.body,
   });

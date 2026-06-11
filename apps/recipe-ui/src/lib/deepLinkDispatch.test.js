@@ -176,13 +176,20 @@ describe('dispatcher — friend invite + friends list routing', () => {
     const h = handlers();
     const dispatch = createDispatcher(h);
     await dispatch('https://recifriend.com/friend-requests?accept_friend=req-user-3');
-    expect(h.onFriendRequests).toHaveBeenCalledWith('req-user-3');
+    expect(h.onFriendRequests).toHaveBeenCalledWith('req-user-3', undefined);
   });
 
-  it('routes bare /friend-requests to onFriendRequests with no id', async () => {
+  it('routes bare /friend-requests to onFriendRequests with no ids', async () => {
     const h = handlers();
     const dispatch = createDispatcher(h);
     await dispatch('https://recifriend.com/friend-requests');
-    expect(h.onFriendRequests).toHaveBeenCalledWith(undefined);
+    expect(h.onFriendRequests).toHaveBeenCalledWith(undefined, undefined);
+  });
+
+  it('routes /friend-requests?add_friend= to onFriendRequests with the add id', async () => {
+    const h = handlers();
+    const dispatch = createDispatcher(h);
+    await dispatch('https://recifriend.com/friend-requests?add_friend=founder-1');
+    expect(h.onFriendRequests).toHaveBeenCalledWith(undefined, 'founder-1');
   });
 });

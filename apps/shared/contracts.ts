@@ -56,7 +56,7 @@ export const RECIPE_ID_REGEX = /^[a-zA-Z0-9_-]{1,64}$/;
 export type DeepLink =
   | { kind: 'auth_callback'; code: string }
   | { kind: 'add_recipe'; url: string; title?: string }
-  | { kind: 'friend_requests'; accept_id?: string }
+  | { kind: 'friend_requests'; accept_id?: string; add_id?: string }
   | { kind: 'friend_invite'; token: string; invite_kind: 'pending' | 'open' }
   | { kind: 'friends_list'; open_add?: boolean }
   | { kind: 'recipe_detail'; recipe_id: string; owner_id?: string }

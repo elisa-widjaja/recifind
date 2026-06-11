@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { buildNudgeEmailHtml, nudgeVariantBucket, pickNudgeVariant, dedupeFavorites, buildFounderModuleHtml, EDITORS_PICK_USER_ID, buildNudgeEmailHtmlV2 } from './index';
+import {
+  buildNudgeEmailHtml, nudgeVariantBucket, pickNudgeVariant, dedupeFavorites,
+  buildFounderCardHtml, buildFluidRecipeGrid, EDITORS_PICK_USER_ID, buildNudgeEmailHtmlV2,
+} from './index';
 
 // Shape matches the worker's RecommendedRecipe interface (id, userId, title,
 // durationMinutes, mealTypes, imageUrl, shareUrl) so it typechecks structurally.
@@ -13,42 +16,102 @@ const mockRecipes = Array.from({ length: 6 }, (_, i) => ({
   shareUrl: `https://recifriend.com/recipes/r${i + 1}?user=u${i + 1}`,
 }));
 
-describe('buildNudgeEmailHtml', () => {
-  it('renders all 6 recommended recipe cards', () => {
-    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, '');
+describe('buildFluidRecipeGrid', () => {
+  it('renders one card per recipe, each linking to its recipe detail (shareUrl)', () => {
+    const html = buildFluidRecipeGrid(mockRecipes);
     const imgCount = html.split('object-fit:cover').length - 1;
     expect(imgCount).toBe(6);
+    for (const r of mockRecipes) expect(html).toContain(r.shareUrl);
   });
 
-  it('uses half-height (90px) thumbnails, not 180px', () => {
-    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, '');
-    expect(html).toContain('height:90px');
-    expect(html).not.toContain('height:180px');
+  it('uses the fluid-hybrid column mechanism (3-up desktop, 2-up mobile)', () => {
+    const html = buildFluidRecipeGrid(mockRecipes);
+    // inline-block + width:33.33% gives 3 columns on a wide canvas; min-width
+    // forces a wrap to 2 columns on phones; max-width caps card size.
+    expect(html).toContain('display:inline-block');
+    expect(html).toContain('33.33%');
+    expect(html).toContain('min-width:140px');
+    expect(html).toContain('max-width:184px');
   });
 
-  it('has a "Discover more recipes" CTA pointing at /discover', () => {
-    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, '');
-    expect(html).toContain('Discover more recipes');
-    expect(html).toContain('href="https://recifriend.com/discover"');
-  });
-
-  it('no longer uses the ?view=discover query route', () => {
-    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, '');
-    expect(html).not.toContain('view=discover');
-  });
-
-  it('no longer has the invite-rewards block (replaced by founder module)', () => {
-    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, '');
-    expect(html).not.toContain('earn rewards');
-    expect(html).not.toContain('?add=1');
-  });
-
-  it('clamps recipe titles to a fixed 2-line height so cards align', () => {
-    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, '');
-    // Fixed-height 2-line clamp (not a variable max-height) keeps every card the
-    // same height regardless of title length.
+  it('clamps titles to a fixed 2-line height so cards align', () => {
+    const html = buildFluidRecipeGrid(mockRecipes);
     expect(html).toContain('-webkit-line-clamp:2');
-    expect(html).not.toContain('max-height:33px');
+    expect(html).toContain('height:34px'); // fixed 2-line box so uneven titles still align
+  });
+
+  it('tags cards with a class so a mobile media query can force 2-up', () => {
+    const html = buildFluidRecipeGrid(mockRecipes);
+    expect(html).toContain('class="rcard"');
+  });
+
+  it('makes relative image URLs absolute so they load in email clients', () => {
+    const relative = [{ ...mockRecipes[0], imageUrl: '/images/recipes/x.jpg' }];
+    const html = buildFluidRecipeGrid(relative);
+    expect(html).toContain('https://recifriend.com/images/recipes/x.jpg');
+    expect(html).not.toContain('src="/images/recipes/x.jpg"');
+  });
+
+  it('truncates long visible titles with an ellipsis (CSS line-clamp is unreliable in email)', () => {
+    const long = [{ ...mockRecipes[0], title: 'Chipotle Chicken Breakfast Smash Tacos with Blueberry Chimichurri' }];
+    const html = buildFluidRecipeGrid(long);
+    // Visible title is clamped; the full title survives only in the img alt.
+    expect(html).toContain('Chipotle Chicken Breakfast Smash…');
+    expect(html).not.toContain('Smash Tacos with Blueberry Chimichurri</div>');
+  });
+
+  it('leaves short titles untouched (no stray ellipsis)', () => {
+    const html = buildFluidRecipeGrid([{ ...mockRecipes[0], title: 'Short Title' }]);
+    expect(html).toContain('Short Title');
+    expect(html).not.toContain('Short Title…');
+  });
+
+  it('renders nothing for an empty list', () => {
+    expect(buildFluidRecipeGrid([])).toBe('');
+  });
+});
+
+describe('buildFounderCardHtml', () => {
+  const base = {
+    avatarUrl: 'https://x.supabase.co/avatars/elisa.jpg',
+    name: 'Elisa',
+    recipeCount: 346,
+    body: "Connect with me if you'd like to swap recipes.",
+  };
+
+  it('renders the founder profile card: avatar, name, role, recipe count', () => {
+    const html = buildFounderCardHtml(base);
+    expect(html).toContain(base.avatarUrl);
+    expect(html).toContain('Elisa');
+    expect(html).toContain('ReciFriend Founder');
+    expect(html).toContain('346 recipes');
+  });
+
+  it('renders the body copy and a short "Connect" CTA to ?add_friend', () => {
+    const html = buildFounderCardHtml(base);
+    expect(html).toContain("Connect with me if you'd like to swap recipes.");
+    expect(html).toContain('>Connect</a>');
+    expect(html).not.toContain('Connect with Elisa');
+    // Universal-Link-eligible path so it opens the app (if installed) on the
+    // Friends → Pending tab; falls back to web otherwise.
+    expect(html).toContain(`https://recifriend.com/friend-requests?add_friend=${EDITORS_PICK_USER_ID}`);
+  });
+
+  it('has no arrow glyph in the CTA', () => {
+    expect(buildFounderCardHtml(base)).not.toContain('→');
+  });
+
+  it('is a profile card, not a grid of recipe cards (no recipe thumbnails)', () => {
+    const html = buildFounderCardHtml(base);
+    expect(html).not.toContain('object-fit:cover');
+  });
+
+  it('keeps the body copy and CTA inside the card, split by a divider line', () => {
+    const html = buildFounderCardHtml(base);
+    // Two dividers: the section separator above the card + the in-card line
+    // between the profile row and the body/CTA.
+    const dividers = (html.match(/border-top/g) || []).length;
+    expect(dividers).toBeGreaterThanOrEqual(2);
   });
 });
 
@@ -79,70 +142,157 @@ describe('pickNudgeVariant', () => {
   });
 });
 
-const FAV = (id: string) => ({
-  id, userId: EDITORS_PICK_USER_ID, title: `Fav ${id}`,
-  durationMinutes: 20, mealTypes: ['Dinner'], imageUrl: 'https://x.supabase.co/i.jpg',
-  shareUrl: `https://recifriend.com/recipes/${id}?user=${EDITORS_PICK_USER_ID}`,
-});
-
-describe('dedupeFavorites', () => {
-  it('removes ids already shown and caps at the limit', () => {
-    const favs = [FAV('a'), FAV('b'), FAV('c'), FAV('d')];
-    const out = dedupeFavorites(favs, new Set(['b']), 2);
-    expect(out.map(f => f.id)).toEqual(['a', 'c']);
-  });
-});
-
-describe('buildFounderModuleHtml', () => {
-  it('renders heading, body, favorite cards, and the Connect CTA to ?add_friend', () => {
-    const html = buildFounderModuleHtml([FAV('a'), FAV('b')]);
-    expect(html).toContain('A few of my favorites');
-    expect(html).toContain("Hi, I'm Elisa");
-    expect(html).toContain('Fav a');
-    expect(html).toContain(`/recipes/a?user=${EDITORS_PICK_USER_ID}`);
-    expect(html).toContain(`?add_friend=${EDITORS_PICK_USER_ID}`);
-    expect(html).toContain('Connect with Elisa');
-  });
-  it('keeps heading/body/CTA but no cards when favorites is empty', () => {
-    const html = buildFounderModuleHtml([]);
-    expect(html).toContain('A few of my favorites');
-    expect(html).toContain('Connect with Elisa');
-    expect(html).not.toContain('<img');
-  });
-});
-
 const REC = (id: string) => ({
   id, userId: 'curator', title: `Rec ${id}`, durationMinutes: 15,
   mealTypes: ['Lunch'], imageUrl: 'https://x.supabase.co/i.jpg',
   shareUrl: `https://recifriend.com/recipes/${id}?user=curator`,
 });
 
-describe('buildNudgeEmailHtml (v1) founder swap', () => {
-  it('keeps the original hook + injects founder module, drops the invite-rewards block', () => {
-    const html = buildNudgeEmailHtml('Sam', [REC('a')], null, '<!--FOUNDER-->');
-    expect(html).toContain('Save Your First Recipe');   // original v1 hook intact
-    expect(html).toContain('<!--FOUNDER-->');            // founder module injected
-    expect(html).not.toContain('earn rewards');          // invite-rewards block gone
-    expect(html).not.toContain('?add=1');                // invite CTA gone
+describe('dedupeFavorites', () => {
+  it('removes ids already shown and caps at the limit', () => {
+    const favs = [REC('a'), REC('b'), REC('c'), REC('d')];
+    const out = dedupeFavorites(favs, new Set(['b']), 2);
+    expect(out.map(f => f.id)).toEqual(['a', 'c']);
+  });
+});
+
+const FOUNDER_CARD = '<!--FOUNDER-CARD-->';
+
+describe('buildNudgeEmailHtml (v1)', () => {
+  it('keeps the step-by-step hook + Save Your First Recipe CTA to /discover', () => {
+    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, FOUNDER_CARD);
+    expect(html).toContain('Save Your First Recipe');
+    expect(html).toContain('href="https://recifriend.com/discover"');
+  });
+
+  it('renders the Recommended grid via the fluid-hybrid layout (6 cards)', () => {
+    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, FOUNDER_CARD);
+    expect(html).toContain('Recommended for you');
+    expect(html).toContain('display:inline-block');
+    const imgCount = html.split('object-fit:cover').length - 1;
+    expect(imgCount).toBe(6);
+  });
+
+  it('injects the founder card and drops the old invite-rewards block', () => {
+    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, FOUNDER_CARD);
+    expect(html).toContain(FOUNDER_CARD);
+    expect(html).not.toContain('earn rewards');
+    expect(html).not.toContain('?add=1');
+  });
+
+  it('keeps the unsubscribe placeholders for the cron to fill', () => {
+    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, FOUNDER_CARD);
+    expect(html).toContain('__USER_ID__');
+    expect(html).toContain('__TOKEN__');
+  });
+
+  it('forces 2-up on mobile via a media query', () => {
+    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, FOUNDER_CARD);
+    expect(html).toContain('max-width:480px');
+    expect(html).toContain('width:50%!important');
+  });
+
+  it('has no arrow glyphs in its own CTAs', () => {
+    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, FOUNDER_CARD);
+    expect(html).not.toContain('→');
+  });
+
+  it('has no em dash in its copy', () => {
+    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, FOUNDER_CARD);
+    expect(html).not.toContain('—');
+  });
+
+  it('drops the Recommended subtitle (recs are pinned, not preference-based)', () => {
+    const html = buildNudgeEmailHtml('Sam', mockRecipes, null, FOUNDER_CARD);
+    expect(html).not.toContain('Based on your preferences');
+    expect(html).not.toContain('Popular in the community');
   });
 });
 
 describe('buildNudgeEmailHtmlV2', () => {
-  it('renders the hook, hero save link, browse CTA, and injects the founder module', () => {
-    const html = buildNudgeEmailHtmlV2('Sam', [REC('h'), REC('m1'), REC('m2')], '<!--FOUNDER-->');
+  const hero = REC('hero');
+  const shelf = Array.from({ length: 6 }, (_, i) => REC(`s${i}`));
+
+  it('renders the hook + pinned hero with a Save-this-recipe CTA', () => {
+    const html = buildNudgeEmailHtmlV2('Sam', hero, FOUNDER_CARD, shelf);
     expect(html).toContain('one good recipe to get you started');
     expect(html).toContain('Save this recipe');
-    expect(html).toContain('/recipes/h?user=curator');
+    expect(html).toContain(hero.shareUrl);
+  });
+
+  it('drops the "One tap..." subtext and the "More picks for you" grid', () => {
+    const html = buildNudgeEmailHtmlV2('Sam', hero, FOUNDER_CARD, shelf);
+    expect(html).not.toContain('One tap');
+    expect(html).not.toContain('More picks for you');
+  });
+
+  it('keeps the Browse more recipes CTA to /discover, at the very bottom', () => {
+    const html = buildNudgeEmailHtmlV2('Sam', hero, FOUNDER_CARD, shelf);
+    expect(html).toContain('Browse more recipes');
     expect(html).toContain('https://recifriend.com/discover');
-    expect(html).toContain('<!--FOUNDER-->');
-    expect(html).not.toContain('Save Your First Recipe');
-    // Unsubscribe placeholders must survive (cron .replace()s them).
+    // Browse-more lives below the founder card + shelf, not between hero and card.
+    expect(html.indexOf('Browse more recipes')).toBeGreaterThan(html.indexOf(FOUNDER_CARD));
+    expect(html.indexOf('Browse more recipes')).toBeGreaterThan(html.indexOf(shelf[shelf.length - 1].shareUrl));
+  });
+
+  it('renders the cooking emoji in the header, not a literal unicode escape', () => {
+    const html = buildNudgeEmailHtmlV2('Sam', hero, FOUNDER_CARD, shelf);
+    expect(html).toContain('🍳');
+    expect(html).not.toContain('U0001f373');
+  });
+
+  it('caps the hero card at 482px and centers it', () => {
+    const html = buildNudgeEmailHtmlV2('Sam', hero, FOUNDER_CARD, shelf);
+    expect(html).toContain('max-width:482px;margin:0 auto');
+  });
+
+  it('puts the Save this recipe button inside the hero card', () => {
+    const html = buildNudgeEmailHtmlV2('Sam', hero, FOUNDER_CARD, shelf);
+    // The old standalone save block below the card is gone.
+    expect(html).not.toContain('padding:16px 24px 36px');
+    // Save sits within the 482 hero wrapper, before the founder card.
+    const save = html.indexOf('Save this recipe');
+    expect(save).toBeGreaterThan(html.indexOf('max-width:482px'));
+    expect(save).toBeLessThan(html.indexOf(FOUNDER_CARD));
+  });
+
+  it('puts the "Recipes from the founder" heading above the shelf, below the founder card', () => {
+    const html = buildNudgeEmailHtmlV2('Sam', hero, FOUNDER_CARD, shelf);
+    const h = html.indexOf('Recipes from the founder');
+    expect(h).toBeGreaterThan(html.indexOf(FOUNDER_CARD));
+    expect(h).toBeLessThan(html.indexOf(shelf[0].shareUrl));
+  });
+
+  it('forces 2-up on mobile via a media query', () => {
+    const html = buildNudgeEmailHtmlV2('Sam', hero, FOUNDER_CARD, shelf);
+    expect(html).toContain('max-width:480px');
+    expect(html).toContain('width:50%!important');
+  });
+
+  it('has no arrow glyphs in CTAs', () => {
+    const html = buildNudgeEmailHtmlV2('Sam', hero, FOUNDER_CARD, shelf);
+    expect(html).not.toContain('→');
+  });
+
+  it('injects the founder card and a 6-card founder shelf below it', () => {
+    const html = buildNudgeEmailHtmlV2('Sam', hero, FOUNDER_CARD, shelf);
+    expect(html).toContain(FOUNDER_CARD);
+    // hero image + 6 shelf images = 7 thumbnails total.
+    const imgCount = html.split('object-fit:cover').length - 1;
+    expect(imgCount).toBe(7);
+    for (const r of shelf) expect(html).toContain(r.shareUrl);
+  });
+
+  it('keeps unsubscribe placeholders and never shows the old v1 hook', () => {
+    const html = buildNudgeEmailHtmlV2('Sam', hero, FOUNDER_CARD, shelf);
     expect(html).toContain('__USER_ID__');
     expect(html).toContain('__TOKEN__');
+    expect(html).not.toContain('Save Your First Recipe');
   });
-  it('degrades gracefully with no recipes (no hero/grid, still founder module)', () => {
-    const html = buildNudgeEmailHtmlV2('Sam', [], '<!--FOUNDER-->');
-    expect(html).toContain('<!--FOUNDER-->');
+
+  it('degrades gracefully with no hero (no Save-this-recipe, still founder card)', () => {
+    const html = buildNudgeEmailHtmlV2('Sam', null, FOUNDER_CARD, shelf);
+    expect(html).toContain(FOUNDER_CARD);
     expect(html).not.toContain('Save this recipe');
   });
 });

@@ -1034,12 +1034,15 @@ export default {
     }
 
     const v2Pct = Math.min(Math.max(parseInt(env.NUDGE_V2_PCT ?? '0', 10) || 0, 0), 100);
-    const founderFavRaw = await getEditorsPick(env.DB); // founder's is_favorite recipes
-    const founderFavorites: RecommendedRecipe[] = founderFavRaw.map(r => ({
-      id: r.id, userId: r.userId, title: r.title, durationMinutes: r.durationMinutes,
-      mealTypes: r.mealTypes, imageUrl: r.imageUrl,
-      shareUrl: `https://recifriend.com/recipes/${encodeURIComponent(r.id)}?user=${encodeURIComponent(r.userId)}`,
-    }));
+
+    // User-independent pieces, fetched once for the whole batch. The founder
+    // card (profile card + CTA) and the v2 hero/shelf are identical across
+    // recipients; only v1's Recommended grid is personalized per user below.
+    const founderProfile = await getFounderProfile(env.DB);
+    const nudgeHero = await getNudgeHero(env.DB);
+    const founderShelf = await getFounderShelf(env.DB, nudgeHero?.id ?? '', 6);
+    const v1FounderCard = buildFounderCardHtml({ ...founderProfile, body: NUDGE_V1_FOUNDER_BODY });
+    const v2FounderCard = buildFounderCardHtml({ ...founderProfile, body: NUDGE_V2_FOUNDER_BODY });
 
     const now = new Date().toISOString();
     const BATCH_SIZE = 20;
@@ -1074,25 +1077,26 @@ export default {
       }
 
       // Build and send the nudge email
-      const recipes = await getRecommendedRecipes(env.DB, userId, 6);
       const variant = pickNudgeVariant(userId, v2Pct);
-
-      // Dedup founder favorites against whatever this email already shows.
-      const shownIds = new Set(recipes.map(r => r.id));
-      const founderModuleHtml = buildFounderModuleHtml(dedupeFavorites(founderFavorites, shownIds, 3));
 
       const secret = env.DEV_API_KEY;
       if (!secret) return; // Can't sign unsubscribe tokens without DEV_API_KEY
       const unsubToken = await computeHmac(secret, userId);
 
-      let html = variant === 'v2'
-        ? buildNudgeEmailHtmlV2(displayName, recipes, founderModuleHtml)
-        : buildNudgeEmailHtml(displayName, recipes, null, founderModuleHtml);
+      let html: string;
+      if (variant === 'v2') {
+        // v2: pinned hero (Coconut curry ramen) + founder card + 6-card founder shelf.
+        html = buildNudgeEmailHtmlV2(displayName, nudgeHero, v2FounderCard, founderShelf);
+      } else {
+        // v1: step-by-step hook + pinned Recommended grid + founder card.
+        const recipes = await getNudgeRecommended(env.DB, 6);
+        html = buildNudgeEmailHtml(displayName, recipes, null, v1FounderCard);
+      }
       html = html.replace('__USER_ID__', encodeURIComponent(userId));
       html = html.replace('__TOKEN__', unsubToken);
 
       const subject = variant === 'v2'
-        ? (recipes[0] ? `Worth saving tonight, ${displayName} 🍴` : `Your next favorite recipe, ${displayName} 🍴`)
+        ? (nudgeHero ? `Tonight's dinner, sorted: ${nudgeHero.title}` : `Your next favorite recipe, ${displayName}`)
         : `Your recipes are waiting, ${displayName}!`;
 
       await sendEmailNotification(env, email, subject, html);
@@ -4873,43 +4877,233 @@ export function dedupeFavorites(
   return favorites.filter(f => !shownIds.has(f.id)).slice(0, limit);
 }
 
-// Founder module shared by v1 and v2. `favorites` is already deduped + capped.
-export function buildFounderModuleHtml(favorites: RecommendedRecipe[]): string {
-  const cards = favorites.map(r => {
+// ── Nudge-email copy + data helpers ──────────────────────────────────
+// The pinned v2 hero. "Coconut curry ramen" is an on-profile favorite (Thai/JP,
+// 30 min, high-protein) with Supabase-hosted image + full ingredients/steps, and
+// it has live re-save activity. Two recipes share the title; this is the good one.
+export const NUDGE_V2_HERO_RECIPE_ID = '532aa095-b70d-4a37-ad2c-568ea3a5492c';
+export const NUDGE_V1_FOUNDER_BODY =
+  "I built ReciFriend to cook and share with people like you. I'd love to connect and trade recipes, come say hi.";
+export const NUDGE_V2_FOUNDER_HEADING = 'Recipes from the founder';
+export const NUDGE_V2_FOUNDER_BODY =
+  "Hi, I'm Elisa, these are some of the recipes I actually cook at home. Save any that look good. Connect with me if you'd like to swap more.";
+
+// Hand-curated v2 founder shelf, in display order. Pinned (not weekly-rotated)
+// so editorial swaps stick, and it bypasses the discovery title filter so
+// emoji-titled picks (e.g. the summer rolls) are allowed. Still required to have
+// an image + structured ingredients/steps so the email and detail page render.
+export const NUDGE_FOUNDER_SHELF_IDS = [
+  'ee45c2d8-ff8c-4b08-a71c-b66f11b51d45', // Mango posset
+  '546103fc-df65-4d50-a147-82918eadbc78', // Carne Asada Tacos
+  '8a7bc0e0-750e-4800-8118-db7d2649f50e', // miso black cod
+  'cdc951e7-0171-46a2-9cd0-4844f042e739', // Shakshuka with spiced lamb mince
+  '7b5815a2-b632-4ba9-ad8b-1c60258f75e7', // Stacked eggplant
+  'fb568445-b371-4967-8b57-da0cf009ea20', // 150 calorie Chicken Summer Rolls
+];
+
+// Hand-curated v1 "Recommended for you" grid, in display order. Pinned (replaces
+// the old per-user preference matching) so the section shows a fixed set.
+export const NUDGE_RECOMMENDED_IDS = [
+  '31a81197-0a04-4b17-8b32-d0e3d65ad59d', // Chicken and orzo bake
+  '18fab919-d24a-4a88-985a-16e4fe78c8b0', // Whipped Brie Honey Butter Toast
+  '43f3e10d-bde6-4d11-a654-1f9f7f9c8aaa', // Ox Tail Soup
+  '72f0feb6-864f-44d2-ab49-d1fa02e67cfa', // Fish in crazy water
+  '9c1f4ca3-850e-45c8-b670-e87ebdfcc308', // Anti-Inflammatory Soup with Turmeric
+  'aab3f8ef-13c9-479b-b61c-728f0a654790', // Strawberries & Cream Matcha Yogurt Parfait
+];
+
+// Email clients can't resolve root-relative paths (e.g. bundled seed images at
+// `/images/recipes/x.jpg`), so make them absolute against the public site.
+function absoluteImageUrl(url: string): string {
+  return url && url.startsWith('/') ? `https://recifriend.com${url}` : url;
+}
+
+// Mobile media query: force the recipe grid to exactly 2 columns on phones,
+// overriding the inline 33.33% (which is 3-up on desktop). Belt-and-suspenders
+// with the inline fluid fallback for clients that strip <style>.
+const NUDGE_GRID_STYLE =
+  '<style>@media only screen and (max-width:480px){.rcard{width:50%!important;max-width:none!important;min-width:0!important;}}</style>';
+
+function toRecommendedRecipe(r: Record<string, unknown>): RecommendedRecipe {
+  const id = String(r.id);
+  const userId = String(r.user_id);
+  return {
+    id,
+    userId,
+    title: String(r.title),
+    durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
+    mealTypes: (() => { try { return JSON.parse(String(r.meal_types || '[]')); } catch { return []; } })(),
+    imageUrl: String(r.image_url || ''),
+    shareUrl: `https://recifriend.com/recipes/${encodeURIComponent(id)}?user=${encodeURIComponent(userId)}`,
+  };
+}
+
+// Founder identity for the profile card: name, avatar, and the public recipe
+// count (what a visitor can actually browse, ~346), fetched live so it stays current.
+export async function getFounderProfile(
+  db: D1Database,
+  userId: string = EDITORS_PICK_USER_ID
+): Promise<{ name: string; avatarUrl: string; recipeCount: number }> {
+  const row = await db.prepare(
+    `SELECT display_name, avatar_url,
+       (SELECT COUNT(*) FROM recipes r WHERE r.user_id = p.user_id
+          AND r.shared_with_friends = 1 AND r.hidden_at IS NULL) AS recipe_count
+     FROM profiles p WHERE p.user_id = ?`
+  ).bind(userId).first<{ display_name: string; avatar_url: string | null; recipe_count: number }>();
+  return {
+    name: row?.display_name || 'Elisa',
+    avatarUrl: row?.avatar_url || '',
+    recipeCount: Number(row?.recipe_count ?? 0),
+  };
+}
+
+// The pinned v2 hero recipe, mapped to the email shape. Returns null if the
+// recipe is missing/unshared/lacks an email-safe image so the caller can degrade.
+export async function getNudgeHero(
+  db: D1Database,
+  recipeId: string = NUDGE_V2_HERO_RECIPE_ID
+): Promise<RecommendedRecipe | null> {
+  const r = await db.prepare(
+    `SELECT id, user_id, title, duration_minutes, meal_types, image_url
+     FROM recipes
+     WHERE id = ? AND shared_with_friends = 1 AND hidden_at IS NULL
+       AND image_url LIKE 'https://%supabase%' LIMIT 1`
+  ).bind(recipeId).first<Record<string, unknown>>();
+  return r ? toRecommendedRecipe(r) : null;
+}
+
+// Fetch a hand-curated set of recipe IDs in order, keeping only those with an
+// image + non-empty ingredients/steps so the email thumbnail and detail page
+// render. Bypasses the discovery title filter (these are editorial picks).
+async function getPinnedRecipes(
+  db: D1Database,
+  ids: string[],
+  userId: string
+): Promise<RecommendedRecipe[]> {
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = await db.prepare(
+    `SELECT id, user_id, title, duration_minutes, meal_types, image_url, ingredients, steps
+     FROM recipes
+     WHERE user_id = ? AND id IN (${placeholders})
+       AND shared_with_friends = 1 AND hidden_at IS NULL`
+  ).bind(userId, ...ids).all();
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const r of rows.results as Array<Record<string, unknown>>) {
+    const okImage = !!String(r.image_url || '');
+    let ing: unknown, steps: unknown;
+    try { ing = JSON.parse(String(r.ingredients || '[]')); } catch { ing = []; }
+    try { steps = JSON.parse(String(r.steps || '[]')); } catch { steps = []; }
+    const okBody = Array.isArray(ing) && ing.length > 0 && Array.isArray(steps) && steps.length > 0;
+    if (okImage && okBody) byId.set(String(r.id), r);
+  }
+  // Preserve the curated order.
+  return ids.map((id) => byId.get(id)).filter(Boolean).map((r) => toRecommendedRecipe(r as Record<string, unknown>));
+}
+
+// Founder recipe shelf: the hand-curated NUDGE_FOUNDER_SHELF_IDS, in order,
+// excluding the pinned hero.
+export async function getFounderShelf(
+  db: D1Database,
+  excludeId: string,
+  limit = 6,
+  _now: number = Date.now(),
+  userId: string = EDITORS_PICK_USER_ID
+): Promise<RecommendedRecipe[]> {
+  const ids = NUDGE_FOUNDER_SHELF_IDS.filter((id) => id !== excludeId).slice(0, limit);
+  return getPinnedRecipes(db, ids, userId);
+}
+
+// v1 "Recommended for you" grid: the hand-curated NUDGE_RECOMMENDED_IDS, in order.
+export async function getNudgeRecommended(
+  db: D1Database,
+  limit = 6,
+  userId: string = EDITORS_PICK_USER_ID
+): Promise<RecommendedRecipe[]> {
+  return getPinnedRecipes(db, NUDGE_RECOMMENDED_IDS.slice(0, limit), userId);
+}
+
+// Fluid-hybrid recipe grid: 3 cards per row on a wide canvas (desktop), wrapping
+// to 2 per row on phones. inline-block + width:33.33% gives the 3-up layout;
+// min-width forces the wrap to 2-up once a third of the row drops below 140px;
+// max-width caps each card on very wide screens. font-size:0 on the container
+// kills the inter-element whitespace that inline-block otherwise introduces.
+// Every card links to its in-app recipe detail (shareUrl), which is
+// self-contained (stored image + ingredients + steps) so a removed original
+// source post never breaks the email.
+// Hard cap card titles server-side so they never exceed ~2 lines. Gmail (esp.
+// the mobile app) strips `-webkit-line-clamp` AND the `height`+`overflow` box,
+// so a long title would otherwise run 6+ lines and blow the card height.
+// Truncation in the data is the only thing that works across all email clients.
+// The CSS clamp stays as progressive enhancement for clients that honor it.
+function clampGridTitle(title: string, max = 34): string {
+  if (title.length <= max) return title;
+  const slice = title.slice(0, max);
+  const lastSpace = slice.lastIndexOf(' ');
+  const cut = lastSpace > max * 0.6 ? slice.slice(0, lastSpace) : slice;
+  return cut.replace(/[\s,;:.\-–—]+$/, '') + '…';
+}
+
+export function buildFluidRecipeGrid(recipes: RecommendedRecipe[]): string {
+  if (!recipes.length) return '';
+  const cards = recipes.map(r => {
     const tag = r.mealTypes[0] || 'Recipe';
     const duration = r.durationMinutes ? `${r.durationMinutes} min` : '';
     const label = [duration, tag].filter(Boolean).join(' · ');
     const imgHtml = r.imageUrl
-      ? `<img src="${r.imageUrl}" alt="${r.title}" width="260" height="90" style="width:100%;height:90px;object-fit:cover;display:block;" />`
+      ? `<img src="${absoluteImageUrl(r.imageUrl)}" alt="${r.title}" width="184" height="90" style="width:100%;height:90px;object-fit:cover;display:block;" />`
       : `<div style="width:100%;height:90px;background:#f0e6d6;text-align:center;line-height:90px;font-size:32px;">🍳</div>`;
-    return `<td style="width:50%;vertical-align:top;padding:0 6px 12px;">
+    return `<div class="rcard" style="display:inline-block;box-sizing:border-box;width:33.33%;min-width:140px;max-width:184px;vertical-align:top;padding:0 6px 12px;font-size:14px;text-align:left;">
       <a href="${r.shareUrl}" style="text-decoration:none;color:inherit;display:block;border:1px solid #eee;border-radius:10px;overflow:hidden;">
         ${imgHtml}
         <div style="padding:10px 10px 14px;">
-          <div style="font-size:12px;font-weight:700;color:#1a1a1a;text-transform:uppercase;line-height:17px;height:34px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${r.title}</div>
+          <div style="font-size:12px;font-weight:700;color:#1a1a1a;text-transform:uppercase;line-height:17px;height:34px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${clampGridTitle(r.title)}</div>
           <div style="font-size:11px;color:#888;margin-top:8px;">${label}</div>
         </div>
       </a>
-    </td>`;
+    </div>`;
   });
-  const rows: string[] = [];
-  for (let i = 0; i < cards.length; i += 2) {
-    const pair = cards.slice(i, i + 2);
-    if (pair.length === 1) pair.push('<td style="width:50%;"></td>');
-    rows.push(`<tr>${pair.join('')}</tr>`);
-  }
-  const grid = cards.length
-    ? `<tr><td style="padding:0 16px 8px;"><table cellpadding="0" cellspacing="0" border="0" width="100%">${rows.join('\n')}</table></td></tr>`
-    : '';
+  return `<div style="text-align:center;font-size:0;">${cards.join('')}</div>`;
+}
+
+// Founder profile card: avatar + name + "ReciFriend Founder" + recipe count,
+// then an in-card divider, a short body line, and the "Connect with Elisa" CTA
+// (deep-links to ?add_friend so the tap fires a friend request).
+export function buildFounderCardHtml(opts: {
+  avatarUrl: string;
+  name: string;
+  recipeCount: number;
+  body: string;
+}): string {
+  // Avatars are stored square (256x256), so a plain width/height crop is exact
+  // without object-fit (which is reserved as the recipe-thumbnail marker).
+  const avatar = opts.avatarUrl
+    ? `<img src="${opts.avatarUrl}" alt="${opts.name}" width="56" height="56" style="width:56px;height:56px;border-radius:50%;display:block;" />`
+    : `<div style="width:56px;height:56px;border-radius:50%;background:#ede7f6;text-align:center;line-height:56px;font-size:24px;">👩‍🍳</div>`;
+  // Single bordered card holding everything: profile row, an in-card divider,
+  // the body copy, and the Connect CTA.
   return `<div style="border-top:1px solid #eee;margin:0 24px;"></div>
   <table cellpadding="0" cellspacing="0" border="0" width="100%">
-    <tr><td style="padding:32px 24px 12px;">
-      <div style="font-size:18px;font-weight:700;color:#1a1a1a;">A few of my favorites</div>
-      <div style="color:#555;font-size:14px;line-height:1.6;margin-top:8px;">Hi, I'm Elisa, the founder. These are some of the recipes I actually cook at home. Save any that look good. Connect with me if you'd like to swap more.</div>
-    </td></tr>
-    ${grid}
-    <tr><td style="text-align:center;padding:8px 24px 28px;">
-      <a href="https://recifriend.com/?add_friend=${EDITORS_PICK_USER_ID}" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:14px 36px;border-radius:999px;font-size:16px;font-weight:700;">Connect with Elisa →</a>
+    <tr><td style="padding:28px 24px 28px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #eee;border-radius:12px;">
+        <tr><td style="padding:16px 16px 0;">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%">
+            <tr>
+              <td width="56" style="vertical-align:middle;">${avatar}</td>
+              <td style="padding-left:14px;vertical-align:middle;">
+                <div style="font-size:16px;font-weight:700;color:#1a1a1a;">${opts.name}</div>
+                <div style="font-size:13px;color:#6200EA;font-weight:600;margin-top:2px;">ReciFriend Founder</div>
+                <div style="font-size:12px;color:#888;margin-top:2px;">${opts.recipeCount} recipes</div>
+              </td>
+            </tr>
+          </table>
+        </td></tr>
+        <tr><td style="padding:14px 16px 0;"><div style="border-top:1px solid #eee;"></div></td></tr>
+        <tr><td style="padding:12px 16px 4px;color:#555;font-size:14px;line-height:1.6;">${opts.body}</td></tr>
+        <tr><td style="text-align:center;padding:8px 16px 18px;">
+          <a href="https://recifriend.com/friend-requests?add_friend=${EDITORS_PICK_USER_ID}" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:14px 36px;border-radius:999px;font-size:16px;font-weight:700;">Connect</a>
+        </td></tr>
+      </table>
     </td></tr>
   </table>`;
 }
@@ -4920,31 +5114,7 @@ export function buildNudgeEmailHtml(
   gifUrl: string | null,
   founderModuleHtml: string
 ): string {
-  const recipeCells = recipes.slice(0, 6).map(r => {
-    const tag = r.mealTypes[0] || 'Recipe';
-    const duration = r.durationMinutes ? `${r.durationMinutes} min` : '';
-    const label = [duration, tag].filter(Boolean).join(' \u00b7 ');
-    const imgHtml = r.imageUrl
-      ? `<img src="${r.imageUrl}" alt="${r.title}" width="260" height="90" style="width:100%;height:90px;object-fit:cover;display:block;" />`
-      : `<div style="width:100%;height:90px;background:#f0e6d6;text-align:center;line-height:90px;font-size:32px;">🍳</div>`;
-    return `<td style="width:50%;vertical-align:top;padding:0 6px 12px;">
-      <a href="${r.shareUrl}" style="text-decoration:none;color:inherit;display:block;border:1px solid #eee;border-radius:10px;overflow:hidden;">
-        ${imgHtml}
-        <div style="padding:10px 10px 14px;">
-          <div style="font-size:12px;font-weight:700;color:#1a1a1a;text-transform:uppercase;line-height:17px;height:34px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${r.title}</div>
-          <div style="font-size:11px;color:#888;margin-top:8px;">${label}</div>
-        </div>
-      </a>
-    </td>`;
-  });
-  // Chunk into rows of 2; pad a lone trailing cell so the grid stays aligned.
-  const recipeRows: string[] = [];
-  for (let i = 0; i < recipeCells.length; i += 2) {
-    const pair = recipeCells.slice(i, i + 2);
-    if (pair.length === 1) pair.push('<td style="width:50%;"></td>');
-    recipeRows.push(`<tr>${pair.join('')}</tr>`);
-  }
-  const recipeGridHtml = recipeRows.join('\n      ');
+  const recipeGridHtml = buildFluidRecipeGrid(recipes.slice(0, 6));
 
   const gifSection = gifUrl
     ? `<div style="padding:0 24px 8px;">
@@ -4956,7 +5126,7 @@ export function buildNudgeEmailHtml(
 
   return `<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${NUDGE_GRID_STYLE}</head>
 <body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
 <div style="max-width:600px;margin:0 auto;background:#fff;">
 
@@ -4968,7 +5138,7 @@ export function buildNudgeEmailHtml(
   <div style="padding:32px 24px 4px;">
     <div style="font-size:22px;font-weight:700;color:#1a1a1a;">Hey ${displayName}! 👋</div>
     <p style="color:#555;font-size:15px;line-height:1.6;margin-top:12px;">
-      Welcome to ReciFriend! You haven't saved your first recipe yet. It only takes a few seconds — here's how:
+      Welcome to ReciFriend! You haven't saved your first recipe yet. It only takes a few seconds. Here's how:
     </p>
   </div>
 
@@ -4992,7 +5162,7 @@ export function buildNudgeEmailHtml(
   </div>
 
   <div style="text-align:center;padding:20px 24px 32px;">
-    <a href="https://recifriend.com/discover" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:14px 36px;border-radius:999px;font-size:16px;font-weight:700;">Save Your First Recipe →</a>
+    <a href="https://recifriend.com/discover" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:14px 36px;border-radius:999px;font-size:16px;font-weight:700;">Save Your First Recipe</a>
   </div>
 
   <div style="border-top:1px solid #eee;margin:0 24px;"></div>
@@ -5001,12 +5171,9 @@ export function buildNudgeEmailHtml(
   <table cellpadding="0" cellspacing="0" border="0" width="100%">
     <tr><td style="padding:32px 24px 12px;">
       <div style="font-size:18px;font-weight:700;color:#1a1a1a;">Recommended for you</div>
-      <div style="color:#888;font-size:13px;margin-top:4px;">${recipes.length > 0 && recipes[0].mealTypes.length > 0 ? 'Based on your preferences' : 'Popular in the community'}</div>
     </td></tr>
-    <tr><td style="padding:0 16px 8px;">
-      <table cellpadding="0" cellspacing="0" border="0" width="100%">
+    <tr><td style="padding:0 18px 8px;">
       ${recipeGridHtml}
-      </table>
     </td></tr>
     <tr><td style="text-align:center;padding:8px 24px 28px;">
       <a href="https://recifriend.com/discover" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:14px 36px;border-radius:999px;font-size:16px;font-weight:700;">Discover more recipes</a>
@@ -5029,50 +5196,45 @@ export function buildNudgeEmailHtml(
 
 export function buildNudgeEmailHtmlV2(
   displayName: string,
-  recipes: RecommendedRecipe[],
-  founderModuleHtml: string
+  hero: RecommendedRecipe | null,
+  founderCardHtml: string,
+  founderShelf: RecommendedRecipe[]
 ): string {
-  const hero = recipes[0];
-  const morePicks = recipes.slice(1, 5);
+  // Hero card capped at 482px and centered (full-width on mobile). Image, title,
+  // and the Save CTA all live inside one bordered card. Image and title link to
+  // the recipe; the Save button is a sibling link (no nested anchors).
   const heroHtml = hero ? `
-  <div style="padding:8px 24px 0;">
-    <a href="${hero.shareUrl}" style="text-decoration:none;color:inherit;display:block;border:1px solid #eee;border-radius:12px;overflow:hidden;">
-      ${hero.imageUrl ? `<img src="${hero.imageUrl}" alt="${hero.title}" style="width:100%;height:200px;object-fit:cover;display:block;" />` : ''}
+  <div style="padding:8px 24px 32px;text-align:center;">
+    <div style="max-width:482px;margin:0 auto;text-align:left;border:1px solid #eee;border-radius:12px;overflow:hidden;">
+      <a href="${hero.shareUrl}" style="text-decoration:none;color:inherit;display:block;">
+        ${hero.imageUrl ? `<img src="${absoluteImageUrl(hero.imageUrl)}" alt="${hero.title}" style="width:100%;height:200px;object-fit:cover;display:block;" />` : ''}
+      </a>
       <div style="padding:16px;">
-        <div style="font-size:18px;font-weight:700;color:#1a1a1a;line-height:1.3;">${hero.title}</div>
-        <div style="font-size:12px;color:#888;margin-top:6px;">${[hero.durationMinutes ? `${hero.durationMinutes} min` : '', hero.mealTypes[0] || 'Recipe'].filter(Boolean).join(' · ')}</div>
+        <a href="${hero.shareUrl}" style="text-decoration:none;color:inherit;display:block;">
+          <div style="font-size:18px;font-weight:700;color:#1a1a1a;line-height:1.3;">${hero.title}</div>
+          <div style="font-size:12px;color:#888;margin-top:6px;">${[hero.durationMinutes ? `${hero.durationMinutes} min` : '', hero.mealTypes[0] || 'Recipe'].filter(Boolean).join(' · ')}</div>
+        </a>
+        <div style="text-align:center;padding-top:16px;">
+          <a href="${hero.shareUrl}" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:14px 36px;border-radius:999px;font-size:16px;font-weight:700;">Save this recipe</a>
+        </div>
       </div>
-    </a>
-  </div>
-  <div style="text-align:center;padding:16px 24px 4px;">
-    <a href="${hero.shareUrl}" style="display:inline-block;background:#6200EA;color:#fff;text-decoration:none;padding:14px 36px;border-radius:999px;font-size:16px;font-weight:700;">Save this recipe →</a>
-  </div>
-  <div style="padding:4px 24px 8px;color:#555;font-size:14px;line-height:1.6;text-align:center;">One tap and it's yours: ingredients, steps, and hands-free cook mode, ready whenever you cook. That first save is where ReciFriend clicks.</div>` : '';
-
-  const moreCells = morePicks.map(r => {
-    const label = [r.durationMinutes ? `${r.durationMinutes} min` : '', r.mealTypes[0] || 'Recipe'].filter(Boolean).join(' · ');
-    const img = r.imageUrl
-      ? `<img src="${r.imageUrl}" alt="${r.title}" width="260" height="90" style="width:100%;height:90px;object-fit:cover;display:block;" />`
-      : `<div style="width:100%;height:90px;background:#f0e6d6;text-align:center;line-height:90px;font-size:32px;">🍳</div>`;
-    return `<td style="width:50%;vertical-align:top;padding:0 6px 12px;"><a href="${r.shareUrl}" style="text-decoration:none;color:inherit;display:block;border:1px solid #eee;border-radius:10px;overflow:hidden;">${img}<div style="padding:10px 10px 14px;"><div style="font-size:12px;font-weight:700;color:#1a1a1a;text-transform:uppercase;line-height:17px;height:34px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">${r.title}</div><div style="font-size:11px;color:#888;margin-top:8px;">${label}</div></div></a></td>`;
-  });
-  const moreRows: string[] = [];
-  for (let i = 0; i < moreCells.length; i += 2) {
-    const pair = moreCells.slice(i, i + 2);
-    if (pair.length === 1) pair.push('<td style="width:50%;"></td>');
-    moreRows.push(`<tr>${pair.join('')}</tr>`);
-  }
-  const moreHtml = moreCells.length ? `
-  <div style="padding:8px 16px 0;">
-    <div style="padding:0 8px;font-size:16px;font-weight:700;color:#1a1a1a;">More picks for you</div>
-    <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:8px;">${moreRows.join('\n')}</table>
+    </div>
   </div>` : '';
+
+  // Founder recipe shelf sits below the founder card, under its own section
+  // heading. Same fluid 3-up / 2-up grid the v1 Recommended section uses.
+  const shelfGrid = buildFluidRecipeGrid(founderShelf);
+  const shelfHtml = shelfGrid ? `
+  <table cellpadding="0" cellspacing="0" border="0" width="100%"><tr><td style="padding:24px 24px 4px;">
+    <div style="font-size:18px;font-weight:700;color:#1a1a1a;">${NUDGE_V2_FOUNDER_HEADING}</div>
+  </td></tr></table>
+  <div style="padding:8px 18px 20px;">${shelfGrid}</div>` : '';
 
   return `<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${NUDGE_GRID_STYLE}</head>
 <body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-<div style="display:none;max-height:0;overflow:hidden;">One tap saves it: ingredients, steps, and cook mode included.</div>
+<div style="display:none;max-height:0;overflow:hidden;">A 30-minute dinner worth saving, plus a few favorites from the founder.</div>
 <div style="max-width:600px;margin:0 auto;background:#fff;">
   <div style="background:#6200EA;padding:32px 24px;text-align:center;">
     <div style="font-size:28px;font-weight:700;color:#fff;">🍳 ReciFriend</div>
@@ -5082,11 +5244,11 @@ export function buildNudgeEmailHtmlV2(
     <div style="font-size:22px;font-weight:700;color:#1a1a1a;">Hey ${displayName}, one good recipe to get you started.</div>
   </div>
   ${heroHtml}
-  ${moreHtml}
-  <div style="text-align:center;padding:8px 24px 24px;">
-    <a href="https://recifriend.com/discover" style="display:inline-block;background:transparent;color:#6200EA;border:1px solid #6200EA;text-decoration:none;padding:12px 30px;border-radius:999px;font-size:15px;font-weight:700;">Browse more recipes →</a>
+  ${founderCardHtml}
+  ${shelfHtml}
+  <div style="text-align:center;padding:4px 24px 28px;">
+    <a href="https://recifriend.com/discover" style="display:inline-block;background:transparent;color:#6200EA;border:1px solid #6200EA;text-decoration:none;padding:12px 30px;border-radius:999px;font-size:15px;font-weight:700;">Browse more recipes</a>
   </div>
-  ${founderModuleHtml}
   <div style="background:#f9f9f9;padding:24px;text-align:center;border-top:1px solid #eee;">
     <div style="color:#999;font-size:12px;line-height:1.6;">You're receiving this because you signed up for ReciFriend.<br>
       <a href="https://api.recifriend.com/unsubscribe?userId=__USER_ID__&token=__TOKEN__" style="color:#999;">Unsubscribe</a>

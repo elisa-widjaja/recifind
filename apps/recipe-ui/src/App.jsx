@@ -2129,6 +2129,7 @@ function App() {
   // the deep-link dispatcher (created once) can fire it for accept_friend
   // links arriving via Universal Link / appUrlOpen on already-running app.
   const acceptFriendRequestRef = useRef(null);
+  const addFriendRef = useRef(null);          // POST /friends/request (add_friend deep link → founder Connect)
   const acceptInviteRef = useRef(null);       // POST /friends/accept-invite (email invite_token)
   const acceptOpenInviteRef = useRef(null);   // POST /friends/accept-open-invite (SMS open invite)
   const friendActivityRefreshRef = useRef(null); // set by FriendSections (Task 8)
@@ -2224,10 +2225,21 @@ function App() {
           if (share) setPendingShare(share);
         });
       },
-      onFriendRequests: (acceptId) => {
+      onFriendRequests: (acceptId, addId) => {
         // 'friends' (FriendsPage) renders pending requests; 'friend-requests'
         // has no render block and would show a blank screen.
         setCurrentView('friends');
+        // ?add_friend=<id> — send an OUTGOING request to that user (founder
+        // Connect button), land on Pending. Defer to post-login when signed out.
+        if (addId) {
+          setFriendsInitialTab('pending');
+          if (accessTokenRef.current) {
+            addFriendRef.current?.(addId);
+          } else {
+            sessionStorage.setItem('pending_add_friend', addId);
+          }
+          return;
+        }
         if (!acceptId) { setFriendsInitialTab('pending'); return; }
         // Accepting via the email link: the request is no longer pending, so
         // land on the My Friends tab where the new connection appears.
@@ -2816,6 +2828,32 @@ function App() {
         return;
       }
       setSnackbarState({ open: true, message: 'Failed to accept request', severity: 'error' });
+    }
+  };
+
+  // Send an OUTGOING friend request to `userId` (the add_friend deep link, e.g.
+  // the founder email's Connect button), land on the Pending tab, and snackbar.
+  // Reads the token from the ref so the native deep-link dispatcher (which runs
+  // outside the render closure) sees the current session. Shared by the web
+  // pending_add_friend consume and the native onFriendRequests handler.
+  const sendAddFriendRequest = async (userId) => {
+    if (!userId) return;
+    const token = accessTokenRef.current;
+    if (!token) { sessionStorage.setItem('pending_add_friend', userId); return; }
+    setCurrentView('friends');
+    setFriendsInitialTab('pending');
+    try {
+      await callRecipesApi('/friends/request', { method: 'POST', body: JSON.stringify({ userId }) }, token);
+      trackEvent('send_friend_request');
+      setIsAuthDialogOpen(false);
+      // Generic copy: the handler accepts any add_friend userId, not just the founder.
+      setSnackbarState({ open: true, message: 'Friend request sent! 💛', severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
+      fetchFriendRequests();
+    } catch (error) {
+      const msg = error?.message || '';
+      const benign = msg.includes('already friends') || msg.includes('already sent');
+      setIsAuthDialogOpen(false);
+      setSnackbarState({ open: true, message: benign ? "You're already connected." : 'Could not send the request.', severity: benign ? 'info' : 'error' });
     }
   };
 
@@ -4022,8 +4060,9 @@ function App() {
 
   useEffect(() => {
     acceptFriendRequestRef.current = acceptFriendRequest;
+    addFriendRef.current = sendAddFriendRequest;
     accessTokenRef.current = accessToken;
-  }, [acceptFriendRequest, accessToken]);
+  }, [acceptFriendRequest, sendAddFriendRequest, accessToken]);
 
   useEffect(() => { acceptInviteRef.current = acceptInvite; acceptOpenInviteRef.current = acceptOpenInvite; });
 
@@ -4198,21 +4237,9 @@ function App() {
     const pendingAddFriend = sessionStorage.getItem('pending_add_friend');
     if (accessToken && pendingAddFriend) {
       sessionStorage.removeItem('pending_add_friend');
-      callRecipesApi('/friends/request', {
-        method: 'POST',
-        body: JSON.stringify({ userId: pendingAddFriend }),
-      }, accessToken).then(() => {
-        trackEvent('send_friend_request');
-        setIsAuthDialogOpen(false);
-        // Generic copy: the handler accepts any add_friend userId, not just the founder.
-        setSnackbarState({ open: true, message: 'Friend request sent! 💛', severity: 'success', anchorOrigin: { vertical: 'top', horizontal: 'center' } });
-        fetchFriendRequests();
-      }).catch((error) => {
-        const msg = error?.message || '';
-        const benign = msg.includes('already friends') || msg.includes('already sent');
-        setIsAuthDialogOpen(false);
-        setSnackbarState({ open: true, message: benign ? 'You\'re already connected.' : 'Could not send the request.', severity: benign ? 'info' : 'error' });
-      });
+      // Lands on the Friends → Pending tab + snackbar (shared with the native
+      // add_friend deep-link path).
+      sendAddFriendRequest(pendingAddFriend);
     }
 
     const pendingInviteToken = sessionStorage.getItem('pending_invite_token');
