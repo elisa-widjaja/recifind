@@ -34,6 +34,26 @@ describe('getPublicDiscover', () => {
     const result = await getPublicDiscover(mockDb);
     expect(result).toHaveLength(0);
   });
+
+  it('filters out broken cards: no image, no title, or generic FB title', async () => {
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue({
+        all: vi.fn().mockResolvedValue({
+          results: [
+            { id: 'ok', title: '🌮 Crispy Verde Shrimp Tacos', source_url: 'https://www.facebook.com/reel/1', image_url: 'https://img/x.jpg' },
+            { id: 'noimg', title: 'Real Recipe', source_url: 'https://www.facebook.com/reel/2', image_url: '' },
+            { id: 'notitle', title: '', source_url: 'https://www.facebook.com/reel/3', image_url: 'https://img/y.jpg' },
+            { id: 'fbreel', title: 'Facebook Reel', source_url: 'https://www.facebook.com/reel/4', image_url: 'https://img/z.jpg' },
+            { id: 'redir', title: 'Redirecting...', source_url: 'https://www.facebook.com/photo.php?fbid=5', image_url: 'https://img/w.jpg' },
+            { id: 'fbwatch', title: 'fb.watch', source_url: 'https://www.facebook.com/reel/6', image_url: 'https://img/v.jpg' },
+          ]
+        })
+      })
+    } as unknown as D1Database;
+
+    const result = await getPublicDiscover(mockDb);
+    expect(result.map(r => r.id)).toEqual(['ok']);
+  });
 });
 
 describe('getEditorsPick', () => {

@@ -6,6 +6,7 @@ import { handleRegisterDevice, handleUnregisterDevice } from './routes/devices';
 import { sendPushToUser } from './push/apns';
 // === [/S05] ===
 import { ensureEstimatedDuration } from './estimateDuration';
+import { isGenericFacebookTitle } from './brokenDigest';
 
 const DEFAULT_PAGE_SIZE = 1000;
 const MAX_PAGE_SIZE = 1000;
@@ -1032,6 +1033,17 @@ export default {
       console.error('[cron] user counts cache failed', err);
     }
 
+    // Daily digest of broken Facebook imports (generic/empty title or no image).
+    // Isolated + read-only; internally gated to fire ~once/day. Placed BEFORE the
+    // nudge kill-switch return below so it runs even while nudges are paused.
+    try {
+      const { runBrokenRecipeDigest } = await import('./brokenDigest');
+      const result = await runBrokenRecipeDigest(env);
+      console.log('[cron] brokenRecipeDigest', result);
+    } catch (err) {
+      console.error('[cron] brokenRecipeDigest failed', err);
+    }
+
     // Kill switch: pause nudge-email sending while leaving the rest of the cron running.
     // Flip via NUDGE_EMAILS_ENABLED in wrangler.toml [vars]; "false" = paused.
     if (env.NUDGE_EMAILS_ENABLED === 'false') {
@@ -1857,6 +1869,18 @@ function mapDiscoverRow(r: Record<string, unknown>): DiscoverRecipe {
   };
 }
 
+// A community-shelf ("/public/discover") card looks broken when it has no image
+// or a placeholder / generic Facebook title — unfixed FB imports surface as
+// "Facebook Reel", "Redirecting…", "fb.watch", or bare "Facebook". Kept
+// deliberately NARROW: unlike isCleanDiscoveryRow it does NOT require
+// ingredients/steps or reject emoji/caption titles, since the community shelf is
+// social-video recipes whose titles are frequently the original caption.
+function isBrokenDiscoverRow(r: Record<string, unknown>): boolean {
+  const imageUrl = String(r.image_url ?? '').trim();
+  if (!imageUrl) return true;                          // no image
+  return isGenericFacebookTitle(String(r.title ?? '')); // generic/empty title
+}
+
 const DISCOVER_SELECT = `SELECT id, user_id, title, source_url, image_url, meal_types, custom_tags, duration_minutes, ingredients, steps FROM recipes`;
 
 export async function getPublicDiscover(db: D1Database): Promise<DiscoverRecipe[]> {
@@ -1885,6 +1909,7 @@ export async function getPublicDiscover(db: D1Database): Promise<DiscoverRecipe[
      LIMIT 20`
   ).all();
   const rest = (rows.results as Array<Record<string, unknown>>)
+    .filter(r => !isBrokenDiscoverRow(r))
     .map(mapDiscoverRow)
     .filter(r => !curatedIds.has(r.id));
 
