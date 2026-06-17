@@ -2170,6 +2170,23 @@ function App() {
     // sign-in/out cycles, navigation) don't reset it within a single app run.
     const isAuthCallback = /\/auth\/callback(\b|\/|\?)/.test(urlString);
     if (isAuthCallback) {
+      // Re-hydrate any pending friend-connect intent that native sign-in carried
+      // THROUGH the OAuth redirect (buildNativeAuthRedirect). sessionStorage does
+      // not survive the Browser.open round-trip, so the token may be gone by now;
+      // restoring it here — before exchangeCodeForSession establishes the session —
+      // lets the existing post-auth accept effects fire. Writing the same value
+      // twice (if it did survive) is harmless.
+      try {
+        const cbUrl = new URL(urlString);
+        const carry = (param, storageKey) => {
+          const v = cbUrl.searchParams.get(param);
+          if (v) sessionStorage.setItem(storageKey, v);
+        };
+        carry('accept_friend', 'pending_accept_friend');
+        carry('invite_token', 'pending_invite_token');
+        carry('invite', 'pending_open_invite');
+        carry('add_friend', 'pending_add_friend');
+      } catch { /* unparseable callback URL — nothing to re-hydrate */ }
       if (dispatchedDeepLinks.has(urlString)) {
         // eslint-disable-next-line no-console
         console.warn('[deeplink] dedup skip — auth callback already dispatched this run');
@@ -3122,6 +3139,26 @@ function App() {
 
   // ── End friends API functions ─────────────────────────────────────
 
+  // Native OAuth (Google/Apple) returns to a fixed custom-scheme callback. A
+  // pending friend-connect intent (open-invite link, email invite, accept, or
+  // add-friend) must survive that round-trip, but sessionStorage does NOT
+  // persist across the Browser.open OAuth cycle (see CLAUDE.md). So we carry it
+  // THROUGH the redirect URL — exactly like the web branch of handleGoogleSignIn
+  // — and re-hydrate it from the callback URL in dispatchDeepLink. Returns the
+  // full redirectTo (base + carried query). Priority mirrors the web branch.
+  const buildNativeAuthRedirect = () => {
+    const base = 'recifriend://auth/callback';
+    const pendingId = sessionStorage.getItem('pending_accept_friend');
+    const pendingInvite = sessionStorage.getItem('pending_invite_token');
+    const pendingOpenInvite = sessionStorage.getItem('pending_open_invite');
+    const pendingAddFriend = sessionStorage.getItem('pending_add_friend');
+    if (pendingId) return `${base}?accept_friend=${encodeURIComponent(pendingId)}`;
+    if (pendingInvite) return `${base}?invite_token=${encodeURIComponent(pendingInvite)}`;
+    if (pendingOpenInvite) return `${base}?invite=${encodeURIComponent(pendingOpenInvite)}`;
+    if (pendingAddFriend) return `${base}?add_friend=${encodeURIComponent(pendingAddFriend)}`;
+    return base;
+  };
+
   const handleGoogleSignIn = async () => {
     if (!supabase) {
       setAuthError('Authentication is not configured.');
@@ -3139,7 +3176,9 @@ function App() {
             // from OAuth code interception because native client uses PKCE —
             // even if another app claims recifriend://, they lack the
             // code_verifier stored locally in ReciFriend's Keychain.
-            redirectTo: 'recifriend://auth/callback',
+            // Carry any pending friend-connect intent through the redirect so it
+            // survives the OAuth round-trip (sessionStorage does not).
+            redirectTo: buildNativeAuthRedirect(),
             skipBrowserRedirect: true,
           },
         });
@@ -3188,7 +3227,10 @@ function App() {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'apple',
         options: {
-          redirectTo: 'recifriend://auth/callback',
+          // Carry any pending friend-connect intent through the redirect so it
+          // survives the OAuth round-trip (sessionStorage does not). This is the
+          // fix for invited Apple/Hide-My-Email users not auto-connecting.
+          redirectTo: buildNativeAuthRedirect(),
           skipBrowserRedirect: true,
         },
       });
