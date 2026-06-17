@@ -37,6 +37,33 @@ final class DeviceMetadataFetcherTests: XCTestCase {
         XCTAssertEqual(full, og)
     }
 
+    // Regression: FB reel https://www.facebook.com/reel/777779878458348
+    // ("Persian Jeweled Rice"). The reel's caption leads with an emoji that the
+    // page entity-encodes (&#x2728;) in BOTH the og:description meta tag and the
+    // body's inline JSON — the live page has 20x &#x2728; and zero literal ✨.
+    // fetchSocialPreview decodes og:description first (line 74), so the anchor
+    // extractFullCaption builds starts with a literal ✨ + U+2028, which never
+    // byte-matches the still-entity-encoded body. The full caption (ingredients
+    // + steps) is therefore never recovered and the reel imports title-only.
+    func testExtractFullCaption_recoversCaptionWhenLeadingEmojiIsEntityEncoded() {
+        // og:description as the CALLER passes it: already HTML-entity-decoded
+        // (real ✨ / U+2028 / 💛), truncated by FB with a trailing "...".
+        let og = "\u{2728} Persian Jeweled Rice \u{2728}\u{2028}A dish as stunning as it is delicious \u{1F49B} golden rice studded with nuts, dried fruit, and citrusy fragrance. Rich in flavor, color, and aroma, and all made in one pot in under..."
+
+        // Page HTML as actually served: emoji entity-encoded in both the meta
+        // tag and the inline-JSON body. The body carries the FULL caption with
+        // ingredients + instructions.
+        let html = """
+        <html><head><meta property="og:description" content="&#x2728; Persian Jeweled Rice &#x2728;&#x2028;A dish as stunning as it is delicious &#x1f49b; golden rice studded with nuts, dried fruit, and citrusy fragrance. Rich in flavor, color, and aroma, and all made in one pot in under..." /></head>
+        <body><script>{"message":{"text":"&#x2728; Persian Jeweled Rice &#x2728;&#x2028;A dish as stunning as it is delicious &#x1f49b; golden rice studded with nuts, dried fruit, and citrusy fragrance. Rich in flavor, color, and aroma, and all made in one pot in under an hour!\\n\\n&#x1f958; Ingredients:\\n* 2 cups washed basmati rice\\n* 1/2 cup slivered almonds\\n* 1 tsp turmeric\\n\\n&#x1f469;&#x200d;&#x1f373; Instructions:\\n1. Heat oil and saut&#xe9; onions until golden.\\n2. Add rice and water, bring to a boil uncovered."}}</script></body></html>
+        """
+
+        let full = DeviceMetadataFetcher.extractFullCaption(html: html, ogDescription: og)
+        XCTAssertTrue(full.contains("basmati rice"), "expected ingredients recovered, got: \(full)")
+        XCTAssertTrue(full.contains("Instructions"), "expected steps recovered, got: \(full)")
+        XCTAssertGreaterThan(full.count, og.count)
+    }
+
     func testExtractFullCaption_unescapesJsonNewlinesAndUnicode() {
         let og = "Garlic Butter Shrimp recipe below"
         let html = """
@@ -47,5 +74,76 @@ final class DeviceMetadataFetcherTests: XCTestCase {
         XCTAssertTrue(full.contains("\n"))
         XCTAssertTrue(full.contains("shrimp"))
         XCTAssertFalse(full.contains("\\n"))
+    }
+
+    // MARK: - looksLikeFacebookGeneric
+
+    func testLooksLikeFacebookGeneric_trueForFacebookChrome() {
+        XCTAssertTrue(DeviceMetadataFetcher.looksLikeFacebookGeneric("Discover Popular Videos | Facebook"))
+        XCTAssertTrue(DeviceMetadataFetcher.looksLikeFacebookGeneric("Redirecting..."))
+        XCTAssertTrue(DeviceMetadataFetcher.looksLikeFacebookGeneric("Facebook"))
+        XCTAssertTrue(DeviceMetadataFetcher.looksLikeFacebookGeneric("Video is the place to enjoy videos and shows together."))
+        XCTAssertTrue(DeviceMetadataFetcher.looksLikeFacebookGeneric("   "))
+    }
+
+    func testLooksLikeFacebookGeneric_falseForRealTitle() {
+        XCTAssertFalse(DeviceMetadataFetcher.looksLikeFacebookGeneric("Sticky Mongolian-Style Ground Beef"))
+        XCTAssertFalse(DeviceMetadataFetcher.looksLikeFacebookGeneric("Blackened Mahi-Mahi Tacos"))
+    }
+
+    // MARK: - parseSocialPreview (Facebook)
+
+    // FB photo posts (facebook.com/photo.php) expose og:title + og:image but NO
+    // og:description. The fetcher must fall back to og:title instead of bailing
+    // to nil (which surfaced as "Redirecting…"/"Facebook Reel" + no thumbnail).
+    func testParseSocialPreview_facebookPhotoFallsBackToOgTitle() {
+        let html = """
+        <html><head>
+        <meta property="og:title" content="Sticky Mongolian-Style Ground... - Healthy Stir-Fry Ideas" />
+        <meta property="og:image" content="https://scontent.fbcdn.net/v/photo.jpg" />
+        </head><body></body></html>
+        """
+        let url = URL(string: "https://www.facebook.com/photo.php?fbid=123&set=a.456&type=3")!
+        let preview = DeviceMetadataFetcher.parseSocialPreview(html: html, sourceUrl: url)
+        XCTAssertEqual(preview?.title, "Sticky Mongolian-Style Ground... - Healthy Stir-Fry Ideas")
+        XCTAssertEqual(preview?.imageUrl, "https://scontent.fbcdn.net/v/photo.jpg")
+        XCTAssertNil(preview?.caption)
+    }
+
+    // fb.watch reels resolve to the logged-out Watch hub, whose og tags are
+    // generic FB chrome — must bail to nil so the caller shows the placeholder.
+    func testParseSocialPreview_facebookGenericHubReturnsNil() {
+        let html = """
+        <html><head>
+        <meta property="og:title" content="Discover Popular Videos | Facebook" />
+        <meta property="og:description" content="Video is the place to enjoy videos and shows together. Watch the latest reels." />
+        </head><body></body></html>
+        """
+        let url = URL(string: "https://www.facebook.com/watch/?v=123")!
+        XCTAssertNil(DeviceMetadataFetcher.parseSocialPreview(html: html, sourceUrl: url))
+    }
+
+    // og:title-only fallback is Facebook-specific — other platforms keep the
+    // original behavior of returning nil when there's no caption.
+    func testParseSocialPreview_nonFacebookNoDescriptionReturnsNil() {
+        let html = "<html><head><meta property=\"og:title\" content=\"Some TikTok\" /></head><body></body></html>"
+        let url = URL(string: "https://www.tiktok.com/@user/video/123")!
+        XCTAssertNil(DeviceMetadataFetcher.parseSocialPreview(html: html, sourceUrl: url))
+    }
+
+    // Regression: a real FB post WITH a caption still derives its title from the
+    // caption and carries the full caption forward for ingredient extraction.
+    func testParseSocialPreview_facebookPostWithCaptionKeepsCaptionPath() {
+        let html = """
+        <html><head>
+        <meta property="og:description" content="Korean Steamed Eggs. So fluffy and savory!" />
+        <meta property="og:image" content="https://scontent.fbcdn.net/v/eggs.jpg" />
+        </head><body></body></html>
+        """
+        let url = URL(string: "https://www.facebook.com/share/p/abc123/")!
+        let preview = DeviceMetadataFetcher.parseSocialPreview(html: html, sourceUrl: url)
+        XCTAssertNotNil(preview)
+        XCTAssertFalse(preview!.title.isEmpty)
+        XCTAssertNotNil(preview?.caption)
     }
 }
