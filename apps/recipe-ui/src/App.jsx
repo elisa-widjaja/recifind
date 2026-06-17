@@ -2134,6 +2134,12 @@ function App() {
   const acceptOpenInviteRef = useRef(null);   // POST /friends/accept-open-invite (SMS open invite)
   const friendActivityRefreshRef = useRef(null); // set by FriendSections (Task 8)
   const accessTokenRef = useRef(null);
+  // Let the deep-link dispatcher refresh friend data on arrival, so a request
+  // that came in while the app was backgrounded is loaded (and visible to
+  // Accept) the moment a friend-request notification opens the Pending tab —
+  // instead of only after the user manually taps the Friends bottom-nav.
+  const fetchFriendRequestsRef = useRef(null);
+  const fetchFriendsRef = useRef(null);
   // Same ref pattern for the recipe-detail close handler so the share
   // extension's "View on ReciFriend" deep link can dismiss an already-open
   // recipe before navigating to /recipes.
@@ -2246,6 +2252,16 @@ function App() {
         // 'friends' (FriendsPage) renders pending requests; 'friend-requests'
         // has no render block and would show a blank screen.
         setCurrentView('friends');
+        // Refresh friend data on arrival. A friend-request push fires this deep
+        // link, but the request itself arrived while the app was backgrounded,
+        // so the cached friendRequests list is stale — the Pending tab would
+        // render empty (no badge) until the user manually tapped the Friends
+        // bottom-nav (which refetches via navigateToFriendsTab). Refetch here so
+        // the request is loaded and visible to Accept the moment we land. When
+        // signed out (cold start) this no-ops on the missing token; the
+        // post-login fetch effect then loads it once auth completes.
+        fetchFriendRequestsRef.current?.();
+        fetchFriendsRef.current?.();
         // ?add_friend=<id> — send an OUTGOING request to that user (founder
         // Connect button), land on Pending. Defer to post-login when signed out.
         if (addId) {
@@ -4104,7 +4120,9 @@ function App() {
     acceptFriendRequestRef.current = acceptFriendRequest;
     addFriendRef.current = sendAddFriendRequest;
     accessTokenRef.current = accessToken;
-  }, [acceptFriendRequest, sendAddFriendRequest, accessToken]);
+    fetchFriendRequestsRef.current = fetchFriendRequests;
+    fetchFriendsRef.current = fetchFriends;
+  }, [acceptFriendRequest, sendAddFriendRequest, accessToken, fetchFriendRequests, fetchFriends]);
 
   useEffect(() => { acceptInviteRef.current = acceptInvite; acceptOpenInviteRef.current = acceptOpenInvite; });
 
