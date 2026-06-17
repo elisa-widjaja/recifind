@@ -16,6 +16,10 @@ const truncateTitle = (s) => {
   return t.length > 35 ? t.slice(0, 35) + '…' : t;
 };
 
+// Facebook reels are login-walled from the worker, so re-enrich can only recover
+// their content from a pasted caption. The caption field is shown only for these.
+const isFacebookUrl = (url) => /facebook\.com|fb\.watch/i.test(url || '');
+
 const ACTIVITY_LABEL = { save: 'Saved', share: 'Shared', cook: 'Cooked' };
 const ACTIVITY_COLOR = { save: 'default', share: 'info', cook: 'success' };
 
@@ -51,6 +55,7 @@ export default function UserDrilldown({ id }) {
   const [anchor, setAnchor] = useState(null);
   const [toast, setToast] = useState('');
   const [confirm, setConfirm] = useState(null); // { kind, recipeId?, title? }
+  const [reEnrichCaption, setReEnrichCaption] = useState(''); // optional pasted caption (FB reels)
   const [editName, setEditName] = useState({ open: false, value: '' });
   const [magicLink, setMagicLink] = useState({ open: false, url: '' });
   const [showInvitees, setShowInvitees] = useState(false);
@@ -101,8 +106,8 @@ export default function UserDrilldown({ id }) {
         reload();
       })
       .catch((e) => setToast(`Re-host failed: ${e.message}`));
-  const doReEnrichRecipe = (rid) =>
-    post(`/admin/recipes/${rid}/re-enrich`, {})
+  const doReEnrichRecipe = (rid, caption) =>
+    post(`/admin/recipes/${rid}/re-enrich`, caption && caption.trim() ? { caption: caption.trim() } : {})
       .then((d) => {
         const r = d?.recipe || {};
         const ing = (r.ingredients || []).length;
@@ -377,7 +382,7 @@ export default function UserDrilldown({ id }) {
                               <Button
                                 size="small"
                                 sx={{ whiteSpace: 'nowrap', minWidth: 'auto' }}
-                                onClick={() => setConfirm({ kind: 'reenrich_recipe', recipeId: r.id, title: r.title })}
+                                onClick={() => setConfirm({ kind: 'reenrich_recipe', recipeId: r.id, title: r.title, sourceUrl: r.source_url })}
                               >Re-enrich</Button>
                               {!r.hidden_at ? (
                                 <Button size="small" sx={{ minWidth: 'auto' }} onClick={() => setConfirm({ kind: 'hide_recipe', recipeId: r.id, title: r.title })}>Hide</Button>
@@ -514,9 +519,23 @@ export default function UserDrilldown({ id }) {
         title={`Re-enrich "${confirm?.title}"?`}
         body="Re-runs enrichment on the source URL and replaces this recipe's ingredients and steps. If the source can't be parsed, the current content is kept."
         confirmLabel="Re-enrich"
-        onConfirm={() => { doReEnrichRecipe(confirm.recipeId); setConfirm(null); }}
-        onClose={() => setConfirm(null)}
-      />
+        onConfirm={() => { doReEnrichRecipe(confirm.recipeId, reEnrichCaption); setConfirm(null); setReEnrichCaption(''); }}
+        onClose={() => { setConfirm(null); setReEnrichCaption(''); }}
+      >
+        {isFacebookUrl(confirm?.sourceUrl) && (
+          <TextField
+            label="Caption (optional)"
+            placeholder="Paste the full Facebook reel caption here. Facebook reels are login-walled from the server, so it can't fetch the caption itself; paste it and Gemini will extract the ingredients and steps."
+            value={reEnrichCaption}
+            onChange={(e) => setReEnrichCaption(e.target.value)}
+            multiline
+            minRows={3}
+            maxRows={12}
+            fullWidth
+            sx={{ mb: 2 }}
+          />
+        )}
+      </ConfirmModal>
       <Dialog open={editName.open} onClose={() => setEditName({ ...editName, open: false })}>
         <DialogTitle>Edit display name</DialogTitle>
         <DialogContent>

@@ -563,7 +563,13 @@ export default {
           throw new HttpError(401, 'Missing Authorization header');
         }
         const targetId = decodeURIComponent(adminReEnrichMatch[1]);
-        return await handleAdminReEnrichRecipe(env, user, targetId);
+        // Optional body: { caption } lets an admin paste a Facebook reel's full
+        // caption (which the worker can't fetch itself, being login-walled from
+        // FB on datacenter IPs) so Gemini can extract its content. Body is
+        // optional — existing no-body callers still work.
+        const adminReEnrichBody = await readJsonBody(request).catch(() => ({} as Record<string, any>));
+        const adminCaption = typeof adminReEnrichBody.caption === 'string' ? adminReEnrichBody.caption : undefined;
+        return await handleAdminReEnrichRecipe(env, user, targetId, undefined, adminCaption);
       }
 
       if (url.pathname === '/admin/metrics/timeseries' && request.method === 'GET') {
@@ -3206,7 +3212,8 @@ export async function handleReEnrichRecipe(
   env: Env,
   user: AuthenticatedUser,
   recipeId: string,
-  deps: { runEnrichmentChain?: typeof runEnrichmentChain } = {}
+  deps: { runEnrichmentChain?: typeof runEnrichmentChain } = {},
+  caption?: string
 ) {
   if (!env.GEMINI_SERVICE_ACCOUNT_B64) {
     throw new HttpError(503, 'Enrichment service is not configured');
@@ -3221,12 +3228,20 @@ export async function handleReEnrichRecipe(
 
   const resolvedUrl = await resolveSourceUrl(existing.sourceUrl);
   const runChain = deps.runEnrichmentChain ?? runEnrichmentChain;
+  // Facebook reels are login-walled from the worker's datacenter IPs, so the
+  // chain can only recover their content from a caller-supplied caption (the
+  // iOS Share Extension's on-device residential fetch, or an admin paste via
+  // the admin re-enrich endpoint). Mirror handleEnrichRecipe: always wire
+  // captionProvided; runEnrichmentChain only invokes it when a caption is
+  // actually present and the source is FB.
+  const providedCaption = (caption ?? '').trim().slice(0, 10_000);
   const { result, winningStrategy } = await runChain(env, resolvedUrl, existing.title, {
     structuredHtml,
     captionExtract,
     youtubeVideo,
     textInference,
-  });
+    captionProvided: (e, cap) => geminiExtractFromCaption(e, cap),
+  }, providedCaption || undefined);
   ensureEstimatedDuration(result);
 
   console.log('[re-enrich]', {
@@ -3291,7 +3306,8 @@ export async function handleAdminReEnrichRecipe(
   env: Env,
   user: AuthenticatedUser,
   recipeId: string,
-  deps: { runEnrichmentChain?: typeof runEnrichmentChain } = {}
+  deps: { runEnrichmentChain?: typeof runEnrichmentChain } = {},
+  caption?: string
 ): Promise<Response> {
   const { isAdminEmail, writeAuditLog } = await import('./routes/admin');
   if (!isAdminEmail(user.email, env.ADMIN_EMAILS)) {
@@ -3308,7 +3324,7 @@ export async function handleAdminReEnrichRecipe(
 
   // Act as the owner so handleReEnrichRecipe's owner-scoped loadRecipe/UPDATE resolve.
   const ownerUser: AuthenticatedUser = { userId: ownerId, claims: {} };
-  const response = await handleReEnrichRecipe(env, ownerUser, recipeId, deps);
+  const response = await handleReEnrichRecipe(env, ownerUser, recipeId, deps, caption);
 
   await writeAuditLog(env.DB, {
     adminEmail: user.email || 'unknown',

@@ -13,6 +13,10 @@ const truncate = (s, n = 60) => {
   return t.length > n ? t.slice(0, n) + '…' : t;
 };
 
+// Facebook reels are login-walled from the worker, so re-enrich can only recover
+// their content from a pasted caption. The caption field is shown only for these.
+const isFacebookUrl = (url) => /facebook\.com|fb\.watch/i.test(url || '');
+
 const EMPTY = { groups: [], page: { returned: 0, has_more: false } };
 
 // Shared column widths so the nested owners table lines up under the outer table.
@@ -29,6 +33,7 @@ export default function Recipes() {
   const [toast, setToast] = useState('');
   const [confirm, setConfirm] = useState(null); // { recipeId, title }
   const [reEnrichTarget, setReEnrichTarget] = useState(null); // { recipeId, title }
+  const [reEnrichCaption, setReEnrichCaption] = useState(''); // optional pasted caption (FB reels)
   const [reHostTarget, setReHostTarget] = useState(null); // { recipeId, title }
 
   const load = () => {
@@ -51,15 +56,15 @@ export default function Recipes() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
-  const post = (path) => fetchAdmin(path, { method: 'POST', body: '{}' });
+  const post = (path, body) => fetchAdmin(path, { method: 'POST', body: JSON.stringify(body || {}) });
   const doHide = (rid) =>
     post(`/admin/recipes/${rid}/hide`).then(() => { setToast('Recipe hidden'); load(); })
       .catch((e) => setToast(`Hide failed: ${e.message}`));
   const doUnhide = (rid) =>
     post(`/admin/recipes/${rid}/unhide`).then(() => { setToast('Recipe unhidden'); load(); })
       .catch((e) => setToast(`Unhide failed: ${e.message}`));
-  const doReEnrich = (rid) =>
-    post(`/admin/recipes/${rid}/re-enrich`)
+  const doReEnrich = (rid, caption) =>
+    post(`/admin/recipes/${rid}/re-enrich`, caption && caption.trim() ? { caption: caption.trim() } : undefined)
       .then((d) => {
         const r = d?.recipe || {};
         const ing = (r.ingredients || []).length;
@@ -128,7 +133,7 @@ export default function Recipes() {
                   onToggle={() => toggle(g.key)}
                   onHide={(rid) => setConfirm({ recipeId: rid, title: g.title })}
                   onUnhide={doUnhide}
-                  onReEnrich={(rid) => setReEnrichTarget({ recipeId: rid, title: g.title })}
+                  onReEnrich={(rid) => setReEnrichTarget({ recipeId: rid, title: g.title, sourceUrl: g.source_url })}
                   onReHost={(rid) => setReHostTarget({ recipeId: rid, title: g.title })}
                 />
               ))}
@@ -156,9 +161,23 @@ export default function Recipes() {
         title={`Re-enrich "${reEnrichTarget?.title}"?`}
         body="Re-runs enrichment on the source URL and replaces this recipe's ingredients and steps. If the source can't be parsed, the current content is kept."
         confirmLabel="Re-enrich"
-        onConfirm={() => { doReEnrich(reEnrichTarget.recipeId); setReEnrichTarget(null); }}
-        onClose={() => setReEnrichTarget(null)}
-      />
+        onConfirm={() => { doReEnrich(reEnrichTarget.recipeId, reEnrichCaption); setReEnrichTarget(null); setReEnrichCaption(''); }}
+        onClose={() => { setReEnrichTarget(null); setReEnrichCaption(''); }}
+      >
+        {isFacebookUrl(reEnrichTarget?.sourceUrl) && (
+          <TextField
+            label="Caption (optional)"
+            placeholder="Paste the full Facebook reel caption here. Facebook reels are login-walled from the server, so it can't fetch the caption itself; paste it and Gemini will extract the ingredients and steps."
+            value={reEnrichCaption}
+            onChange={(e) => setReEnrichCaption(e.target.value)}
+            multiline
+            minRows={3}
+            maxRows={12}
+            fullWidth
+            sx={{ mb: 2 }}
+          />
+        )}
+      </ConfirmModal>
       <ConfirmModal
         open={!!reHostTarget}
         title={`Re-host image for "${reHostTarget?.title}"?`}

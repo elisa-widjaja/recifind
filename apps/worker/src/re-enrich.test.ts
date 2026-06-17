@@ -105,6 +105,27 @@ describe('handleReEnrichRecipe', () => {
       .rejects.toMatchObject({ status: 503 });
   });
 
+  it('threads a provided caption + captionProvided strategy into the chain (FB on-device recovery)', async () => {
+    // FB reels are login-walled from the worker; the only way content reaches
+    // re-enrich is an admin/caller-supplied caption. The chain must receive it
+    // as providedCaption AND get a captionProvided strategy wired.
+    const { db } = makeDb(makeRow({ source_url: 'https://www.facebook.com/reel/777779878458348' }));
+    const env = { DB: db as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'x' } as Env;
+    let seenStrategies: any;
+    let seenCaption: string | undefined;
+    const chain = (async (_e: any, _u: string, _t: string, strategies: any, providedCaption?: string) => {
+      seenStrategies = strategies;
+      seenCaption = providedCaption;
+      return { result: { ...EMPTY, ingredients: ['basmati rice'], steps: ['boil'], provenance: 'extracted' }, winningStrategy: 'caption-provided' };
+    });
+    const caption = '✨ Persian Jeweled Rice ✨ Ingredients: 2 cups basmati rice';
+    const res = await handleReEnrichRecipe(env, user, 'recipe-1', { runEnrichmentChain: chain as any }, caption);
+    const body = await res.json() as { recipe: { ingredients: string[] } };
+    expect(seenCaption).toContain('Persian Jeweled Rice');
+    expect(typeof seenStrategies.captionProvided).toBe('function');
+    expect(body.recipe.ingredients).toEqual(['basmati rice']);
+  });
+
   it('does not touch image_url on a successful update', async () => {
     const existing = makeRow({ image_url: 'https://img.example/a.jpg' });
     const { db, runCalls } = makeDb(existing);
@@ -163,5 +184,23 @@ describe('handleAdminReEnrichRecipe', () => {
     // The UPDATE must be scoped to the OWNER's id, never the admin's.
     expect(update!.binds).toContain('owner-xyz');
     expect(update!.binds).not.toContain('admin-1');
+  });
+
+  it('threads an admin-supplied caption through to the owner re-enrich', async () => {
+    const { db } = makeDb(makeRow({ user_id: 'owner-xyz', source_url: 'https://www.facebook.com/reel/777779878458348' }));
+    const env = {
+      DB: db as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'x',
+      ADMIN_EMAILS: 'admin@x.com',
+    } as Env;
+    let seenCaption: string | undefined;
+    const chain = (async (_e: any, _u: string, _t: string, _s: any, providedCaption?: string) => {
+      seenCaption = providedCaption;
+      return { result: { ...EMPTY, ingredients: ['real-ing'], steps: ['real-step'], provenance: 'extracted' }, winningStrategy: 'caption-provided' };
+    });
+    const caption = '✨ Persian Jeweled Rice ✨ Ingredients: 2 cups basmati rice';
+    const res = await handleAdminReEnrichRecipe(env, admin, 'recipe-1', { runEnrichmentChain: chain as any }, caption);
+    const body = await res.json() as { recipe: { ingredients: string[] } };
+    expect(seenCaption).toContain('Persian Jeweled Rice');
+    expect(body.recipe.ingredients).toEqual(['real-ing']);
   });
 });
