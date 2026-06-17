@@ -3430,7 +3430,12 @@ export async function handleFriendSuggestions(
       -- a card showing a gibberish handle reads as spam.
       AND p.display_name IS NOT NULL AND TRIM(p.display_name) <> ''
     GROUP BY f2.friend_id
-    ORDER BY mutualCount DESC
+    -- Primary signal is shared friends; break ties by how many (non-hidden)
+    -- recipes the candidate has, so active cooks surface above empty accounts
+    -- when several share the same mutual count.
+    ORDER BY mutualCount DESC,
+             (SELECT COUNT(*) FROM recipes r
+              WHERE r.user_id = f2.friend_id AND r.hidden_at IS NULL) DESC
     LIMIT 10
   `).bind(userId, userId, userId, userId).all<{ userId: string; name: string; avatarUrl: string | null; mutualCount: number }>();
 
