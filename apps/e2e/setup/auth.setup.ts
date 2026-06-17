@@ -73,10 +73,21 @@ async function injectSessionAndSave(page: any, email: string, outputPath: string
   await page.evaluate(({ session }: { session: any }) => {
     localStorage.setItem('recifriend-auth', JSON.stringify(session));
     localStorage.setItem('onboarding_seen', '1');
+    // Suppress the mobile-viewport "See this in app / browser" interstitial,
+    // which otherwise gates (and makes inert) the entire app shell until the
+    // user chooses. This localStorage flag is the app's permanent-dismiss gate
+    // (App.jsx checks recifriend-install-banner-dismissed on every trigger), and
+    // unlike the sessionStorage "continue" flag it IS captured by storageState —
+    // so it carries into every test spec, not just this setup page.
+    localStorage.setItem('recifriend-install-banner-dismissed', '1');
   }, { session });
 
   // Reload so the app picks up the injected session
   await page.reload();
+
+  // (The "See this in app / browser" interstitial that used to gate the shell is
+  // now suppressed up-front via the recifriend-install-banner-dismissed flag set
+  // before reload, so it never appears here or in any downstream spec.)
 
   // Dismiss onboarding/welcome dialogs that appear on first login.
   // Try clicking "Don't show this again" if the onboarding dialog appears.
@@ -94,11 +105,11 @@ async function injectSessionAndSave(page: any, email: string, outputPath: string
     // No second dialog
   }
 
-  // The bottom-nav "Profile" tab only renders for a logged-in session,
-  // so its presence is a stable signal the auth-injection landed.
-  // (Replaces the old "Open menu" hamburger sentinel — the top AppBar
-  // was removed in the homepage bottom-nav redesign.)
-  await page.getByRole('button', { name: 'Profile' }).waitFor({ timeout: 15_000 });
+  // Logged-in sentinel: the "Add Recipe" action only renders for an active
+  // session (a logged-out user sees a "Join Free" CTA in its place), so its
+  // presence confirms the injected session was accepted. .first() avoids a
+  // strict-mode clash with the in-page Add Recipe button on the recipes view.
+  await page.getByRole('button', { name: 'Add Recipe' }).first().waitFor({ timeout: 15_000 });
 
   // Wipe leftover [TEST]-prefixed recipes from prior test runs that died
   // before their afterEach. Without this, the recipes-cache localStorage
