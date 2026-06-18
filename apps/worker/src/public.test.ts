@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getPublicDiscover, getEditorsPick, getAiPicks, getTrendingRecipes } from './index';
+import { getPublicDiscover, getEditorsPick, getAiPicks, getTrendingRecipes, durablePreviewUrl } from './index';
+
+const SUPA = 'https://jpjuaaxwfpemecbwwthk.supabase.co/storage/v1/object/public/recipe-previews/x.jpg';
 
 describe('getPublicDiscover', () => {
   it('returns recipes with social source URLs', async () => {
@@ -182,7 +184,7 @@ describe('getAiPicks', () => {
     const candidate = {
       id: 'r1', title: 'Berry Bake',
       source_url: 'https://example.com/berry',
-      image_url: '', meal_types: '[]', duration_minutes: null,
+      image_url: SUPA, preview_image: '', meal_types: '[]', duration_minutes: null,
       ingredients: '["berries","yogurt"]',
       steps: '["Mix","Bake"]',
     };
@@ -206,6 +208,56 @@ describe('getAiPicks', () => {
     expect(result[0].recipe.sourceUrl).toBe('https://example.com/berry');
     expect(result[0].recipe.ingredients).toEqual(['berries', 'yogurt']);
     expect(result[0].recipe.steps).toEqual(['Mix', 'Bake']);
+    expect(result[0].recipe.imageUrl).toBe(SUPA);
+  });
+
+  it('uses the Supabase preview when image_url is external, and skips external-only recipes', async () => {
+    const PREVIEW_SUPA = 'https://jpjuaaxwfpemecbwwthk.supabase.co/storage/v1/object/public/recipe-previews/y.jpg';
+    const withPreview = {
+      id: 'r2', title: 'Tofu Waffle', source_url: 'https://example.com/tofu',
+      image_url: 'https://scontent.cdninstagram.com/x.jpg',
+      preview_image: JSON.stringify({ publicUrl: PREVIEW_SUPA }),
+      meal_types: '[]', duration_minutes: null, ingredients: '["tofu"]', steps: '["Cook"]',
+    };
+    const externalOnly = {
+      id: 'r3', title: 'IG Only', source_url: 'https://example.com/ig',
+      image_url: 'https://scontent.cdninstagram.com/z.jpg', preview_image: '',
+      meal_types: '[]', duration_minutes: null, ingredients: '["x"]', steps: '["y"]',
+    };
+    const mockKV = {
+      get: vi.fn().mockResolvedValue(null),
+      put: vi.fn().mockResolvedValue(undefined),
+    } as unknown as KVNamespace;
+    const mockDb = {
+      prepare: vi.fn().mockReturnValue({
+        all: vi.fn().mockResolvedValue({ results: [withPreview, externalOnly] }),
+      })
+    } as unknown as D1Database;
+    // Gemini "picks" both; only the durable-image candidate survives filtering.
+    const mockCallGemini = vi.fn().mockResolvedValue(
+      '[{"topic":"T","hashtag":"#T","reason":"r","match":"Tofu Waffle"},{"topic":"T2","hashtag":"#T2","reason":"r2","match":"IG Only"}]'
+    );
+
+    const result = await getAiPicks(mockDb, mockKV, mockCallGemini, {}, {});
+    expect(result.map(p => p.recipe.title)).toEqual(['Tofu Waffle']);
+    expect(result[0].recipe.imageUrl).toBe(PREVIEW_SUPA);
+  });
+});
+
+describe('durablePreviewUrl', () => {
+  it('returns a Supabase image_url as-is', () => {
+    expect(durablePreviewUrl({ image_url: SUPA })).toBe(SUPA);
+  });
+  it('returns null for an external image_url with no preview', () => {
+    expect(durablePreviewUrl({ image_url: 'https://scontent.cdninstagram.com/x.jpg' })).toBeNull();
+  });
+  it('falls back to the Supabase publicUrl inside preview_image', () => {
+    expect(durablePreviewUrl({ image_url: 'https://cdninstagram.com/x.jpg', preview_image: JSON.stringify({ publicUrl: SUPA }) })).toBe(SUPA);
+  });
+  it('returns null for empty or malformed input', () => {
+    expect(durablePreviewUrl({ image_url: '' })).toBeNull();
+    expect(durablePreviewUrl({ image_url: '', preview_image: 'not json' })).toBeNull();
+    expect(durablePreviewUrl({})).toBeNull();
   });
 });
 

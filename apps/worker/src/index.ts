@@ -2105,6 +2105,23 @@ type AiPick = {
   }
 };
 
+// Returns a durable (Supabase-hosted) preview URL for a recipe row, or null when
+// the only image is an external URL (Instagram/FB CDN, etc.) that can expire or
+// block hotlinking from a logged-out browser. Prefers a Supabase image_url, else
+// the re-hosted publicUrl inside preview_image. Used to keep missing/broken
+// thumbnails off the AI-picks ("Trending in health & nutrition") shelf.
+const SUPABASE_PUBLIC_MARKER = '/storage/v1/object/public/';
+export function durablePreviewUrl(row: Record<string, unknown>): string | null {
+  const img = String(row.image_url ?? '');
+  if (img.includes(SUPABASE_PUBLIC_MARKER)) return img;
+  try {
+    const pv = row.preview_image ? JSON.parse(String(row.preview_image)) : null;
+    const url = pv && typeof pv.publicUrl === 'string' ? pv.publicUrl : '';
+    if (url.includes(SUPABASE_PUBLIC_MARKER)) return url;
+  } catch { /* malformed preview_image JSON */ }
+  return null;
+}
+
 export async function getAiPicks(
   db: D1Database,
   kv: KVNamespace,
@@ -2116,14 +2133,20 @@ export async function getAiPicks(
   const cuisineSorted = prefs.cuisine
     ? prefs.cuisine.split(',').map(s => s.trim().toLowerCase()).sort().join(',')
     : 'all';
-  const cacheKey = `ai-picks:v4:${prefs.diet || 'any'}:${cuisineSorted}:${prefs.cookingFor || 'any'}`;
+  const cacheKey = `ai-picks:v5:${prefs.diet || 'any'}:${cuisineSorted}:${prefs.cookingFor || 'any'}`;
   const cached = await kv.get(cacheKey);
   if (cached) return JSON.parse(cached) as AiPick[];
 
   // Fetch a pool of candidate recipes from D1 so Gemini picks from real titles
+  // Require a durable (Supabase-hosted) preview so the shelf never shows a
+  // missing/broken thumbnail. External Instagram/FB CDN image_urls expire and
+  // block hotlinking from a logged-out browser, so they're excluded at the query.
   const candidateRows = await db.prepare(
-    `SELECT id, user_id, title, image_url, meal_types, custom_tags, duration_minutes, source_url, ingredients, steps
-     FROM recipes WHERE shared_with_friends = 1 AND hidden_at IS NULL ORDER BY RANDOM() LIMIT 40`
+    `SELECT id, user_id, title, image_url, preview_image, meal_types, custom_tags, duration_minutes, source_url, ingredients, steps
+     FROM recipes
+     WHERE shared_with_friends = 1 AND hidden_at IS NULL
+       AND (image_url LIKE '%/storage/v1/object/public/%' OR (preview_image IS NOT NULL AND preview_image != ''))
+     ORDER BY RANDOM() LIMIT 40`
   ).all();
   // Only include recipes with clean, structured ingredients and steps (not Instagram captions)
   const isCleanList = (items: string[]) =>
@@ -2137,6 +2160,7 @@ export async function getAiPicks(
     );
 
   const candidates = (candidateRows.results as Array<Record<string, unknown>>).filter(r => {
+    if (durablePreviewUrl(r) === null) return false; // guard malformed preview_image
     try {
       const steps: string[] = JSON.parse(String(r.steps || '[]'));
       const ingredients: string[] = JSON.parse(String(r.ingredients || '[]'));
@@ -2182,7 +2206,7 @@ export async function getAiPicks(
           id: String(row.id),
           userId: String(row.user_id || ''),
           title: String(row.title),
-          imageUrl: String(row.image_url),
+          imageUrl: durablePreviewUrl(row) ?? String(row.image_url),
           mealTypes: JSON.parse(String(row.meal_types || '[]')),
           customTags: JSON.parse(String(row.custom_tags || '[]')),
           durationMinutes: row.duration_minutes != null ? Number(row.duration_minutes) : null,
