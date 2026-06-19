@@ -139,6 +139,39 @@ describe('handleReEnrichRecipe', () => {
     expect(update!.sql).not.toMatch(/image_url/i);
     expect(update!.binds).not.toContain('https://gemini-fake.jpg');
   });
+
+  it('falls back to the cached caption when none is pasted', async () => {
+    const { db } = makeDb(makeRow({ source_url: 'https://www.facebook.com/reel/123' }));
+    const get = vi.fn(async () => 'Cached caption: Ingredients: rice, water. Steps: boil.');
+    const env = { DB: db as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'x', AI_PICKS_CACHE: { get } } as unknown as Env;
+    let seenCaption: string | undefined;
+    const chain = (async (_e: any, _u: string, _t: string, _s: any, providedCaption?: string) => {
+      seenCaption = providedCaption;
+      return { result: { ...EMPTY, ingredients: ['rice'], steps: ['boil'], provenance: 'extracted' }, winningStrategy: 'caption-provided' };
+    });
+    await handleReEnrichRecipe(env, user, 'recipe-1', { runEnrichmentChain: chain as any }); // no pasted caption
+    expect(get).toHaveBeenCalled();
+    expect(seenCaption).toBe('Cached caption: Ingredients: rice, water. Steps: boil.');
+  });
+
+  it('replaces a broken title with the extracted name, preserves a clean title', async () => {
+    // broken title -> replaced with the extracted dish name
+    const { db: dbA, runCalls: rcA } = makeDb(makeRow({ title: 'Facebook Reel' }));
+    const envA = { DB: dbA as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'x' } as Env;
+    const chainA = baseFakeChain({ ...EMPTY, title: 'Semolina Cake', ingredients: ['a'], steps: ['b'], provenance: 'extracted' });
+    await handleReEnrichRecipe(envA, user, 'recipe-1', { runEnrichmentChain: chainA as any });
+    const uA = rcA.find(c => c.sql.includes('UPDATE recipes'));
+    expect(uA!.binds).toContain('Semolina Cake');
+
+    // clean title -> preserved, the extracted title is ignored
+    const { db: dbB, runCalls: rcB } = makeDb(makeRow({ title: 'Grandma Pasta' }));
+    const envB = { DB: dbB as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'x' } as Env;
+    const chainB = baseFakeChain({ ...EMPTY, title: 'Gemini Title', ingredients: ['a'], steps: ['b'], provenance: 'extracted' });
+    await handleReEnrichRecipe(envB, user, 'recipe-1', { runEnrichmentChain: chainB as any });
+    const uB = rcB.find(c => c.sql.includes('UPDATE recipes'));
+    expect(uB!.binds).toContain('Grandma Pasta');
+    expect(uB!.binds).not.toContain('Gemini Title');
+  });
 });
 
 describe('handleAdminReEnrichRecipe', () => {

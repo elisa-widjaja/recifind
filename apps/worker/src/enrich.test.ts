@@ -750,6 +750,19 @@ describe('runEnrichmentChain', () => {
     expect(winningStrategy).toBeNull();
     expect(captionProvided).not.toHaveBeenCalled();
   });
+
+  it('caches the FB caption (>=50 chars) before extraction, even when extraction is empty', async () => {
+    const put = vi.fn(async () => {});
+    const env = { AI_PICKS_CACHE: { put } } as unknown as Env;
+    const captionProvided = vi.fn(async () => EMPTY_EXPECTED); // extraction yields nothing
+    const cap = 'Semolina Cake. Ingredients: 1 cup semolina, 4 tbsp milk powder, 1/2 cup sugar powder.';
+    await runEnrichmentChain(
+      env, 'https://www.facebook.com/reel/123', 'T',
+      { structuredHtml: async () => EMPTY_EXPECTED, captionExtract: async () => EMPTY_EXPECTED, youtubeVideo: async () => EMPTY_EXPECTED, textInference: async () => EMPTY_EXPECTED, captionProvided },
+      cap,
+    );
+    expect(put).toHaveBeenCalledWith('caption:https://www.facebook.com/reel/123', cap, expect.objectContaining({ expirationTtl: expect.any(Number) }));
+  });
 });
 
 describe('enrichAfterSave', () => {
@@ -777,6 +790,35 @@ describe('enrichAfterSave', () => {
     const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
     expect(update).toBeDefined();
     expect(update!.binds).toContain('inferred');
+  });
+
+  it('heals a bare FB recipe from the cached caption and replaces a broken title', async () => {
+    const runCalls: Array<{ sql: string; binds: any[] }> = [];
+    const dbMock = {
+      prepare: (sql: string) => ({
+        bind: (...binds: any[]) => ({
+          run: async () => { runCalls.push({ sql, binds: [...binds] }); return { success: true }; },
+          first: async () => null,
+        }),
+      }),
+    };
+    const get = vi.fn(async () => 'Semolina Cake caption with a full recipe and ingredients listed.');
+    const env = { DB: dbMock as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'x', AI_PICKS_CACHE: { get } } as unknown as Env;
+    let seenCaption: string | undefined;
+    const fakeChain = async (_e: any, _u: string, _t: string, _s: any, providedCaption?: string) => {
+      seenCaption = providedCaption;
+      return {
+        result: { title: 'Semolina Cake', imageUrl: '', mealTypes: [], ingredients: ['a'], steps: ['b'], durationMinutes: null, notes: '', provenance: 'extracted' as const },
+        winningStrategy: 'caption-provided' as const,
+      };
+    };
+    // 'Facebook Reel' is a broken title → replaced with the extracted dish name.
+    await enrichAfterSave(env, 'user-1', 'recipe-1', 'https://www.facebook.com/reel/123', 'Facebook Reel', { runEnrichmentChain: fakeChain as any });
+    expect(get).toHaveBeenCalled();
+    expect(seenCaption).toBe('Semolina Cake caption with a full recipe and ingredients listed.');
+    const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
+    expect(update).toBeDefined();
+    expect(update!.binds).toContain('Semolina Cake');
   });
 
   it('writes a bookkeeping-only UPDATE with provenance="title-only" when the chain returns fully empty', async () => {

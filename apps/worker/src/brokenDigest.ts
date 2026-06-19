@@ -43,6 +43,14 @@ export function isGenericFacebookTitle(title: string | null | undefined): boolea
   return GENERIC_FB_TITLES.has(tl);
 }
 
+// A title worth replacing during re-enrich / auto-heal: a generic Facebook
+// placeholder, OR a raw caption dumped into the title (multi-line, or very long).
+// Clean, deliberately-set titles (single line, <= 80 chars) are left alone.
+export function looksLikeBrokenTitle(title: string | null | undefined): boolean {
+  const t = String(title ?? '');
+  return isGenericFacebookTitle(t) || /\n/.test(t) || t.trim().length > 80;
+}
+
 function isFacebookSource(sourceUrl: string | null | undefined): boolean {
   const s = String(sourceUrl ?? '').toLowerCase();
   return s.includes('facebook.com') || s.includes('fb.watch');

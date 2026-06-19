@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { isGenericFacebookTitle, selectBrokenRecipes, buildBrokenDigestEmail, type DigestRow } from './brokenDigest';
+import { isGenericFacebookTitle, looksLikeBrokenTitle, selectBrokenRecipes, buildBrokenDigestEmail, type DigestRow } from './brokenDigest';
+
+describe('looksLikeBrokenTitle', () => {
+  it('is true for generic FB placeholders, multi-line, and very long titles', () => {
+    expect(looksLikeBrokenTitle('Facebook Reel')).toBe(true);
+    expect(looksLikeBrokenTitle('Redirecting...')).toBe(true);
+    expect(looksLikeBrokenTitle('Bakery style cake recipe \nSemolina/ Sooji Cake')).toBe(true);
+    expect(looksLikeBrokenTitle('a'.repeat(81))).toBe(true);
+  });
+  it('is false for clean single-line titles', () => {
+    expect(looksLikeBrokenTitle('Korean Shrimp Pancake (Padakjeon)')).toBe(false);
+    expect(looksLikeBrokenTitle('Semolina (Sooji) Cake')).toBe(false);
+  });
+});
 
 describe('isGenericFacebookTitle', () => {
   it('is true for generic / empty Facebook titles', () => {

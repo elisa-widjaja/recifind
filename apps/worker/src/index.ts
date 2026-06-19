@@ -6,7 +6,7 @@ import { handleRegisterDevice, handleUnregisterDevice } from './routes/devices';
 import { sendPushToUser } from './push/apns';
 // === [/S05] ===
 import { ensureEstimatedDuration } from './estimateDuration';
-import { isGenericFacebookTitle } from './brokenDigest';
+import { isGenericFacebookTitle, looksLikeBrokenTitle } from './brokenDigest';
 
 const DEFAULT_PAGE_SIZE = 1000;
 const MAX_PAGE_SIZE = 1000;
@@ -3283,14 +3283,23 @@ export async function handleReEnrichRecipe(
   // the admin re-enrich endpoint). Mirror handleEnrichRecipe: always wire
   // captionProvided; runEnrichmentChain only invokes it when a caption is
   // actually present and the source is FB.
-  const providedCaption = (caption ?? '').trim().slice(0, 10_000);
+  // Pasted caption wins; otherwise fall back to the per-URL cached caption
+  // (cached during the original import's /recipes/enrich) so a FB reel can be
+  // re-enriched in one click without re-pasting the caption.
+  let effectiveCaption = (caption ?? '').trim().slice(0, 10_000);
+  if (!effectiveCaption) {
+    try {
+      const c = await env.AI_PICKS_CACHE?.get(`caption:${resolvedUrl}`);
+      if (typeof c === 'string' && c) effectiveCaption = c.slice(0, 10_000);
+    } catch { /* best-effort cache read */ }
+  }
   const { result, winningStrategy } = await runChain(env, resolvedUrl, existing.title, {
     structuredHtml,
     captionExtract,
     youtubeVideo,
     textInference,
     captionProvided: (e, cap) => geminiExtractFromCaption(e, cap),
-  }, providedCaption || undefined);
+  }, effectiveCaption || undefined);
   ensureEstimatedDuration(result);
 
   console.log('[re-enrich]', {
@@ -3313,11 +3322,15 @@ export async function handleReEnrichRecipe(
 
   const now = new Date().toISOString();
   // image_url is intentionally NOT updated (same policy as enrichAfterSave).
+  // A broken title (generic FB placeholder or a raw caption dump) is replaced
+  // with the extracted dish name; a clean/user-set title is preserved.
+  const healedTitle = looksLikeBrokenTitle(existing.title) && result.title ? result.title : existing.title;
   await env.DB.prepare(
     `UPDATE recipes
-     SET ingredients = ?, steps = ?, meal_types = ?, cuisines = ?, duration_minutes = ?, notes = ?, provenance = ?, updated_at = ?
+     SET title = ?, ingredients = ?, steps = ?, meal_types = ?, cuisines = ?, duration_minutes = ?, notes = ?, provenance = ?, updated_at = ?
      WHERE user_id = ? AND id = ?`
   ).bind(
+    healedTitle,
     JSON.stringify(result.ingredients),
     JSON.stringify(result.steps),
     JSON.stringify(result.mealTypes),
@@ -3335,6 +3348,7 @@ export async function handleReEnrichRecipe(
 
   const refreshed: Recipe = {
     ...existing,
+    title: healedTitle,
     ingredients: result.ingredients,
     steps: result.steps,
     mealTypes: result.mealTypes,
@@ -6609,6 +6623,16 @@ async function runEnrichmentChain(
   if (/facebook\.com|fb\.watch/i.test(resolvedUrl)) {
     const cap = (providedCaption ?? '').trim();
     if (cap && strategies.captionProvided) {
+      // Persist the caption per-URL (same cache the IG/TikTok captionExtract
+      // strategy uses) so a later background heal (enrichAfterSave) or re-enrich
+      // can recover it. FB is login-walled from the worker, so this caller-
+      // supplied caption is the only copy. Best-effort; cached BEFORE extraction
+      // so a Gemini timeout/failure still leaves the caption recoverable.
+      if (cap.length >= 50) {
+        try {
+          await env.AI_PICKS_CACHE?.put(`caption:${resolvedUrl}`, cap, { expirationTtl: 7 * 24 * 60 * 60 });
+        } catch { /* best-effort cache write */ }
+      }
       const r = await strategies.captionProvided(env, cap, title);
       if (r.ingredients.length > 0 || r.steps.length > 0) {
         return { result: r, winningStrategy: 'caption-provided' };
@@ -6666,13 +6690,25 @@ export async function enrichAfterSave(
   const resolvedUrl = await resolveSourceUrl(sourceUrl);
   const startedAt = Date.now();
 
+  // Facebook is login-walled from the worker, so the refetch strategies below
+  // can't recover its content. Fall back to the caption cached during the
+  // (possibly-timed-out) synchronous /recipes/enrich so a bare FB import heals
+  // itself. Best-effort; ignored for non-FB URLs (only the FB branch of the
+  // chain consumes providedCaption).
+  let cachedCaption: string | undefined;
+  try {
+    const c = await env.AI_PICKS_CACHE?.get(`caption:${resolvedUrl}`);
+    if (typeof c === 'string' && c) cachedCaption = c;
+  } catch { /* best-effort cache read */ }
+
   const runChain = deps.runEnrichmentChain ?? runEnrichmentChain;
   const { result, winningStrategy } = await runChain(env, resolvedUrl, title, {
     structuredHtml,
     captionExtract,
     youtubeVideo,
     textInference,
-  });
+    captionProvided: (e, cap) => geminiExtractFromCaption(e, cap),
+  }, cachedCaption);
   ensureEstimatedDuration(result);
 
   console.log('[enrichAfterSave]', {
@@ -6717,14 +6753,17 @@ export async function enrichAfterSave(
 
   // Full extraction result. image_url is intentionally NOT updated here —
   // /recipes/parse sets it during the initial save and Gemini's inferred
-  // image is often worse than the og:image. title is also not updated: the
-  // user may have edited it before save, and overwriting their edit is
-  // worse than keeping a slightly-imperfect title.
+  // image is often worse than the og:image. title is normally preserved (the
+  // user may have edited it before save), but a BROKEN title (generic FB
+  // placeholder or a raw caption dumped into the field) is replaced with the
+  // extracted dish name now that we have one.
+  const healedTitle = looksLikeBrokenTitle(title) && result.title ? result.title : title;
   await env.DB.prepare(
     `UPDATE recipes
-     SET ingredients = ?, steps = ?, meal_types = ?, cuisines = ?, duration_minutes = ?, notes = ?, provenance = ?, updated_at = ?
+     SET title = ?, ingredients = ?, steps = ?, meal_types = ?, cuisines = ?, duration_minutes = ?, notes = ?, provenance = ?, updated_at = ?
      WHERE id = ?`
   ).bind(
+    healedTitle,
     JSON.stringify(result.ingredients),
     JSON.stringify(result.steps),
     JSON.stringify(result.mealTypes),
