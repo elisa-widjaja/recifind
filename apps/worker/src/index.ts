@@ -2990,7 +2990,7 @@ async function handleEnrichRecipe(request: Request, env: Env) {
     captionExtract,
     youtubeVideo,
     textInference,
-    captionProvided: (e, cap) => geminiExtractFromCaption(e, cap),
+    captionProvided: (e, cap) => geminiExtractFromCaption(e, cap, { lenient: true }),
   }, caption);
   const ogImage = await ogImagePromise;
 
@@ -3298,7 +3298,7 @@ export async function handleReEnrichRecipe(
     captionExtract,
     youtubeVideo,
     textInference,
-    captionProvided: (e, cap) => geminiExtractFromCaption(e, cap),
+    captionProvided: (e, cap) => geminiExtractFromCaption(e, cap, { lenient: true }),
   }, effectiveCaption || undefined);
   ensureEstimatedDuration(result);
 
@@ -6273,6 +6273,34 @@ Text:
 ${captionText}`;
 }
 
+// Lenient variant for the caption-PROVIDED path only (admin re-enrich paste, iOS
+// on-device caption import). A person deliberately handed us this caption, so we
+// salvage as much as is literally written: ingredient NAMES without quantities
+// count, and an ingredient list with no written steps is a valid partial recipe
+// (the method is usually shown in the video, not typed). The strict
+// buildExtractOnlyPrompt still guards the SCRAPED auto-import paths
+// (captionExtract / textInference) against fabricating junk. Invention is still
+// forbidden here — we only relax what counts as "present", never make data up.
+function buildLenientCaptionExtractPrompt(captionText: string): string {
+  return `You are extracting a recipe from a social-media caption that a person has deliberately provided. Extract ONLY what is explicitly written. DO NOT invent ingredients, quantities, or steps. DO NOT guess amounts or fill in a method from general culinary knowledge.
+
+Rules:
+- An ingredient list is any sequence of food/drink items, introduced by a header such as "Ingredients:", "You'll need:", "For the <component>", or similar in any language, OR an implicit list: a contiguous block of bulleted, checkbox (▢, ☐, ✅, •, -), or hyphenated items naming ingredients. Items do NOT need a quantity — extract bare ingredient names verbatim too. If an amount is written, keep it; if not, extract the name alone and do NOT add an amount.
+- A step/instruction list is any sequence of cooking or preparation actions, introduced by a header like "Instructions:", "Steps:", "Method:", "Directions:", "Preparation:", or similar in any language, or implicit numbered (1., 2.) or emoji-numbered (1️⃣, 2️⃣) items. Extract each step verbatim, preserving the creator's voice. If the caption has NO steps, return an empty steps array — do NOT invent steps.
+- An ingredient list with NO steps IS a valid partial recipe here: extract the ingredients and leave steps empty. This is intentional — do not reject a caption just because the method is missing.
+- A recipe may have multiple ingredient sub-lists (e.g., "For the dough", "For the topping"). Merge them into a single ingredients array in the order they appear.
+- Minor normalization is OK: "tbs" -> "tbsp", "1c" -> "1 cup". Preserve the language of the original text — do NOT translate.
+- Pure hashtag dumps, marketing blurbs with no ingredient list, navigation/chrome text, and error pages (like "HTTP ERROR 429") are NOT recipes — return empty arrays.
+
+Return JSON matching this schema:
+{ "ingredients": [], "steps": [], "mealTypes": [], "cuisines": [], "durationMinutes": null, "notes": "", "title": "" }
+
+For cuisines, pick at most 2 entries from this enum based ONLY on what's explicit (dish name, hashtags, creator's words): ["african","american","british","chinese","filipino","french","indian","indonesian","italian","japanese","korean","mediterranean","mexican","middle-eastern","nordic","thai","vietnamese"]. Use the lowercase hyphenated form. If nothing in the text indicates a cuisine, return [].
+
+Text:
+${captionText}`;
+}
+
 function parsedToEnrichmentResult(parsed: any): EnrichmentResult {
   return {
     title: typeof parsed?.title === 'string' ? parsed.title.trim() : '',
@@ -6363,9 +6391,12 @@ async function structuredHtml(
 async function geminiExtractFromCaption(
   env: Env,
   caption: string,
-  deps: { fetchImpl?: typeof fetch; getAccessToken?: (env: Env) => Promise<string>; getServiceAccount?: (env: Env) => Promise<GeminiServiceAccount> } = {}
+  deps: { fetchImpl?: typeof fetch; getAccessToken?: (env: Env) => Promise<string>; getServiceAccount?: (env: Env) => Promise<GeminiServiceAccount>; lenient?: boolean } = {}
 ): Promise<EnrichmentResult> {
-  const parsed = await callGeminiExtract(env, buildExtractOnlyPrompt(caption), {
+  // lenient = the caption was hand-provided (admin paste / on-device import), so
+  // accept quantity-less ingredients and ingredient-only (step-less) captions.
+  const prompt = deps.lenient ? buildLenientCaptionExtractPrompt(caption) : buildExtractOnlyPrompt(caption);
+  const parsed = await callGeminiExtract(env, prompt, {
     fetchImpl: deps.fetchImpl,
     getAccessToken: deps.getAccessToken,
     getServiceAccount: deps.getServiceAccount,
@@ -6616,28 +6647,35 @@ async function runEnrichmentChain(
 ): Promise<{ result: EnrichmentResult; winningStrategy: 'structured-html' | 'caption-extract' | 'youtube-video' | 'text-inference' | 'caption-provided' | null }> {
   const hasIngredientsOrSteps = (r: EnrichmentResult) => r.ingredients.length > 0 || r.steps.length > 0;
 
-  // Facebook: if the caller supplies a caption (from the iOS Share Extension's
-  // on-device fetch), run Gemini extraction on it. Otherwise fall through to
-  // title-only — the worker is login-walled by FB from datacenter IPs, so any
-  // content from text-inference comes from a TRUNCATED og:description preview.
-  if (/facebook\.com|fb\.watch/i.test(resolvedUrl)) {
-    const cap = (providedCaption ?? '').trim();
-    if (cap && strategies.captionProvided) {
-      // Persist the caption per-URL (same cache the IG/TikTok captionExtract
-      // strategy uses) so a later background heal (enrichAfterSave) or re-enrich
-      // can recover it. FB is login-walled from the worker, so this caller-
-      // supplied caption is the only copy. Best-effort; cached BEFORE extraction
-      // so a Gemini timeout/failure still leaves the caption recoverable.
-      if (cap.length >= 50) {
-        try {
-          await env.AI_PICKS_CACHE?.put(`caption:${resolvedUrl}`, cap, { expirationTtl: 7 * 24 * 60 * 60 });
-        } catch { /* best-effort cache write */ }
-      }
-      const r = await strategies.captionProvided(env, cap, title);
-      if (r.ingredients.length > 0 || r.steps.length > 0) {
-        return { result: r, winningStrategy: 'caption-provided' };
-      }
+  // A caller-supplied caption (the iOS Share Extension's on-device residential
+  // fetch, or an admin paste via the re-enrich endpoint) is the highest-signal
+  // input we have, so try it FIRST for ANY source. Instagram and Facebook both
+  // frequently serve a stripped, caption-less page to the worker's datacenter
+  // IPs (login wall / rate limit), so when the caller hands us the real caption
+  // we extract from it directly instead of re-fetching a page with nothing on it.
+  const cap = (providedCaption ?? '').trim();
+  if (cap && strategies.captionProvided) {
+    // Persist the caption per-URL (same cache the IG/TikTok captionExtract
+    // strategy uses) so a later background heal (enrichAfterSave) or re-enrich
+    // can recover it. For login-walled sources this caller-supplied caption is
+    // the only copy. Best-effort; cached BEFORE extraction so a Gemini
+    // timeout/failure still leaves the caption recoverable.
+    if (cap.length >= 50) {
+      try {
+        await env.AI_PICKS_CACHE?.put(`caption:${resolvedUrl}`, cap, { expirationTtl: 7 * 24 * 60 * 60 });
+      } catch { /* best-effort cache write */ }
     }
+    const r = await strategies.captionProvided(env, cap, title);
+    if (hasIngredientsOrSteps(r)) {
+      return { result: r, winningStrategy: 'caption-provided' };
+    }
+  }
+
+  // Facebook: login-walled from the worker's datacenter IPs. With no usable
+  // caption (handled above) there's nothing to recover, and text-inference
+  // would only see a TRUNCATED og:description preview, so stop at title-only
+  // rather than fall through and fabricate content.
+  if (/facebook\.com|fb\.watch/i.test(resolvedUrl)) {
     return {
       result: { ...EMPTY_ENRICHMENT, title, provenance: title ? 'title-only' : null },
       winningStrategy: null,
@@ -6707,7 +6745,7 @@ export async function enrichAfterSave(
     captionExtract,
     youtubeVideo,
     textInference,
-    captionProvided: (e, cap) => geminiExtractFromCaption(e, cap),
+    captionProvided: (e, cap) => geminiExtractFromCaption(e, cap, { lenient: true }),
   }, cachedCaption);
   ensureEstimatedDuration(result);
 

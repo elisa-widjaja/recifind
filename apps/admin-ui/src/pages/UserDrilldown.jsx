@@ -16,9 +16,10 @@ const truncateTitle = (s) => {
   return t.length > 35 ? t.slice(0, 35) + '…' : t;
 };
 
-// Facebook reels are login-walled from the worker, so re-enrich can only recover
-// their content from a pasted caption. The caption field is shown only for these.
-const isFacebookUrl = (url) => /facebook\.com|fb\.watch/i.test(url || '');
+// Facebook reels are login-walled and Instagram frequently rate-limits the
+// worker's datacenter IPs, so re-enrich can only recover their content from a
+// pasted caption. The caption field is shown for these login-walled sources.
+const isCaptionPasteUrl = (url) => /facebook\.com|fb\.watch|instagram\.com/i.test(url || '');
 
 const ACTIVITY_LABEL = { save: 'Saved', share: 'Shared', cook: 'Cooked' };
 const ACTIVITY_COLOR = { save: 'default', share: 'info', cook: 'success' };
@@ -522,10 +523,10 @@ export default function UserDrilldown({ id }) {
         onConfirm={() => { doReEnrichRecipe(confirm.recipeId, reEnrichCaption); setConfirm(null); setReEnrichCaption(''); }}
         onClose={() => { setConfirm(null); setReEnrichCaption(''); }}
       >
-        {isFacebookUrl(confirm?.sourceUrl) && (
+        {isCaptionPasteUrl(confirm?.sourceUrl) && (
           <TextField
             label="Caption (optional)"
-            placeholder="Paste the full Facebook reel caption here. Facebook reels are login-walled from the server, so it can't fetch the caption itself; paste it and Gemini will extract the ingredients and steps."
+            placeholder="Paste the full reel caption here. Facebook and Instagram reels are often login-walled or rate-limited from the server, so it can't fetch the caption itself; paste it and Gemini will extract the ingredients and steps."
             value={reEnrichCaption}
             onChange={(e) => setReEnrichCaption(e.target.value)}
             multiline

@@ -763,6 +763,84 @@ describe('runEnrichmentChain', () => {
     );
     expect(put).toHaveBeenCalledWith('caption:https://www.facebook.com/reel/123', cap, expect.objectContaining({ expirationTtl: expect.any(Number) }));
   });
+
+  it('Instagram with a provided caption runs captionProvided and skips the fetch strategies', async () => {
+    // IG often serves a stripped, caption-less page to the worker's datacenter
+    // IPs, so an admin paste (or on-device fetch) is the only way to recover it.
+    // The provided caption must win before captionExtract re-fetches nothing.
+    const captionProvided = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['2 cups rice'], steps: ['cook'], provenance: 'extracted' as const }));
+    const contentful = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['should-not-run'] }));
+    const { result, winningStrategy } = await runEnrichmentChain(
+      {} as Env, 'https://www.instagram.com/reel/DYM3raDBjY2/', 'Garlic Rice',
+      { structuredHtml: contentful, captionExtract: contentful, youtubeVideo: contentful, textInference: contentful, captionProvided },
+      'Garlic Rice. Ingredients: 2 cups rice. Steps: cook.'
+    );
+    expect(result.ingredients).toEqual(['2 cups rice']);
+    expect(result.provenance).toBe('extracted');
+    expect(winningStrategy).toBe('caption-provided');
+    expect(captionProvided).toHaveBeenCalledTimes(1);
+    expect(contentful).not.toHaveBeenCalled();
+  });
+
+  it('Instagram with a provided caption that extracts nothing falls through to the normal chain', async () => {
+    // An empty captionProvided result must not short-circuit IG (unlike FB) —
+    // the regular fetch chain still runs as the fallback.
+    const captionProvided = vi.fn(async () => EMPTY_EXPECTED);
+    const captionExtract = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['fetched'], steps: ['mix'] }));
+    const { result, winningStrategy } = await runEnrichmentChain(
+      {} as Env, 'https://www.instagram.com/reel/abc/', 'Recipe',
+      { structuredHtml: async () => EMPTY_EXPECTED, captionExtract, youtubeVideo: async () => EMPTY_EXPECTED, textInference: async () => EMPTY_EXPECTED, captionProvided },
+      'a short caption with no recipe in it that gemini cannot extract anything from'
+    );
+    expect(result.ingredients).toEqual(['fetched']);
+    expect(winningStrategy).toBe('caption-extract');
+    expect(captionProvided).toHaveBeenCalledTimes(1);
+    expect(captionExtract).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('geminiExtractFromCaption lenient mode', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  const sa = {
+    getAccessToken: async () => 'fake-token',
+    getServiceAccount: async () => ({
+      client_email: 'svc@example.com', private_key: 'fake-key',
+      token_uri: 'https://oauth2.googleapis.com/token', project_id: 'proj-123',
+    }),
+  };
+  const env = {} as Env;
+  // The exact failing case: a bare checkbox ingredient list, no quantities, no steps.
+  const captionIngredientsOnly = '▢ coconut sugar\n▢ browned butter\n▢ dark cocoa powder\n▢ vanilla extract\n▢ eggs';
+
+  // Gemini mock: records the prompt it was sent so we can assert which variant
+  // ran, and echoes back an ingredients-only extraction.
+  const makeFetch = (sent: { body: string }) => vi.fn(async (_url: unknown, init: any) => {
+    sent.body = String(init?.body ?? '');
+    return {
+      ok: true,
+      json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+        ingredients: ['coconut sugar', 'browned butter', 'dark cocoa powder', 'vanilla extract', 'eggs'],
+        steps: [], mealTypes: [], cuisines: [], durationMinutes: null, notes: '', title: '',
+      }) }] } }] }),
+    };
+  }) as unknown as typeof fetch;
+
+  it('lenient: uses the partial-recipe prompt and keeps ingredients with no steps', async () => {
+    const sent = { body: '' };
+    const result = await geminiExtractFromCaption(env, captionIngredientsOnly, { ...sa, fetchImpl: makeFetch(sent), lenient: true });
+    expect(sent.body).toContain('valid partial recipe');
+    expect(result.ingredients.length).toBeGreaterThan(0);
+    expect(result.steps).toEqual([]);
+    expect(result.provenance).toBe('extracted');
+  });
+
+  it('strict (default): uses the prompt that rejects partial recipes', async () => {
+    const sent = { body: '' };
+    await geminiExtractFromCaption(env, captionIngredientsOnly, { ...sa, fetchImpl: makeFetch(sent) });
+    expect(sent.body).toContain('Do not extract partial recipes');
+    expect(sent.body).not.toContain('valid partial recipe');
+  });
 });
 
 describe('enrichAfterSave', () => {
