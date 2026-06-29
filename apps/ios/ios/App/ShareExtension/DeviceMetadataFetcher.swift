@@ -200,6 +200,36 @@ struct DeviceMetadataFetcher {
         return needles.contains(where: { t.contains($0) })
     }
 
+    /// Cleans a Facebook `og:title` down to just the post caption. FB reels/videos
+    /// put the ENTIRE recipe in `og:title` (while `og:description` is capped at
+    /// ~197 chars), wrapped as:
+    ///   "[<N> views · <M> reactions | ]<caption incl hashtags> | <Page> | Facebook"
+    /// Strips the leading engagement prefix (same pattern used on og:description)
+    /// and the trailing " | <Page> | Facebook" chrome. Returns the bare caption
+    /// (may be "" if the title was pure chrome). The caller passes an
+    /// already-entity-decoded title.
+    static func cleanFacebookOgTitle(_ s: String) -> String {
+        var t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Leading engagement prefix -- kept in sync with the og:description strip.
+        t = t.replacingOccurrences(
+            of: #"^(?:[\d.,]+\s*[KMB]?\s+(?:views?|reactions?|likes?|comments?|shares?)\s*[·•|,]?\s*)+"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        // Trailing FB chrome: " | <Page> | Facebook", then a bare " | Facebook".
+        t = t.replacingOccurrences(
+            of: #"\s*\|\s*[^|]+\s*\|\s*Facebook\s*$"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        t = t.replacingOccurrences(
+            of: #"\s*\|\s*Facebook\s*$"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        return t.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// Recovers the full caption from FB's page HTML. `og:description` is a
     /// TRUNCATED prefix of the full caption, so we anchor on its leading words
     /// and read out to the enclosing JSON string boundary. The same anchor text

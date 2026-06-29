@@ -91,6 +91,38 @@ final class DeviceMetadataFetcherTests: XCTestCase {
         XCTAssertFalse(DeviceMetadataFetcher.looksLikeFacebookGeneric("Blackened Mahi-Mahi Tacos"))
     }
 
+    // MARK: - cleanFacebookOgTitle
+
+    func testCleanFacebookOgTitle_stripsEngagementPrefixAndChrome() {
+        // watch/?v= form: leading "N views · M reactions |" + trailing chrome.
+        let raw = "439K views · 12K reactions | banana cream pie\nmakes 4 servings\nbanana pudding mix | Mia Carson | Facebook"
+        let cleaned = DeviceMetadataFetcher.cleanFacebookOgTitle(raw)
+        XCTAssertTrue(cleaned.hasPrefix("banana cream pie"), "got: \(cleaned)")
+        XCTAssertTrue(cleaned.contains("banana pudding mix"))
+        XCTAssertFalse(cleaned.contains("439K"))
+        XCTAssertFalse(cleaned.contains("reactions"))
+        XCTAssertFalse(cleaned.contains("Mia Carson"))
+        XCTAssertFalse(cleaned.contains("Facebook"))
+    }
+
+    func testCleanFacebookOgTitle_handlesNoEngagementPrefix() {
+        // /reel/ form: no engagement prefix, caption leads with an emoji.
+        let raw = "💫 Sweet potato waffles\n1/2 cup cooked sweet potato #healthyrecipes | Pretty On Track | Facebook"
+        let cleaned = DeviceMetadataFetcher.cleanFacebookOgTitle(raw)
+        XCTAssertTrue(cleaned.hasPrefix("💫 Sweet potato waffles"), "got: \(cleaned)")
+        XCTAssertTrue(cleaned.contains("1/2 cup cooked sweet potato"))
+        XCTAssertFalse(cleaned.contains("Pretty On Track"))
+        XCTAssertFalse(cleaned.contains("Facebook"))
+    }
+
+    func testCleanFacebookOgTitle_groupTitleReducesToPageName() {
+        // Group post og:title is "Group | Dish | Facebook" — cleans to the group
+        // name (short), which the caller will discard in favor of og:description.
+        let raw = "Anti-inflammatory Recipes | Baked Squash with Feta | Facebook"
+        let cleaned = DeviceMetadataFetcher.cleanFacebookOgTitle(raw)
+        XCTAssertEqual(cleaned, "Anti-inflammatory Recipes")
+    }
+
     // MARK: - parseSocialPreview (Facebook)
 
     // FB photo posts (facebook.com/photo.php) expose og:title + og:image but NO
