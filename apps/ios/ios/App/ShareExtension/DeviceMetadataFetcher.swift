@@ -158,6 +158,22 @@ struct DeviceMetadataFetcher {
             // message text in FB's inline JSON. This long text is what gets passed
             // to the worker for Gemini ingredient/step extraction.
             fullCaption = Self.extractFullCaption(html: html, ogDescription: caption)
+
+            // Reels/videos expose the ENTIRE recipe in og:title (FB caps
+            // og:description at ~197 chars), so the body-anchored extraction above
+            // misses the back half of the caption. Treat the cleaned og:title as an
+            // extra candidate and keep whichever caption is longest. A group/photo
+            // post's og:title cleans down to just the page name (short), so it loses
+            // this comparison and the truncated-but-walled path is preserved.
+            if let rawTitle = matchMetaContent(html: html, attr: "property", value: "og:title")
+                            ?? matchMetaContent(html: html, attr: "name", value: "twitter:title") {
+                let titleCaption = Self.cleanFacebookOgTitle(decodeHtmlEntities(rawTitle))
+                if !titleCaption.isEmpty,
+                   !Self.looksLikeFacebookGeneric(titleCaption),
+                   titleCaption.count > (fullCaption?.count ?? 0) {
+                    fullCaption = titleCaption
+                }
+            }
         }
 
         let title = extractDishName(from: caption)

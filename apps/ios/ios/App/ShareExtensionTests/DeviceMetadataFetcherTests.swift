@@ -178,4 +178,46 @@ final class DeviceMetadataFetcherTests: XCTestCase {
         XCTAssertFalse(preview!.title.isEmpty)
         XCTAssertNotNil(preview?.caption)
     }
+
+    // Reel/video: the FULL recipe is in og:title; og:description is truncated.
+    // parseSocialPreview must surface the full caption (ingredients + steps),
+    // strip the engagement prefix + " | <Page> | Facebook" chrome, and keep the
+    // dish-name title derived from og:description.
+    func testParseSocialPreview_facebookReelRecoversFullCaptionFromOgTitle() {
+        let html = """
+        <html><head>
+        <meta property="og:title" content="439K views &#xb7; 12K reactions | banana cream pie&#x1f34c;&#x0a;makes 4 servings&#x0a;Ingredients:&#x0a;2 cups vanilla yogurt&#x0a;3 tbsp banana pudding mix&#x0a;Instructions:&#x0a;Mix and freeze. | Mia Carson | Facebook" />
+        <meta property="og:description" content="banana cream pie&#x1f34c; makes 4 servings Ingredients: 2 cups vanilla yogurt 3 tbsp..." />
+        <meta property="og:image" content="https://scontent.fbcdn.net/v/banana.jpg" />
+        </head><body></body></html>
+        """
+        let url = URL(string: "https://www.facebook.com/watch/?v=1564713835013059")!
+        let preview = DeviceMetadataFetcher.parseSocialPreview(html: html, sourceUrl: url)
+        XCTAssertNotNil(preview)
+        XCTAssertEqual(preview?.title, "banana cream pie")
+        XCTAssertEqual(preview?.imageUrl, "https://scontent.fbcdn.net/v/banana.jpg")
+        XCTAssertTrue(preview?.caption?.contains("banana pudding mix") ?? false, "got: \(String(describing: preview?.caption))")
+        XCTAssertTrue(preview?.caption?.contains("Instructions") ?? false)
+        XCTAssertFalse(preview?.caption?.contains("Mia Carson") ?? true)
+        XCTAssertFalse(preview?.caption?.contains("439K") ?? true)
+    }
+
+    // Group/permalink post: og:title is just "Group | Dish | Facebook" with NO
+    // recipe; the (truncated) recipe is only in og:description. The short cleaned
+    // og:title must LOSE the longest-caption comparison so the walled-post path is
+    // preserved (caption stays the og:description text, not the group name).
+    func testParseSocialPreview_facebookGroupPostIgnoresShortOgTitle() {
+        let html = """
+        <html><head>
+        <meta property="og:title" content="Anti-inflammatory Recipes | Baked Squash with Feta | Facebook" />
+        <meta property="og:description" content="Baked Squash with Feta INGREDIENTS Squash: 1 medium squash 1 tsp olive oil salt pepper Filling: feta spinach bacon..." />
+        <meta property="og:image" content="https://scontent.fbcdn.net/v/squash.jpg" />
+        </head><body></body></html>
+        """
+        let url = URL(string: "https://www.facebook.com/groups/514659721546955/permalink/1048253324854256/")!
+        let preview = DeviceMetadataFetcher.parseSocialPreview(html: html, sourceUrl: url)
+        XCTAssertNotNil(preview)
+        XCTAssertTrue(preview?.caption?.contains("INGREDIENTS") ?? false, "got: \(String(describing: preview?.caption))")
+        XCTAssertFalse(preview?.caption?.contains("Anti-inflammatory Recipes") ?? false)
+    }
 }
