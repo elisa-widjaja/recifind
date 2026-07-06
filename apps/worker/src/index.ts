@@ -5636,6 +5636,60 @@ function stripFacebookEngagementPrefix(ogDescription: string): string {
     .trim();
 }
 
+// Cleans a Facebook `og:title` down to just the post caption. FB reels/videos
+// put the ENTIRE recipe in `og:title` (while `og:description` is capped at
+// ~200 chars), wrapped as:
+//   "[<N> views · <M> reactions | ]<caption incl hashtags> | <Page> | Facebook"
+// Strips the leading engagement prefix and the trailing " | <Page> | Facebook"
+// chrome. May return '' when the title was pure chrome (e.g. a group post's
+// "Group | Dish | Facebook" cleans down to the short group name and loses the
+// longest-candidate comparison). NOTE: kept in sync with the Swift copy
+// (cleanFacebookOgTitle) in DeviceMetadataFetcher.swift.
+function cleanFacebookOgTitle(s: string): string {
+  let t = stripFacebookEngagementPrefix(s);
+  t = t.replace(/\s*\|\s*[^|]+\s*\|\s*Facebook\s*$/i, '');
+  t = t.replace(/\s*\|\s*Facebook\s*$/i, '');
+  return t.trim();
+}
+
+// True when a Facebook title/description is generic FB chrome rather than a
+// real caption — the logged-out Watch hub blurb, a login interstitial, or a
+// bare placeholder. Builds on isGenericFacebookTitle (brokenDigest.ts) and
+// mirrors the Swift looksLikeFacebookGeneric in DeviceMetadataFetcher.swift.
+function looksLikeFacebookGenericText(s: string): boolean {
+  const t = s.trim().toLowerCase();
+  if (!t) return true;
+  if (isGenericFacebookTitle(t)) return true;
+  return [
+    'video is the place to enjoy',
+    'log in to facebook',
+    'log into facebook',
+    'you must log in',
+  ].some(needle => t.includes(needle));
+}
+
+// Canonicalizes any Facebook VIDEO URL form to `https://www.facebook.com/reel/<id>/`.
+// The shared forms (`/watch/?v=<id>`, `/<page>/videos/<slug>/<id>/`) serve a
+// stripped no-og-tags stub far more often than the `/reel/<id>/` form, which
+// (with an iPhone UA) serves the full og:title/og:description/og:image.
+// Returns null when no numeric video id is extractable (fb.watch short links
+// need a fetch first — the retry loop upgrades those via the stub's og:url).
+function normalizeFacebookVideoUrl(rawUrl: string): string | null {
+  try {
+    const u = new URL(rawUrl);
+    if (!u.hostname.toLowerCase().includes('facebook.com')) return null;
+    const v = u.searchParams.get('v');
+    if (v && /^\d{5,}$/.test(v)) return `https://www.facebook.com/reel/${v}/`;
+    let m = u.pathname.match(/\/reel\/(\d{5,})/);
+    if (m) return `https://www.facebook.com/reel/${m[1]}/`;
+    m = u.pathname.match(/\/videos\/(?:[^/]*\/)?(\d{5,})\/?$/);
+    if (m) return `https://www.facebook.com/reel/${m[1]}/`;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // Recovers a caption from a Facebook `og:url` path slug. FB auto-generates video
 // URLs as `.../videos/<slug>/<numeric-id>/`, where `<slug>` is the post caption
 // lowercased with punctuation dropped and spaces → hyphens (fractions survive
@@ -6241,6 +6295,19 @@ async function fetchOembedCaption(
     return null;
   }
 
+  // Facebook: the shared /watch/?v= and /videos/ forms serve a stripped stub
+  // far more often than /reel/<id>/, which (with the iPhone UA below) serves
+  // the full og tags — normalize up front when the video id is in the URL.
+  // fb.watch short links carry no id; the retry loop upgrades those from the
+  // stub's og:url after the first attempt.
+  let targetUrl = sourceUrl;
+  if (isFacebook) {
+    targetUrl = normalizeFacebookVideoUrl(sourceUrl) ?? sourceUrl;
+  }
+  // FB og:url slug caption seen on a stub attempt — kept as the LAST resort,
+  // returned only when no retry recovers a real og:description/og:title.
+  let pendingSlugCaption: string | null = null;
+
   // 5 attempts — same rationale as fetchRecipeHtml. IG/TT/YT serve 403 or a
   // stripped login-wall HTML to worker IPs most of the time; retries roll
   // the dice multiple times to land on the ~20% (IG) / ~50% (TikTok oEmbed)
@@ -6249,18 +6316,23 @@ async function fetchOembedCaption(
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const isLast = attempt === MAX_ATTEMPTS - 1;
     try {
-      const response = await fetchImpl(sourceUrl, {
+      const response = await fetchImpl(targetUrl, {
         // A real Safari/Chrome User-Agent is mandatory — Instagram and TikTok
         // serve a stripped-down empty-meta page to bot-shaped UAs, and the
-        // RecipeBot/1.0 UA we used previously tripped that filter.
+        // RecipeBot/1.0 UA we used previously tripped that filter. Facebook is
+        // the inverse: DESKTOP UAs draw the walled/stripped variant far more
+        // often, while an iPhone Safari UA gets the real og tags — same
+        // per-platform split as DeviceMetadataFetcher.swift (keep in sync).
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+          'User-Agent': isFacebook
+            ? 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
+            : 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
           'Accept-Language': 'en-US,en;q=0.5',
         },
       });
       if (!response.ok) {
-        if (isLast) return null;
+        if (isLast) break;
         continue;
       }
       const html = await response.text();
@@ -6268,18 +6340,40 @@ async function fetchOembedCaption(
       const ogMatch = html.match(/<meta\s+property=["']og:description["']\s+content=["']([^"']*)["']/i);
       const twMatch = html.match(/<meta\s+name=["']twitter:description["']\s+content=["']([^"']*)["']/i);
       const raw = (ogMatch?.[1] ?? twMatch?.[1] ?? '').trim();
-      if (!raw) {
-        // FB reels/videos sometimes expose no og:description to our datacenter
-        // fetch — only an og:url whose slug is the caption. Recover it so Gemini
-        // has something to extract instead of importing a thumbnail-only recipe.
-        if (isFacebook) {
-          const ogUrl = extractMetaContent(html, 'property', 'og:url');
-          const slugCaption = ogUrl ? captionFromFacebookOgUrl(ogUrl) : null;
-          if (slugCaption) {
-            deps.onSlugFallback?.();
-            return `Recipe by Facebook creator:\n\n${slugCaption}`;
-          }
+
+      if (isFacebook) {
+        // FB caps og:description at ~200 chars but reels/videos carry the FULL
+        // recipe (ingredients AND steps) in og:title, wrapped in engagement +
+        // page chrome. Clean both and keep the longest real candidate — a group
+        // post's og:title cleans down to the short group name and loses, so the
+        // description path is preserved there. Generic hub/login text never wins.
+        const rawTitle = (extractMetaContent(html, 'property', 'og:title')
+          || extractMetaContent(html, 'name', 'twitter:title') || '').trim();
+        let best = '';
+        const descCandidate = raw ? stripFacebookEngagementPrefix(decodeHtmlEntities(raw)) : '';
+        const titleCandidate = rawTitle ? cleanFacebookOgTitle(decodeHtmlEntities(rawTitle)) : '';
+        for (const cand of [descCandidate, titleCandidate]) {
+          if (cand && !looksLikeFacebookGenericText(cand) && cand.length > best.length) best = cand;
         }
+        if (best) {
+          return `Recipe by Facebook creator:\n\n${best}`;
+        }
+        // Stub (no usable og:description/og:title). Remember the og:url slug as
+        // a last resort, and upgrade the remaining attempts to the /reel/<id>/
+        // form when the stub's og:url reveals the video id.
+        const ogUrl = extractMetaContent(html, 'property', 'og:url');
+        if (ogUrl) {
+          if (!pendingSlugCaption) {
+            pendingSlugCaption = captionFromFacebookOgUrl(ogUrl);
+          }
+          const reelForm = normalizeFacebookVideoUrl(ogUrl);
+          if (reelForm && reelForm !== targetUrl) targetUrl = reelForm;
+        }
+        if (isLast) break;
+        continue;
+      }
+
+      if (!raw) {
         if (isLast) return null;
         continue;
       }
@@ -6301,12 +6395,20 @@ async function fetchOembedCaption(
         continue;
       }
 
-      const author = isInstagram ? 'Instagram creator' : isTikTok ? 'TikTok creator' : isFacebook ? 'Facebook creator' : 'YouTube creator';
+      const author = isInstagram ? 'Instagram creator' : isTikTok ? 'TikTok creator' : 'YouTube creator';
       return `Recipe by ${author}:\n\n${caption}`;
     } catch (err) {
       console.log('[enrich]', { strategy: 'social-caption', url: sourceUrl, outcome: 'error', error: String(err) });
-      if (isLast) return null;
+      if (isLast) break;
     }
+  }
+
+  // Every attempt served a stub/error. For FB, fall back to the og:url slug
+  // caption (lossy, truncated) so Gemini still has something — signalled via
+  // onSlugFallback so captionExtract runs the lenient extractor on it.
+  if (isFacebook && pendingSlugCaption) {
+    deps.onSlugFallback?.();
+    return `Recipe by Facebook creator:\n\n${pendingSlugCaption}`;
   }
   return null;
 }

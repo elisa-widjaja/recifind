@@ -1258,6 +1258,144 @@ describe('fetchOembedCaption for Facebook', () => {
     const caption = await fetchOembedCaption('https://www.facebook.com/reel/123', { fetchImpl });
     expect(caption).toBeNull();
   });
+
+  // FB caps og:description at ~200 chars but serves the FULL recipe (ingredients
+  // AND steps) in og:title, wrapped as "<views> · <reactions> | <caption> |
+  // <Page> | Facebook". The caption must come from the cleaned og:title when it
+  // is longer than og:description. (Verified live on /reel/1357006853131283:
+  // og:title=1158 chars full recipe, og:description=200-char prefix.)
+  it('prefers the full recipe in og:title over the truncated og:description', async () => {
+    const fullTitle = '5.1M views &#xb7; 105K reactions | AIR FRYER PORK RIBS 1 lb pork ribs 1.5 TBSP oyster sauce 1 tsp bouillon 0.5 TBSP minced shallots 2 cloves garlic 1. Cut the ribs between the bones 2. Marinate with oyster sauce and brown sugar 3. Air fry at 380F for 18 minutes flipping halfway | Alissa Nguyen | Facebook';
+    const truncDesc = 'AIR FRYER PORK RIBS 1 lb pork ribs 1.5 TBSP oyster sauce 1 tsp bouillon...';
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      text: async () => `<html><head>
+        <meta property="og:title" content="${fullTitle}" />
+        <meta property="og:description" content="${truncDesc}" />
+      </head></html>`,
+    })) as unknown as typeof fetch;
+
+    const caption = await fetchOembedCaption('https://www.facebook.com/reel/1357006853131283/', { fetchImpl });
+    expect(caption).not.toBeNull();
+    expect(caption).toContain('shallots');            // beyond the og:description cut
+    expect(caption).toContain('Marinate');            // steps recovered
+    expect(caption).not.toContain('5.1M views');      // engagement prefix stripped
+    expect(caption).not.toContain('Alissa Nguyen');   // page chrome stripped
+    expect(caption).not.toMatch(/Facebook\s*$/);      // trailing "| Facebook" stripped
+  });
+
+  // Group/permalink posts: og:title is just "Group | Dish | Facebook" (cleans to
+  // the short group name) — og:description must still win there.
+  it('keeps the og:description when the cleaned og:title is shorter', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      text: async () => `<html><head>
+        <meta property="og:title" content="Anti-inflammatory Recipes | Baked Squash with Feta | Facebook" />
+        <meta property="og:description" content="Baked Squash with Feta INGREDIENTS Squash: 1 medium squash 1 tsp olive oil salt pepper Filling: feta spinach bacon..." />
+      </head></html>`,
+    })) as unknown as typeof fetch;
+
+    const caption = await fetchOembedCaption('https://www.facebook.com/groups/514/permalink/1048/', { fetchImpl });
+    expect(caption).toContain('INGREDIENTS');
+    expect(caption).not.toContain('Anti-inflammatory Recipes');
+  });
+
+  // A generic Watch-hub og:title must never become the caption.
+  it('ignores a generic hub og:title', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      text: async () => `<html><head>
+        <meta property="og:title" content="Discover Popular Videos | Facebook" />
+        <meta property="og:description" content="Video is the place to enjoy videos and shows together. Watch the latest reels and catch up on your favorite creators and shows." />
+      </head></html>`,
+    })) as unknown as typeof fetch;
+
+    const caption = await fetchOembedCaption('https://www.facebook.com/watch/?v=123456', { fetchImpl });
+    expect(caption).toBeNull();
+  });
+
+  // FB gets the iPhone Safari UA (desktop UAs draw the walled/stripped variant
+  // far more often); IG keeps the Mac Safari UA that works for it.
+  it('sends an iPhone UA to facebook and keeps the Mac UA for instagram', async () => {
+    const seen: string[] = [];
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      seen.push((init?.headers as Record<string, string>)?.['User-Agent'] ?? '');
+      return {
+        ok: true,
+        text: async () => '<html><head><meta property="og:description" content="Lemon Pasta. Ingredients: pasta, lemon, butter, parmesan cheese." /></head></html>',
+      };
+    }) as unknown as typeof fetch;
+
+    await fetchOembedCaption('https://www.facebook.com/reel/123', { fetchImpl });
+    await fetchOembedCaption('https://www.instagram.com/reel/abc/', { fetchImpl });
+    expect(seen[0]).toContain('iPhone');
+    expect(seen[1]).toContain('Macintosh');
+    expect(seen[1]).not.toContain('iPhone');
+  });
+
+  // The /watch/?v= and /<page>/videos/<slug>/<id>/ forms serve a stripped stub
+  // far more often than /reel/<id>/ — normalize before fetching.
+  it('normalizes watch?v= and /videos/ URLs to the /reel/ form before fetching', async () => {
+    const urls: string[] = [];
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL) => {
+      urls.push(String(url));
+      return {
+        ok: true,
+        text: async () => '<html><head><meta property="og:description" content="Garlic Butter Shrimp. Ingredients: 1 lb shrimp, 3 tbsp butter, parsley." /></head></html>',
+      };
+    }) as unknown as typeof fetch;
+
+    await fetchOembedCaption('https://www.facebook.com/watch/?v=1357006853131283', { fetchImpl });
+    await fetchOembedCaption('https://www.facebook.com/100086743861165/videos/air-fryer-pork-ribs/1357006853131283/', { fetchImpl });
+    expect(urls[0]).toBe('https://www.facebook.com/reel/1357006853131283/');
+    expect(urls[1]).toBe('https://www.facebook.com/reel/1357006853131283/');
+  });
+
+  // fb.watch can't be normalized without a fetch, but when the first attempt
+  // returns the stripped stub (no caption, og:url carrying the video id), the
+  // remaining retries must switch to the /reel/<id>/ form and win.
+  it('upgrades to the /reel/ form mid-retry when the stub og:url reveals the video id', async () => {
+    const urls: string[] = [];
+    const stub = `<html><head>
+      <meta property="og:url" content="https://www.facebook.com/100086743861165/videos/air-fryer-pork-ribs-1-lb-pork-ribs/1357006853131283/" />
+      <meta property="og:image" content="https://scontent.fbcdn.net/v/ribs.jpg" />
+    </head></html>`;
+    const full = `<html><head>
+      <meta property="og:title" content="AIR FRYER PORK RIBS 1 lb pork ribs 1.5 TBSP oyster sauce 2 minced cloves garlic 1. Cut the ribs 2. Marinate 3. Air fry at 380F | Alissa Nguyen | Facebook" />
+    </head></html>`;
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL) => {
+      urls.push(String(url));
+      return { ok: true, text: async () => (String(url).includes('/reel/') ? full : stub) };
+    }) as unknown as typeof fetch;
+
+    let slugFallbackFired = false;
+    const caption = await fetchOembedCaption('https://fb.watch/I7Vf_a_iv_/', {
+      fetchImpl,
+      onSlugFallback: () => { slugFallbackFired = true; },
+    });
+    expect(urls[0]).toBe('https://fb.watch/I7Vf_a_iv_/');
+    expect(urls[1]).toBe('https://www.facebook.com/reel/1357006853131283/');
+    expect(caption).toContain('Marinate');       // full recipe, not the slug
+    expect(slugFallbackFired).toBe(false);       // slug not needed
+  });
+
+  // When every retry serves the stub, the slug fallback must still fire (the
+  // lenient-extraction path) — the /reel/ upgrade must not break it.
+  it('still falls back to the og:url slug when every attempt serves the stub', async () => {
+    const stub = `<html><head>
+      <meta property="og:url" content="https://www.facebook.com/100086743861165/videos/air-fryer-pork-ribs-1-lb-pork-ribs-riblets15-tbsp-oyster-sauce/1357006853131283/" />
+    </head></html>`;
+    const fetchImpl = vi.fn(async () => ({ ok: true, text: async () => stub })) as unknown as typeof fetch;
+
+    let slugFallbackFired = false;
+    const caption = await fetchOembedCaption('https://fb.watch/I7Vf_a_iv_/', {
+      fetchImpl,
+      onSlugFallback: () => { slugFallbackFired = true; },
+    });
+    expect(caption).not.toBeNull();
+    expect(caption!.toLowerCase()).toContain('pork ribs');
+    expect(slugFallbackFired).toBe(true);
+  });
 });
 
 describe('extractRecipeDetailsFromHtml Facebook title fallback', () => {
