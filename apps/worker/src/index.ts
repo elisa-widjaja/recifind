@@ -1051,7 +1051,14 @@ export default {
       return;
     }
 
-    const v2Pct = Math.min(Math.max(parseInt(env.NUDGE_V2_PCT ?? '0', 10) || 0, 0), 100);
+    // Send window: the cron runs hourly (admin-stats/user-counts/digest above run
+    // every tick), but nudges only go out on the 16:00 UTC tick (~9am PT / 12pm ET),
+    // just ahead of the observed engagement peak (activity analysis 2026-06-30).
+    const NUDGE_SEND_HOUR_UTC = 16;
+    if (new Date(event.scheduledTime).getUTCHours() !== NUDGE_SEND_HOUR_UTC) {
+      console.log('[cron] nudge send skipped (outside 16:00 UTC window)');
+      return;
+    }
 
     // User-independent pieces, fetched once for the whole batch. The founder
     // card (profile card + CTA) and the v2 hero/shelf are identical across
@@ -1086,16 +1093,18 @@ export default {
       ).bind(userId).first();
       const recipeCount = (countResult?.cnt as number) || 0;
 
-      if (recipeCount > 0) {
-        // User already active — skip
+      if (recipeCount > 3) {
+        // Well-activated (4+ recipes) — a nudge adds nothing, skip
         await env.DB.prepare(
           'UPDATE nudge_emails SET sent = 2, sent_at = ? WHERE user_id = ?'
         ).bind(now, userId).run();
         continue;
       }
 
-      // Build and send the nudge email
-      const variant = pickNudgeVariant(userId, v2Pct);
+      // Variant is targeted by engagement (random-hash A/B retired 2026-07-01):
+      //   0 recipes    -> v1 activation nudge ("your recipes are waiting")
+      //   1-3 recipes  -> v2 retention nudge (hero "tonight's dinner, sorted")
+      const variant: 'v1' | 'v2' = recipeCount === 0 ? 'v1' : 'v2';
 
       const secret = env.DEV_API_KEY;
       if (!secret) return; // Can't sign unsubscribe tokens without DEV_API_KEY
@@ -2639,34 +2648,44 @@ async function handleCreateRecipe(
   // exists. Never create a second row. Exact-URL match (tracking-param variants
   // intentionally not normalized — see spec). Replaces the old 60s window so
   // re-saves days apart are also caught.
+  //
+  // resolveDuplicate takes a known existing row for this (user_id, source_url)
+  // and either heals an empty row from a content-bearing re-save, retries
+  // enrichment on a still-empty row, or returns a pure dedup hit. Shared by the
+  // pre-insert SELECT below and the post-insert UNIQUE-constraint catch (the
+  // concurrent-save race) so both paths behave identically.
+  const resolveDuplicate = async (dupeId: string): Promise<Response> => {
+    const existing = await loadRecipe(env, user.userId, dupeId);
+    const existingEmpty = existing.ingredients.length === 0 && existing.steps.length === 0;
+    const incomingHasContent = recipe.ingredients.length > 0 || recipe.steps.length > 0;
+
+    if (existingEmpty && incomingHasContent) {
+      // Failed-import retry where the re-save carries content: heal the row.
+      const refreshed = await backfillEmptyRecipe(env, user.userId, dupeId, recipe);
+      return json({ recipe: refreshed, duplicate: true }, 200);
+    }
+
+    if (existingEmpty) {
+      // Failed-import retry, re-save also empty: give enrichment another shot
+      // on the EXISTING id (preserves the old after-60s retry path).
+      ctx.waitUntil(
+        enrichAfterSave(env, user.userId, dupeId, recipe.sourceUrl, recipe.title)
+          .catch(err => console.error('[enrichAfterSave] failed', { recipeId: dupeId, err: String(err) }))
+      );
+      return json({ recipe: existing, duplicate: true }, 200);
+    }
+
+    // Existing row already has content -> pure dedup, no write.
+    return json({ recipe: existing, duplicate: true }, 200);
+  };
+
   if (recipe.sourceUrl) {
     const dupe = await env.DB.prepare(
       `SELECT id FROM recipes WHERE user_id = ? AND source_url = ? ORDER BY created_at DESC LIMIT 1`
     ).bind(user.userId, recipe.sourceUrl).first() as { id: string } | null;
 
     if (dupe) {
-      const existing = await loadRecipe(env, user.userId, dupe.id);
-      const existingEmpty = existing.ingredients.length === 0 && existing.steps.length === 0;
-      const incomingHasContent = recipe.ingredients.length > 0 || recipe.steps.length > 0;
-
-      if (existingEmpty && incomingHasContent) {
-        // Failed-import retry where the re-save carries content: heal the row.
-        const refreshed = await backfillEmptyRecipe(env, user.userId, dupe.id, recipe);
-        return json({ recipe: refreshed, duplicate: true }, 200);
-      }
-
-      if (existingEmpty) {
-        // Failed-import retry, re-save also empty: give enrichment another shot
-        // on the EXISTING id (preserves the old after-60s retry path).
-        ctx.waitUntil(
-          enrichAfterSave(env, user.userId, dupe.id, recipe.sourceUrl, recipe.title)
-            .catch(err => console.error('[enrichAfterSave] failed', { recipeId: dupe.id, err: String(err) }))
-        );
-        return json({ recipe: existing, duplicate: true }, 200);
-      }
-
-      // Existing row already has content -> pure dedup, no write.
-      return json({ recipe: existing, duplicate: true }, 200);
+      return await resolveDuplicate(dupe.id);
     }
   }
 
@@ -2681,21 +2700,38 @@ async function handleCreateRecipe(
     recipe.imageUrl = preview.publicUrl || recipe.imageUrl;
   }
 
-  await env.DB.prepare(
-    `INSERT INTO recipes (id, user_id, title, source_url, image_url, image_path, meal_types, cuisines, custom_tags, ingredients, steps, duration_minutes, notes, preview_image, shared_with_friends, provenance, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(
-    recipe.id, recipe.userId, recipe.title, recipe.sourceUrl, recipe.imageUrl,
-    recipe.imagePath ?? null, JSON.stringify(recipe.mealTypes),
-    JSON.stringify(recipe.cuisines || []),
-    JSON.stringify(recipe.customTags || []),
-    JSON.stringify(recipe.ingredients),
-    JSON.stringify(recipe.steps), recipe.durationMinutes, recipe.notes || '',
-    recipe.previewImage ? JSON.stringify(recipe.previewImage) : null,
-    recipe.sharedWithFriends ? 1 : 0,
-    recipe.provenance ?? null,
-    recipe.createdAt, recipe.updatedAt
-  ).run();
+  try {
+    await env.DB.prepare(
+      `INSERT INTO recipes (id, user_id, title, source_url, image_url, image_path, meal_types, cuisines, custom_tags, ingredients, steps, duration_minutes, notes, preview_image, shared_with_friends, provenance, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      recipe.id, recipe.userId, recipe.title, recipe.sourceUrl, recipe.imageUrl,
+      recipe.imagePath ?? null, JSON.stringify(recipe.mealTypes),
+      JSON.stringify(recipe.cuisines || []),
+      JSON.stringify(recipe.customTags || []),
+      JSON.stringify(recipe.ingredients),
+      JSON.stringify(recipe.steps), recipe.durationMinutes, recipe.notes || '',
+      recipe.previewImage ? JSON.stringify(recipe.previewImage) : null,
+      recipe.sharedWithFriends ? 1 : 0,
+      recipe.provenance ?? null,
+      recipe.createdAt, recipe.updatedAt
+    ).run();
+  } catch (err) {
+    // A concurrent save of the same (user_id, source_url) can slip past the
+    // SELECT above and race us here. The partial UNIQUE index
+    // idx_recipes_user_source_unique makes the loser's INSERT fail; resolve to
+    // the winning row and return the dedup response instead of a 500.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (recipe.sourceUrl && /UNIQUE constraint failed/i.test(msg)) {
+      const dupe = await env.DB.prepare(
+        `SELECT id FROM recipes WHERE user_id = ? AND source_url = ? ORDER BY created_at DESC LIMIT 1`
+      ).bind(user.userId, recipe.sourceUrl).first() as { id: string } | null;
+      if (dupe) {
+        return await resolveDuplicate(dupe.id);
+      }
+    }
+    throw err;
+  }
   await updateCollectionMeta(env, user.userId, { countDelta: 1 });
 
   // Notify friends that this user saved a recipe.
