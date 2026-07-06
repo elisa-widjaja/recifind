@@ -104,6 +104,23 @@ struct DeviceMetadataFetcher {
                     return ParsePreview(title: title, imageUrl: ogImage, caption: nil)
                 }
             }
+            // Last resort for Facebook VIDEO posts: some reels/videos expose
+            // neither og:title nor og:description to a server-side fetch — only
+            // og:image and an og:url whose path slug is FB's de-slugified caption
+            // (e.g. ".../videos/air-fryer-pork-ribs-1-lb-pork-ribs-.../123/").
+            // De-slugify it into a caption + title so the recipe imports with a
+            // thumbnail AND a partial ingredient list (lossy, but Gemini's lenient
+            // caption-provided path handles quantity-less names) instead of a
+            // thumbnail-only "Facebook Reel" placeholder.
+            if isFacebook,
+               let rawOgUrl = matchMetaContent(html: html, attr: "property", value: "og:url"),
+               let slugCaption = captionFromFacebookOgUrl(rawOgUrl),
+               !looksLikeFacebookGeneric(slugCaption) {
+                let title = extractDishName(from: slugCaption)
+                if !title.isEmpty {
+                    return ParsePreview(title: title, imageUrl: ogImage, caption: slugCaption)
+                }
+            }
             return nil
         }
 
@@ -244,6 +261,36 @@ struct DeviceMetadataFetcher {
             options: [.regularExpression, .caseInsensitive]
         )
         return t.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Recovers a caption from a Facebook `og:url` path slug. FB auto-generates
+    /// video URLs as `.../videos/<slug>/<numeric-id>/`, where `<slug>` is the
+    /// post caption lowercased, punctuation dropped, spaces → hyphens (fractions
+    /// survive percent-encoded, e.g. `%C2%BD` → ½). For videos that expose no
+    /// og:title/og:description server-side, this slug is the only caption signal.
+    /// De-slugifies the longest hyphenated, non-numeric path segment back into
+    /// readable text. Returns nil when there's no descriptive slug (e.g. the bare
+    /// `watch/?v=<id>` hub URL) or the result is too short to be a real caption.
+    static func captionFromFacebookOgUrl(_ ogUrl: String) -> String? {
+        let decoded = ogUrl.removingPercentEncoding ?? ogUrl
+        // Strip query/fragment, then split the path into segments.
+        let path = decoded.components(separatedBy: CharacterSet(charactersIn: "?#")).first ?? decoded
+        let slug = path
+            .components(separatedBy: "/")
+            .filter { seg in
+                seg.contains("-")
+                    && seg.rangeOfCharacter(from: .letters) != nil
+                    && !seg.contains(".")   // skip the host (www.facebook.com)
+            }
+            .max(by: { $0.count < $1.count })
+        guard let raw = slug else { return nil }
+        let text = raw
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Guard against short, non-caption slugs (usernames, "photo-1").
+        guard text.count >= 12 else { return nil }
+        return text
     }
 
     /// Recovers the full caption from FB's page HTML. `og:description` is a

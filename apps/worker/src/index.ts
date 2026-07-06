@@ -5600,6 +5600,34 @@ function stripFacebookEngagementPrefix(ogDescription: string): string {
     .trim();
 }
 
+// Recovers a caption from a Facebook `og:url` path slug. FB auto-generates video
+// URLs as `.../videos/<slug>/<numeric-id>/`, where `<slug>` is the post caption
+// lowercased with punctuation dropped and spaces → hyphens (fractions survive
+// percent-encoded, e.g. `%C2%BD` → ½). Some reels/videos expose NO og:title and
+// NO og:description to our datacenter fetch — this slug is then the only caption
+// signal. De-slugifies the longest hyphenated, non-numeric path segment back into
+// readable text; returns null when there's no descriptive slug (the bare
+// `watch/?v=<id>` hub) or the result is too short to be a real caption.
+// NOTE: kept in sync with the Swift copy (captionFromFacebookOgUrl) in
+// DeviceMetadataFetcher.swift — update both when the FB URL format shifts.
+function captionFromFacebookOgUrl(ogUrl: string): string | null {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(ogUrl);
+  } catch {
+    decoded = ogUrl;
+  }
+  const path = decoded.split(/[?#]/)[0];
+  const slug = path
+    .split('/')
+    .filter(seg => seg.includes('-') && /[a-zA-Z]/.test(seg) && !seg.includes('.'))
+    .sort((a, b) => b.length - a.length)[0];
+  if (!slug) return null;
+  const text = slug.replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
+  if (text.length < 12) return null;
+  return text;
+}
+
 function extractRecipeDetailsFromHtml(html: string, sourceUrl: string): ParsedRecipeDetails | null {
   if (!html) {
     return null;
@@ -5638,6 +5666,12 @@ function extractRecipeDetailsFromHtml(html: string, sourceUrl: string): ParsedRe
     if (ogDesc) {
       const stripped = stripFacebookEngagementPrefix(ogDesc);
       if (stripped) fallbackTitle = stripped;
+    } else {
+      // No og:title / og:description (FB video page) — derive the title from the
+      // og:url slug caption, same signal the caption path recovers for Gemini.
+      const ogUrl = extractMetaContent(html, 'property', 'og:url');
+      const slugCaption = ogUrl ? captionFromFacebookOgUrl(ogUrl) : null;
+      if (slugCaption) fallbackTitle = slugCaption;
     }
   }
   if (isInstagram && fallbackTitle) {
@@ -6195,6 +6229,16 @@ async function fetchOembedCaption(
       const twMatch = html.match(/<meta\s+name=["']twitter:description["']\s+content=["']([^"']*)["']/i);
       const raw = (ogMatch?.[1] ?? twMatch?.[1] ?? '').trim();
       if (!raw) {
+        // FB reels/videos sometimes expose no og:description to our datacenter
+        // fetch — only an og:url whose slug is the caption. Recover it so Gemini
+        // has something to extract instead of importing a thumbnail-only recipe.
+        if (isFacebook) {
+          const ogUrl = extractMetaContent(html, 'property', 'og:url');
+          const slugCaption = ogUrl ? captionFromFacebookOgUrl(ogUrl) : null;
+          if (slugCaption) {
+            return `Recipe by Facebook creator:\n\n${slugCaption}`;
+          }
+        }
         if (isLast) return null;
         continue;
       }

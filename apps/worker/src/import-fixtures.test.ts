@@ -48,6 +48,54 @@ describe('import regression: caption fetch (mocked fetch, deterministic)', () =>
     expect(caption).not.toBeNull();
     expect(caption).toContain('Lemon Pasta');
   });
+
+  // Regression: the two failing fb.watch imports. FB serves the video page NO
+  // og:description to our datacenter fetch — only og:image and an og:url whose
+  // path slug is the caption. fetchOembedCaption must recover that slug as the
+  // caption so Gemini gets something to extract (was: null -> empty recipe).
+  it('FB: falls back to the og:url slug caption when og:description is absent', async () => {
+    const fetchImpl = (async () => ({
+      ok: true,
+      text: async () => `<html><head>
+        <meta property="og:type" content="video.other" />
+        <meta property="og:url" content="https://www.facebook.com/100086743861165/videos/air-fryer-pork-ribs-1-lb-pork-ribs-riblets15-tbsp-oyster-sauce%C2%BD-tbsp-brown-sugar/1357006853131283/" />
+        <meta property="og:image" content="https://scontent.fbcdn.net/v/ribs.jpg" />
+      </head><body></body></html>`,
+    })) as unknown as typeof fetch;
+    const caption = await fetchOembedCaption('https://www.facebook.com/watch/?v=1357006853131283', { fetchImpl });
+    expect(caption).not.toBeNull();
+    expect(caption!.toLowerCase()).toContain('pork ribs');
+    expect(caption).not.toContain('-'); // hyphens de-slugified
+  });
+
+  // The bare Watch-hub URL has no descriptive slug — must stay null so we don't
+  // caption a recipe with FB chrome.
+  it('FB: returns null when there is no og:description and no descriptive slug', async () => {
+    const fetchImpl = (async () => ({
+      ok: true,
+      text: async () => `<html><head>
+        <meta property="og:url" content="https://www.facebook.com/watch/?v=123456" />
+        <meta property="og:image" content="https://scontent.fbcdn.net/v/x.jpg" />
+      </head><body></body></html>`,
+    })) as unknown as typeof fetch;
+    const caption = await fetchOembedCaption('https://www.facebook.com/watch/?v=123456', { fetchImpl });
+    expect(caption).toBeNull();
+  });
+});
+
+describe('import regression: FB video title/image from og:url slug (deterministic)', () => {
+  it('derives a title + keeps the thumbnail from the og:url slug', () => {
+    const html = `<html><head>
+      <meta property="og:type" content="video.other" />
+      <meta property="og:url" content="https://www.facebook.com/61551387266783/videos/celery-salad-summer-ingredients-celery-2-cups-dates-3-using-terra-delyssa-walnut/1041889132115337/" />
+      <meta property="og:image" content="https://scontent.fbcdn.net/v/celery.jpg" />
+    </head><body></body></html>`;
+    const result = extractRecipeDetailsFromHtml(html, 'https://www.facebook.com/watch/?v=1041889132115337');
+    expect(result).not.toBeNull();
+    expect((result!.title ?? '').length).toBeGreaterThan(0);
+    expect(result!.title!.toLowerCase()).toContain('celery');
+    expect(result!.imageUrl).toBe('https://scontent.fbcdn.net/v/celery.jpg');
+  });
 });
 
 describe('import regression: allowlist + shim (deterministic)', () => {

@@ -123,7 +123,75 @@ final class DeviceMetadataFetcherTests: XCTestCase {
         XCTAssertEqual(cleaned, "Anti-inflammatory Recipes")
     }
 
+    // MARK: - captionFromFacebookOgUrl
+
+    // FB video URLs embed the caption as a slug:
+    //   .../videos/air-fryer-pork-ribs-1-lb-pork-ribs-.../<id>/
+    // De-slugify it back to readable text (hyphens → spaces).
+    func testCaptionFromFacebookOgUrl_deslugifiesVideoSlug() {
+        let ogUrl = "https://www.facebook.com/61551387266783/videos/celery-salad-summer-ingredients-celery-2-cups-dates-3-using-terra-delyssa-walnut/1041889132115337/"
+        let caption = DeviceMetadataFetcher.captionFromFacebookOgUrl(ogUrl)
+        XCTAssertEqual(caption, "celery salad summer ingredients celery 2 cups dates 3 using terra delyssa walnut")
+    }
+
+    // Percent-encoded fractions in the slug (½ = %C2%BD) must decode.
+    func testCaptionFromFacebookOgUrl_decodesPercentEncodedFraction() {
+        let ogUrl = "https://www.facebook.com/1/videos/pancakes-%C2%BD-cup-flour/9/"
+        XCTAssertEqual(DeviceMetadataFetcher.captionFromFacebookOgUrl(ogUrl), "pancakes ½ cup flour")
+    }
+
+    // The bare Watch-hub URL (watch/?v=<id>) has no descriptive slug → nil.
+    func testCaptionFromFacebookOgUrl_returnsNilForBareWatchHub() {
+        XCTAssertNil(DeviceMetadataFetcher.captionFromFacebookOgUrl("https://www.facebook.com/watch/?v=123456"))
+    }
+
+    // A short, non-caption slug (username / "photo-1") de-slugs to < 12 chars
+    // and must be rejected so we don't title a recipe with page chrome.
+    func testCaptionFromFacebookOgUrl_returnsNilForShortSlug() {
+        XCTAssertNil(DeviceMetadataFetcher.captionFromFacebookOgUrl("https://www.facebook.com/photo-1/videos/9/"))
+    }
+
     // MARK: - parseSocialPreview (Facebook)
+
+    // Regression: the two failing fb.watch imports (air-fryer pork ribs / celery
+    // salad). FB serves the video page NO og:title and NO og:description to a
+    // device fetch — only og:image and an og:url whose slug is the caption. The
+    // fetcher must recover that slug as the caption + a title, keeping the
+    // thumbnail, instead of returning nil (thumbnail-only "Facebook Reel").
+    func testParseSocialPreview_facebookVideoRecoversCaptionFromOgUrlSlug() {
+        let html = """
+        <html><head>
+        <meta property="og:type" content="video.other" />
+        <meta property="og:url" content="https://www.facebook.com/100086743861165/videos/air-fryer-pork-ribs-1-lb-pork-ribs-riblets15-tbsp-oyster-sauce%C2%BD-tbsp-brown-sugar/1357006853131283/" />
+        <meta property="og:image" content="https://scontent.fbcdn.net/v/ribs.jpg" />
+        </head><body></body></html>
+        """
+        let url = URL(string: "https://www.facebook.com/watch/?v=1357006853131283")!
+        let preview = DeviceMetadataFetcher.parseSocialPreview(html: html, sourceUrl: url)
+        XCTAssertNotNil(preview)
+        XCTAssertEqual(preview?.imageUrl, "https://scontent.fbcdn.net/v/ribs.jpg")
+        XCTAssertTrue(preview?.caption?.lowercased().contains("pork ribs") ?? false,
+                      "got: \(String(describing: preview?.caption))")
+        XCTAssertFalse(preview?.caption?.contains("-") ?? true, "hyphens must be de-slugified")
+        XCTAssertFalse(preview?.title.isEmpty ?? true)
+    }
+
+    // The og:url slug is a LAST resort — when og:description is present the normal
+    // caption path wins, so the slug fallback must not shadow it.
+    func testParseSocialPreview_facebookVideoPrefersOgDescriptionOverSlug() {
+        let html = """
+        <html><head>
+        <meta property="og:url" content="https://www.facebook.com/1/videos/some-slug-here-that-is-long/9/" />
+        <meta property="og:description" content="Miso Glazed Salmon. Ingredients: salmon, miso, mirin, honey." />
+        <meta property="og:image" content="https://scontent.fbcdn.net/v/salmon.jpg" />
+        </head><body></body></html>
+        """
+        let url = URL(string: "https://www.facebook.com/watch/?v=999")!
+        let preview = DeviceMetadataFetcher.parseSocialPreview(html: html, sourceUrl: url)
+        XCTAssertTrue(preview?.caption?.contains("miso") ?? false, "got: \(String(describing: preview?.caption))")
+        XCTAssertFalse(preview?.caption?.contains("slug") ?? true)
+    }
+
 
     // FB photo posts (facebook.com/photo.php) expose og:title + og:image but NO
     // og:description. The fetcher must fall back to og:title instead of bailing
