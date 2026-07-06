@@ -62,10 +62,32 @@ describe('import regression: caption fetch (mocked fetch, deterministic)', () =>
         <meta property="og:image" content="https://scontent.fbcdn.net/v/ribs.jpg" />
       </head><body></body></html>`,
     })) as unknown as typeof fetch;
-    const caption = await fetchOembedCaption('https://www.facebook.com/watch/?v=1357006853131283', { fetchImpl });
+    let slugFallbackFired = false;
+    const caption = await fetchOembedCaption('https://www.facebook.com/watch/?v=1357006853131283', {
+      fetchImpl,
+      onSlugFallback: () => { slugFallbackFired = true; },
+    });
     expect(caption).not.toBeNull();
     expect(caption!.toLowerCase()).toContain('pork ribs');
     expect(caption).not.toContain('-'); // hyphens de-slugified
+    // Signals the lossy slug source so captionExtract runs the lenient extractor.
+    expect(slugFallbackFired).toBe(true);
+  });
+
+  // A normal FB caption from og:description must NOT trip the slug-fallback
+  // signal (it stays on the strict extractor for junk protection).
+  it('FB: does not fire onSlugFallback when og:description is present', async () => {
+    const fetchImpl = (async () => ({
+      ok: true,
+      text: async () => `<html><head><meta property="og:description" content="Garlic Butter Shrimp. Ingredients: 1 lb shrimp, 3 tbsp butter." /></head></html>`,
+    })) as unknown as typeof fetch;
+    let slugFallbackFired = false;
+    const caption = await fetchOembedCaption('https://www.facebook.com/reel/123', {
+      fetchImpl,
+      onSlugFallback: () => { slugFallbackFired = true; },
+    });
+    expect(caption).toContain('Garlic Butter Shrimp');
+    expect(slugFallbackFired).toBe(false);
   });
 
   // The bare Watch-hub URL has no descriptive slug — must stay null so we don't

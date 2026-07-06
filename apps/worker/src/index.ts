@@ -6200,6 +6200,10 @@ async function resolveSourceUrl(sourceUrl: string): Promise<string> {
 
 type FetchOembedCaptionDeps = {
   fetchImpl?: typeof fetch;
+  // Invoked when the caption was recovered from the FB og:url slug fallback (a
+  // lossy, truncated signal) rather than a real og:description. Lets captionExtract
+  // route it through the lenient extractor instead of the strict one.
+  onSlugFallback?: () => void;
 };
 
 // Returns the oEmbed "title" field (which is usually the post caption on social
@@ -6272,6 +6276,7 @@ async function fetchOembedCaption(
           const ogUrl = extractMetaContent(html, 'property', 'og:url');
           const slugCaption = ogUrl ? captionFromFacebookOgUrl(ogUrl) : null;
           if (slugCaption) {
+            deps.onSlugFallback?.();
             return `Recipe by Facebook creator:\n\n${slugCaption}`;
           }
         }
@@ -6503,6 +6508,10 @@ async function captionExtract(
   const captionFetcher = deps.fetchOembedCaption ?? fetchOembedCaption;
   let caption: string | null = null;
   let captionFromCache = false;
+  // Set when the caption came from the FB og:url slug fallback — a lossy signal
+  // that the strict extractor rejects, so we extract it leniently (mirrors the
+  // iOS captionProvided path) and don't cache it.
+  let usedSlugFallback = false;
 
   // Caption cache: the IG fetch is the rate-limited bottleneck and captions are
   // immutable per post, so cache the fetched caption per-URL. Repeat import /
@@ -6522,7 +6531,10 @@ async function captionExtract(
 
   if (caption === null) {
     try {
-      caption = await captionFetcher(sourceUrl, { fetchImpl: deps.fetchImpl });
+      caption = await captionFetcher(sourceUrl, {
+        fetchImpl: deps.fetchImpl,
+        onSlugFallback: () => { usedSlugFallback = true; },
+      });
     } catch (err) {
       console.log('[enrich]', { strategy: 'caption-extract', url: sourceUrl, outcome: 'error', duration_ms: Date.now() - startedAt, error: String(err) });
       return EMPTY_ENRICHMENT;
@@ -6536,8 +6548,11 @@ async function captionExtract(
 
   // Cache a usable, freshly-fetched caption (>=50 chars, immutable per post).
   // Skip cache hits (no pointless re-write) and short/empty captions, so a
-  // transient IG-stripped response never gets locked in for the full TTL.
-  if (!captionFromCache) {
+  // transient IG-stripped response never gets locked in for the full TTL. Also
+  // skip the FB slug fallback: caching its string would lose the lossy-signal
+  // provenance, so a later re-enrich would read it back as a normal caption and
+  // (wrongly) run the strict extractor.
+  if (!captionFromCache && !usedSlugFallback) {
     try {
       await env.AI_PICKS_CACHE?.put(captionCacheKey, caption, { expirationTtl: 7 * 24 * 60 * 60 });
     } catch {
@@ -6550,6 +6565,7 @@ async function captionExtract(
       fetchImpl: deps.fetchImpl,
       getAccessToken: deps.getAccessToken,
       getServiceAccount: deps.getServiceAccount,
+      lenient: usedSlugFallback,
     });
     const isEmpty = result.ingredients.length === 0 && result.steps.length === 0;
     console.log('[enrich]', { strategy: 'caption-extract', url: sourceUrl, captionLength: caption.length, outcome: isEmpty ? 'empty' : 'extracted', duration_ms: Date.now() - startedAt });

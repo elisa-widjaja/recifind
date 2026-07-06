@@ -320,6 +320,38 @@ describe('captionExtract', () => {
     expect(promptText).toContain(longCaption);
   });
 
+  // When the caption came from the FB og:url slug fallback (a lossy, mangled
+  // signal), captionExtract must run the LENIENT extractor so admin re-enrich /
+  // web paste recovers partial ingredients — the strict prompt rejects the slug.
+  // Signalled by fetchOembedCaption invoking deps.onSlugFallback.
+  it('uses the lenient prompt when the caption came from the FB slug fallback', async () => {
+    const slugCaption = 'Recipe by Facebook creator:\n\nair fryer pork ribs 1 lb pork ribs riblets15 tbsp oyster sauce ½ tbsp brown sugar';
+    const mockFetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: JSON.stringify({
+          ingredients: ['1 lb pork ribs', 'oyster sauce'], steps: [],
+          mealTypes: [], durationMinutes: null, notes: '', title: 'Air Fryer Pork Ribs'
+        }) }] } }]
+      })
+    })) as unknown as typeof fetch;
+    const deps = {
+      ...baseDeps,
+      // Mimics the real fetchOembedCaption's FB slug-fallback branch.
+      fetchOembedCaption: (async (_url: string, d?: { onSlugFallback?: () => void }) => {
+        d?.onSlugFallback?.();
+        return slugCaption;
+      }) as unknown as typeof import('./index').fetchOembedCaption,
+      fetchImpl: mockFetch,
+    };
+    const result = await captionExtract(fakeEnv, 'https://www.facebook.com/reel/123/', 'Ribs', deps);
+    expect(result.ingredients.length).toBeGreaterThan(0);
+    const parsedBody = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    const promptText = parsedBody.contents[0].parts[0].text;
+    expect(promptText).toContain('valid partial recipe'); // lenient-prompt marker
+    expect(promptText).not.toContain('Extract ONLY what is explicitly present');
+  });
+
   it('returns empty result when Gemini returns empty arrays', async () => {
     const longCaption = 'Recipe by chef_jane:\n\nLove this pasta so good yum yum. Tried it last weekend.';
     const mockFetch = vi.fn(async () => ({
