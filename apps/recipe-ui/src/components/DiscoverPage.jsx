@@ -197,15 +197,6 @@ export default function DiscoverPage({
         Discover
       </Typography>
 
-      {(!discoverLoaded || videoRecipes.length > 0) && (
-        <Box sx={{ mb: 2 }}>
-          <SectionLabel>From the Community</SectionLabel>
-          {discoverLoaded
-            ? <DiscoverRecipes recipes={videoRecipes} onOpen={onOpenRecipe} />
-            : <WatchCookSkeleton />}
-        </Box>
-      )}
-
       <TextField
         fullWidth
         value={query}
@@ -250,6 +241,15 @@ export default function DiscoverPage({
       )}
 
       {!isSearching && (<Stack sx={{ gap: '32px' }}>
+        {(!discoverLoaded || videoRecipes.length > 0) && (
+          <Box>
+            <SectionLabel>From the Community</SectionLabel>
+            {discoverLoaded
+              ? <DiscoverRecipes recipes={videoRecipes} onOpen={onOpenRecipe} />
+              : <WatchCookSkeleton />}
+          </Box>
+        )}
+
         {(!editorsLoaded || editorsPick.length > 0) && (
           <Box>
             <SectionLabel>Editor's Picks</SectionLabel>

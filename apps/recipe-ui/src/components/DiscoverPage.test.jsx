@@ -60,8 +60,8 @@ describe('DiscoverPage', () => {
 
     // result appears
     await waitFor(() => expect(screen.getByText('Garlic Chicken')).toBeInTheDocument());
-    // the community shelf stays above the search bar; the lower shelves are replaced
-    expect(screen.getByText(/from the community/i)).toBeInTheDocument();
+    // shelves are hidden while searching
+    expect(screen.queryByText(/from the community/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/editor's picks/i)).not.toBeInTheDocument();
   });
 
