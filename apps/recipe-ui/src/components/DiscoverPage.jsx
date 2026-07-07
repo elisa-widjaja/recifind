@@ -185,18 +185,6 @@ export default function DiscoverPage({
 
   return (
     <Box sx={{ pb: '90px' }}>
-      <Typography sx={{
-        fontFamily: "'Fraunces', Georgia, serif",
-        fontWeight: 600,
-        fontSize: '26px',
-        lineHeight: 1.2,
-        letterSpacing: '-0.01em',
-        color: 'text.primary',
-        mb: 2,
-      }}>
-        Discover
-      </Typography>
-
       <TextField
         fullWidth
         value={query}

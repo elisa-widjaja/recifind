@@ -54,18 +54,6 @@ export default function FriendsPage({
         borderBottom: 1,
         borderColor: 'divider',
       })}>
-        <Typography sx={{
-          fontFamily: "'Fraunces', Georgia, serif",
-          fontWeight: 600,
-          fontSize: '26px',
-          lineHeight: 1.2,
-          letterSpacing: '-0.01em',
-          color: 'text.primary',
-          mb: 2,
-        }}>
-          Friends
-        </Typography>
-
         <Tabs
           value={tab}
           onChange={(_, v) => setTab(v)}
