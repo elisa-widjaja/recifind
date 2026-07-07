@@ -6968,6 +6968,15 @@ async function runEnrichmentChain(
   // frequently serve a stripped, caption-less page to the worker's datacenter
   // IPs (login wall / rate limit), so when the caller hands us the real caption
   // we extract from it directly instead of re-fetching a page with nothing on it.
+  const isFacebookUrl = /facebook\.com|fb\.watch/i.test(resolvedUrl);
+  // A partial FB result carried into the FB sub-chain below instead of ending
+  // the chain: FB truncates og:description at ~200 chars (trailing "…"), so a
+  // device-supplied caption often extracts a few LEADING ingredients — real,
+  // but incomplete. captionExtract (full og:title recovery) and imageVision
+  // must still get a turn, and the richest result wins.
+  let fbPartial: { result: EnrichmentResult; winner: 'caption-provided' | 'caption-extract' } | null = null;
+  const contentScore = (r: EnrichmentResult) => r.ingredients.length + r.steps.length;
+
   const cap = (providedCaption ?? '').trim();
   if (cap && strategies.captionProvided) {
     // Persist the caption per-URL (same cache the IG/TikTok captionExtract
@@ -6982,7 +6991,11 @@ async function runEnrichmentChain(
     }
     const r = await strategies.captionProvided(env, cap, title);
     if (hasIngredientsOrSteps(r)) {
-      return { result: r, winningStrategy: 'caption-provided' };
+      const truncatedFbCaption = isFacebookUrl && /(?:\.\.\.|…)\s*["'”’]?\s*$/.test(cap);
+      if (!truncatedFbCaption) {
+        return { result: r, winningStrategy: 'caption-provided' };
+      }
+      fbPartial = { result: r, winner: 'caption-provided' };
     }
   }
 
@@ -6994,17 +7007,32 @@ async function runEnrichmentChain(
   // Tier 2 transcribes recipe text printed in the post's og:image, which IS
   // served anonymously. textInference stays skipped for FB: it would only see
   // the truncated og:description preview and fabricate content from it.
-  if (/facebook\.com|fb\.watch/i.test(resolvedUrl)) {
+  if (isFacebookUrl) {
+    // Best candidate so far: a truncated device-caption partial (carried from
+    // above), upgraded by captionExtract's server-side recovery (og:title full
+    // recipe / og:url slug) when that is strictly richer.
+    let best = fbPartial;
     const fbCaptionResult = await strategies.captionExtract(env, resolvedUrl, title);
-    if (hasIngredientsOrSteps(fbCaptionResult)) {
-      return { result: fbCaptionResult, winningStrategy: 'caption-extract' };
+    if (hasIngredientsOrSteps(fbCaptionResult)
+        && (!best || contentScore(fbCaptionResult) > contentScore(best.result))) {
+      best = { result: fbCaptionResult, winner: 'caption-extract' };
     }
-    if (strategies.imageVision) {
+    // Tier 2: recipe text printed in the post image. Runs when nothing was
+    // recovered OR the candidate looks incomplete (no steps — truncated
+    // captions cut before the method). A complete caption recovery (steps
+    // present) skips the extra Gemini vision call.
+    if (strategies.imageVision && (!best || best.result.steps.length === 0)) {
       const visionResult = await strategies.imageVision(env, resolvedUrl, title);
-      if (hasIngredientsOrSteps(visionResult)) {
-        return { result: visionResult, winningStrategy: 'image-vision' };
+      if (hasIngredientsOrSteps(visionResult)
+          && (!best || contentScore(visionResult) > contentScore(best.result))) {
+        best = { result: visionResult, winner: 'image-vision' };
       }
     }
+    if (best) {
+      return { result: best.result, winningStrategy: best.winner };
+    }
+    // textInference stays skipped for FB: it would only see the truncated
+    // og:description preview and fabricate content from it.
     const fbTitle = fbCaptionResult.title || title;
     return {
       result: { ...EMPTY_ENRICHMENT, title: fbTitle, provenance: fbTitle ? 'title-only' : null },

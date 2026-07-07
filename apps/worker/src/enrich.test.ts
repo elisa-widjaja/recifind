@@ -895,6 +895,68 @@ describe('runEnrichmentChain', () => {
     expect(textStrat).not.toHaveBeenCalled();
   });
 
+  // A TRUNCATED device caption (FB cuts og:description at ~200 chars, ending
+  // with "…"/"...") extracts a few leading ingredients — that partial result
+  // must NOT end the chain: captionExtract (full og:title recovery) and vision
+  // must still get a turn, and the RICHER result wins.
+  it('FB truncated provided caption falls through and loses to a richer og:title recovery', async () => {
+    const partialProvided = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['2 zucchinis', '1 eggplant', '2 tomatoes'], steps: [], provenance: 'extracted' as const }));
+    const fullExtract = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['2 zucchinis', '1 eggplant', '2 tomatoes', '1 onion', 'olive oil', 'thyme'], steps: ['Slice everything', 'Layer in dish', 'Bake 45 min'], provenance: 'extracted' as const }));
+    const visionStrat = vi.fn(async () => EMPTY_EXPECTED);
+    const { result, winningStrategy } = await runEnrichmentChain(
+      {} as Env, 'https://m.facebook.com/groups/g/permalink/1/', 'Ratatouille',
+      { structuredHtml: async () => EMPTY_EXPECTED, captionExtract: fullExtract, youtubeVideo: async () => EMPTY_EXPECTED, textInference: async () => EMPTY_EXPECTED, captionProvided: partialProvided, imageVision: visionStrat },
+      'Baked Ratatouille. Ingredients: 2 zucchinis, 1 eggplant, 2 tomatoes, 1...'
+    );
+    expect(winningStrategy).toBe('caption-extract');
+    expect(result.steps).toEqual(['Slice everything', 'Layer in dish', 'Bake 45 min']);
+    expect(visionStrat).not.toHaveBeenCalled(); // extract had steps — no vision needed
+  });
+
+  it('FB truncated provided caption + empty extract: vision runs and a richer transcription wins', async () => {
+    const partialProvided = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['2 chicken breasts', 'paprika'], steps: [], provenance: 'extracted' as const }));
+    const visionStrat = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['2 chicken breasts', 'paprika', 'cumin', 'garlic', 'yogurt', 'lemon'], steps: ['Marinate chicken', 'Grill', 'Mix sauce'], provenance: 'extracted' as const }));
+    const { result, winningStrategy } = await runEnrichmentChain(
+      {} as Env, 'https://m.facebook.com/groups/g/permalink/2/', 'Shawarma',
+      { structuredHtml: async () => EMPTY_EXPECTED, captionExtract: async () => EMPTY_EXPECTED, youtubeVideo: async () => EMPTY_EXPECTED, textInference: async () => EMPTY_EXPECTED, captionProvided: partialProvided, imageVision: visionStrat },
+      'Chicken Shawarma with Creamy Garlic Sauce. Ingredients: 2 chicken breasts, paprika…'
+    );
+    expect(winningStrategy).toBe('image-vision');
+    expect(result.steps).toContain('Marinate chicken');
+  });
+
+  it('FB truncated provided caption is kept when extract and vision add nothing', async () => {
+    const partialProvided = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['3 eggs', 'butter'], steps: [], provenance: 'extracted' as const }));
+    const { result, winningStrategy } = await runEnrichmentChain(
+      {} as Env, 'https://m.facebook.com/groups/g/permalink/3/', 'Omelette',
+      { structuredHtml: async () => EMPTY_EXPECTED, captionExtract: async () => EMPTY_EXPECTED, youtubeVideo: async () => EMPTY_EXPECTED, textInference: async () => EMPTY_EXPECTED, captionProvided: partialProvided, imageVision: async () => EMPTY_EXPECTED },
+      'Fluffy omelette. Ingredients: 3 eggs, butter, and...'
+    );
+    expect(winningStrategy).toBe('caption-provided');
+    expect(result.ingredients).toEqual(['3 eggs', 'butter']);
+  });
+
+  it('FB ingredient-only captionExtract result triggers vision, richer transcription wins', async () => {
+    const ingredientOnly = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['celery', 'dates'], steps: [], provenance: 'extracted' as const }));
+    const visionStrat = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['celery', 'dates', 'walnuts', 'lemon', 'parmesan'], steps: ['Chop', 'Toss with dressing'], provenance: 'extracted' as const }));
+    const { result, winningStrategy } = await runEnrichmentChain(
+      {} as Env, 'https://www.facebook.com/reel/999', '',
+      { structuredHtml: async () => EMPTY_EXPECTED, captionExtract: ingredientOnly, youtubeVideo: async () => EMPTY_EXPECTED, textInference: async () => EMPTY_EXPECTED, imageVision: visionStrat }
+    );
+    expect(winningStrategy).toBe('image-vision');
+    expect(result.steps).toEqual(['Chop', 'Toss with dressing']);
+  });
+
+  it('FB ingredient-only captionExtract result survives an empty vision pass', async () => {
+    const ingredientOnly = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['celery', 'dates', 'walnuts'], steps: [], provenance: 'extracted' as const }));
+    const { result, winningStrategy } = await runEnrichmentChain(
+      {} as Env, 'https://www.facebook.com/reel/999', '',
+      { structuredHtml: async () => EMPTY_EXPECTED, captionExtract: ingredientOnly, youtubeVideo: async () => EMPTY_EXPECTED, textInference: async () => EMPTY_EXPECTED, imageVision: async () => EMPTY_EXPECTED }
+    );
+    expect(winningStrategy).toBe('caption-extract');
+    expect(result.ingredients).toEqual(['celery', 'dates', 'walnuts']);
+  });
+
   // imageVision is FB-scoped: the normal (non-FB) chain must never invoke it.
   it('non-FB chain never calls imageVision', async () => {
     const visionStrat = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['nope'] }));
