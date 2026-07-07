@@ -1928,6 +1928,17 @@ export async function getPublicDiscover(db: D1Database): Promise<DiscoverRecipe[
   return [...curatedShorts, ...rest];
 }
 
+// Escape SQL LIKE wildcards so user search input matches literally. Caller
+// wraps the result as `%${escapeLikeTerm(term)}%` and binds it under an
+// `ESCAPE '\'` clause. Backslash is escaped FIRST so we don't double-escape
+// the escapes we add for % and _.
+export function escapeLikeTerm(term: string): string {
+  return term
+    .replace(/\\/g, '\\\\')
+    .replace(/%/g, '\\%')
+    .replace(/_/g, '\\_');
+}
+
 // Trending Now (public homepage) pulls from the same favorites pool as
 // Editor's Picks but uses a different hash seed AND explicitly excludes the
 // IDs already chosen for this week's Editor's Picks — guaranteeing the two
