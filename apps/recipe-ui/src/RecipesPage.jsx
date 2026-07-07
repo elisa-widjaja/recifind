@@ -222,7 +222,10 @@ export default function RecipesPage({
   };
 
   return (
-    <Stack spacing={1.5}>
+    <Box>
+      {/* Title sits outside the spacing Stack so its mb alone controls the gap
+          to the search bar, matching the Discover tab's title -> search gap so
+          the search field stays put when switching tabs. */}
       <Typography sx={{
         fontFamily: "'Fraunces', Georgia, serif",
         fontWeight: 600,
@@ -235,6 +238,7 @@ export default function RecipesPage({
         My recipes
       </Typography>
 
+      <Stack spacing={1.5}>
       {/* Search bar + Add Recipe button + results label */}
       <Stack spacing={{ xs: 2, sm: 3 }}>
         <Box sx={{ position: 'relative' }}>
@@ -785,6 +789,7 @@ export default function RecipesPage({
           </Button>
         </Box>
       </Drawer>
-    </Stack>
+      </Stack>
+    </Box>
   );
 }
