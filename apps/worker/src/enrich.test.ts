@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, structuredHtml, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe, isAllowedSourceHost, isFacebookLinkShim, resolveSourceUrl, extractRecipeDetailsFromHtml, stripFacebookEngagementPrefix, geminiExtractFromCaption } from './index';
+import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, structuredHtml, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe, isAllowedSourceHost, isFacebookLinkShim, resolveSourceUrl, extractRecipeDetailsFromHtml, stripFacebookEngagementPrefix, geminiExtractFromCaption, facebookImageVision } from './index';
 import type { Env } from './index';
 
 describe('fetchRawRecipeText', () => {
@@ -380,6 +380,110 @@ describe('captionExtract', () => {
   });
 });
 
+describe('facebookImageVision', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const fakeEnv = {} as Env;
+  const baseDeps = {
+    getAccessToken: async () => 'fake-token',
+    getServiceAccount: async () => ({
+      client_email: 'svc@example.com',
+      private_key: 'fake-key',
+      token_uri: 'https://oauth2.googleapis.com/token',
+      project_id: 'proj-123'
+    })
+  };
+  const IMG_BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x01, 0x02, 0x03]);
+  const PAGE_HTML = `<html><head>
+    <meta property="og:image" content="https://scontent.fbcdn.net/v/recipe-card.jpg?oh=abc&amp;oe=def" />
+  </head></html>`;
+  const GEMINI_OK = {
+    ok: true,
+    json: async () => ({
+      candidates: [{ content: { parts: [{ text: JSON.stringify({
+        ingredients: ['4 boneless chicken breasts', '1 cup mayonnaise', '1/2 cup Parmesan'],
+        steps: ['Preheat oven to 375F', 'Mix mayo and Parmesan', 'Bake 45 minutes'],
+        mealTypes: ['dinner'], durationMinutes: 50, notes: '', title: 'Melt In Your Mouth Chicken'
+      }) }] } }]
+    })
+  };
+
+  // Routes by URL: page fetch → HTML, fbcdn image → bytes, Gemini → recipe JSON.
+  const routedFetch = (opts: { pageHtml?: string; imageType?: string; geminiResp?: any } = {}) =>
+    vi.fn(async (url: RequestInfo | URL) => {
+      const u = String(url);
+      if (u.includes('generativelanguage.googleapis.com')) return opts.geminiResp ?? GEMINI_OK;
+      if (u.includes('fbcdn.net')) {
+        return {
+          ok: true,
+          headers: { get: (h: string) => (h.toLowerCase() === 'content-type' ? (opts.imageType ?? 'image/jpeg') : null) },
+          arrayBuffer: async () => IMG_BYTES.buffer,
+        };
+      }
+      return { ok: true, text: async () => opts.pageHtml ?? PAGE_HTML };
+    }) as unknown as typeof fetch;
+
+  it('recovers ingredients + steps from the post image via Gemini transcription', async () => {
+    const fetchImpl = routedFetch();
+    const result = await facebookImageVision(fakeEnv, 'https://m.facebook.com/groups/514/permalink/1055/', 'MIYM Chicken', { ...baseDeps, fetchImpl });
+    expect(result.ingredients).toContain('1 cup mayonnaise');
+    expect(result.steps).toContain('Preheat oven to 375F');
+    expect(result.provenance).toBe('extracted');
+  });
+
+  it('sends the image as inlineData base64 with a transcribe-only prompt', async () => {
+    const fetchImpl = routedFetch();
+    await facebookImageVision(fakeEnv, 'https://m.facebook.com/groups/514/permalink/1055/', '', { ...baseDeps, fetchImpl });
+    const geminiCall = (fetchImpl as any).mock.calls.find((c: any[]) => String(c[0]).includes('generativelanguage'));
+    expect(geminiCall).toBeTruthy();
+    const body = JSON.parse(geminiCall[1].body);
+    const parts = body.contents[0].parts;
+    const imgPart = parts.find((p: any) => p.inlineData);
+    expect(imgPart.inlineData.mimeType).toBe('image/jpeg');
+    expect(imgPart.inlineData.data).toBe(btoa(String.fromCharCode(...IMG_BYTES)));
+    const textPart = parts.find((p: any) => p.text);
+    expect(textPart.text.toLowerCase()).toContain('visib'); // "visible/visibly printed" transcribe-only rule
+    expect(textPart.text).toContain('DO NOT invent');
+  });
+
+  it('returns empty without a Gemini call when the page has no og:image', async () => {
+    const fetchImpl = routedFetch({ pageHtml: '<html><head></head></html>' });
+    const result = await facebookImageVision(fakeEnv, 'https://m.facebook.com/groups/514/permalink/1055/', '', { ...baseDeps, fetchImpl });
+    expect(result.ingredients).toEqual([]);
+    expect(result.provenance).toBeNull();
+    const geminiCalled = (fetchImpl as any).mock.calls.some((c: any[]) => String(c[0]).includes('generativelanguage'));
+    expect(geminiCalled).toBe(false);
+  });
+
+  it('returns empty when the og:image URL serves a non-image content type', async () => {
+    const fetchImpl = routedFetch({ imageType: 'text/html' });
+    const result = await facebookImageVision(fakeEnv, 'https://m.facebook.com/groups/514/permalink/1055/', '', { ...baseDeps, fetchImpl });
+    expect(result.ingredients).toEqual([]);
+    const geminiCalled = (fetchImpl as any).mock.calls.some((c: any[]) => String(c[0]).includes('generativelanguage'));
+    expect(geminiCalled).toBe(false);
+  });
+
+  it('returns empty without any fetch for non-Facebook URLs', async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    const result = await facebookImageVision(fakeEnv, 'https://www.tiktok.com/@x/video/1', '', { ...baseDeps, fetchImpl });
+    expect(result.ingredients).toEqual([]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('returns empty when Gemini transcribes no recipe text (photo-only image)', async () => {
+    const fetchImpl = routedFetch({ geminiResp: {
+      ok: true,
+      json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ ingredients: [], steps: [], mealTypes: [], durationMinutes: null, notes: '', title: '' }) }] } }] })
+    }});
+    const result = await facebookImageVision(fakeEnv, 'https://m.facebook.com/groups/514/permalink/1055/', '', { ...baseDeps, fetchImpl });
+    expect(result.ingredients).toEqual([]);
+    expect(result.steps).toEqual([]);
+    expect(result.provenance).toBeNull();
+  });
+});
+
 describe('youtubeVideo', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -723,37 +827,85 @@ describe('runEnrichmentChain', () => {
     expect(winningStrategy).toBeNull();
   });
 
-  it('short-circuits Facebook to title-only and never runs a content strategy', async () => {
-    // FB is login-walled from the worker; any content the strategies could
-    // scrape comes from a truncated og:description preview (partial/misleading).
-    // The chain must skip all strategies and keep only the (device-supplied) title.
-    const contentful = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['should-not-appear'], steps: ['nope'] }));
+  // FB no longer short-circuits before captionExtract: the worker now recovers
+  // the full reel recipe server-side (og:title + /reel/ normalization + slug),
+  // so captionExtract MUST run. textInference stays skipped for FB — it would
+  // only see the truncated og:description preview and fabricate.
+  it('FB runs captionExtract and wins when it recovers content', async () => {
+    const captionStrat = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['1 lb pork ribs'], steps: ['marinate'], provenance: 'extracted' as const }));
+    const neverRun = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['should-not-appear'] }));
+    const { result, winningStrategy } = await runEnrichmentChain(
+      {} as Env,
+      'https://www.facebook.com/reel/123',
+      'Pork Ribs',
+      { structuredHtml: neverRun, captionExtract: captionStrat, youtubeVideo: neverRun, textInference: neverRun, imageVision: neverRun }
+    );
+    expect(result.ingredients).toEqual(['1 lb pork ribs']);
+    expect(winningStrategy).toBe('caption-extract');
+    expect(captionStrat).toHaveBeenCalledTimes(1);
+    expect(neverRun).not.toHaveBeenCalled();
+  });
+
+  // Tier 2: when the caption path recovers nothing, the post image often holds
+  // the recipe as printed text — imageVision (og:image → Gemini transcription)
+  // must run next and win when it extracts content.
+  it('FB falls through to imageVision when captionExtract is empty', async () => {
+    const captionStrat = vi.fn(async () => EMPTY_EXPECTED);
+    const visionStrat = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['4 chicken breasts', '1 cup mayonnaise'], steps: ['bake at 375'], provenance: 'extracted' as const }));
+    const neverRun = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['nope'] }));
+    const { result, winningStrategy } = await runEnrichmentChain(
+      {} as Env,
+      'https://m.facebook.com/groups/514/permalink/1055/',
+      'MIYM Chicken',
+      { structuredHtml: neverRun, captionExtract: captionStrat, youtubeVideo: neverRun, textInference: neverRun, imageVision: visionStrat }
+    );
+    expect(result.ingredients).toContain('1 cup mayonnaise');
+    expect(result.steps).toEqual(['bake at 375']);
+    expect(winningStrategy).toBe('image-vision');
+    expect(visionStrat).toHaveBeenCalledTimes(1);
+    expect(neverRun).not.toHaveBeenCalled(); // textInference must never run for FB
+  });
+
+  it('FB with caption and vision both empty stays title-only, never textInference', async () => {
+    const textStrat = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['fabricated'] }));
     const { result, winningStrategy } = await runEnrichmentChain(
       {} as Env,
       'https://www.facebook.com/reel/123',
       'Triple Chocolate Banana Bread',
-      { structuredHtml: contentful, captionExtract: contentful, youtubeVideo: contentful, textInference: contentful }
+      { structuredHtml: async () => EMPTY_EXPECTED, captionExtract: async () => EMPTY_EXPECTED, youtubeVideo: async () => EMPTY_EXPECTED, textInference: textStrat, imageVision: async () => EMPTY_EXPECTED }
     );
     expect(result.title).toBe('Triple Chocolate Banana Bread');
     expect(result.ingredients).toEqual([]);
-    expect(result.steps).toEqual([]);
     expect(result.provenance).toBe('title-only');
     expect(winningStrategy).toBeNull();
-    expect(contentful).not.toHaveBeenCalled();
+    expect(textStrat).not.toHaveBeenCalled();
   });
 
-  it('short-circuits an fb.watch link with no title to empty (null provenance)', async () => {
-    const contentful = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['x'], steps: ['y'] }));
+  it('fb.watch link with no title and nothing recovered ends empty (null provenance)', async () => {
+    const textStrat = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['x'] }));
     const { result, winningStrategy } = await runEnrichmentChain(
       {} as Env,
       'https://fb.watch/abc123/',
       '',
-      { structuredHtml: contentful, captionExtract: contentful, youtubeVideo: contentful, textInference: contentful }
+      { structuredHtml: async () => EMPTY_EXPECTED, captionExtract: async () => EMPTY_EXPECTED, youtubeVideo: async () => EMPTY_EXPECTED, textInference: textStrat }
     );
     expect(result.ingredients).toEqual([]);
     expect(result.provenance).toBeNull();
     expect(winningStrategy).toBeNull();
-    expect(contentful).not.toHaveBeenCalled();
+    expect(textStrat).not.toHaveBeenCalled();
+  });
+
+  // imageVision is FB-scoped: the normal (non-FB) chain must never invoke it.
+  it('non-FB chain never calls imageVision', async () => {
+    const visionStrat = vi.fn(async () => ({ ...EMPTY_EXPECTED, ingredients: ['nope'] }));
+    const { winningStrategy } = await runEnrichmentChain(
+      {} as Env,
+      'https://www.tiktok.com/@x/video/1',
+      'Pasta',
+      { structuredHtml: async () => EMPTY_EXPECTED, captionExtract: async () => EMPTY_EXPECTED, youtubeVideo: async () => EMPTY_EXPECTED, textInference: async () => ({ ...EMPTY_EXPECTED, ingredients: ['inferred'], steps: ['s'] }), imageVision: visionStrat }
+    );
+    expect(winningStrategy).toBe('text-inference');
+    expect(visionStrat).not.toHaveBeenCalled();
   });
 
   it('FB with a provided caption runs captionProvided and marks extracted', async () => {

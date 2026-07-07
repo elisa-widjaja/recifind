@@ -152,6 +152,9 @@ interface CallGeminiDeps {
   getAccessToken?: (env: Env) => Promise<string>;
   getServiceAccount?: (env: Env) => Promise<GeminiServiceAccount>;
   videoUrl?: string;
+  // Inline image for vision extraction (base64 bytes + mime type) — used by
+  // facebookImageVision to transcribe recipe text printed in a post's image.
+  imageInline?: { mimeType: string; data: string };
 }
 
 interface RecipeCollectionMeta {
@@ -3027,6 +3030,7 @@ async function handleEnrichRecipe(request: Request, env: Env) {
     youtubeVideo,
     textInference,
     captionProvided: (e, cap) => geminiExtractFromCaption(e, cap, { lenient: true }),
+    imageVision: facebookImageVision,
   }, caption);
   const ogImage = await ogImagePromise;
 
@@ -3335,6 +3339,7 @@ export async function handleReEnrichRecipe(
     youtubeVideo,
     textInference,
     captionProvided: (e, cap) => geminiExtractFromCaption(e, cap, { lenient: true }),
+    imageVision: facebookImageVision,
   }, effectiveCaption || undefined);
   ensureEstimatedDuration(result);
 
@@ -6678,6 +6683,116 @@ async function captionExtract(
   }
 }
 
+// Transcribe-only vision prompt: extract recipe text PRINTED in the image
+// (many FB recipe posts embed the full recipe as text in the picture, and the
+// og:image is served anonymously even when the caption is login-walled).
+// Same no-invention contract as the caption extractors.
+function buildImageTranscribePrompt(): string {
+  return `You are reading a photo attached to a social-media recipe post. TRANSCRIBE ONLY the recipe text that is visibly printed in the image itself.
+
+Rules:
+- Extract ingredients and steps ONLY from text you can actually read in the image.
+- If the image is just a photo of food with no readable recipe text, return empty arrays. DO NOT invent ingredients or steps, and DO NOT infer them from how the dish looks.
+- Minor normalization of units and spelling is allowed; keep quantities exactly as printed.
+
+Return JSON matching this schema:
+{ "ingredients": [], "steps": [], "mealTypes": [], "durationMinutes": null, "notes": "", "title": "" }`;
+}
+
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  const CHUNK = 0x8000; // avoid call-stack limits on String.fromCharCode
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
+type ImageVisionDeps = {
+  fetchImpl?: typeof fetch;
+  getAccessToken?: (env: Env) => Promise<string>;
+  getServiceAccount?: (env: Env) => Promise<GeminiServiceAccount>;
+};
+
+// Tier-2 Facebook fallback: FB hard-caps every anonymous text surface for
+// POSTS (group/story/photo) at ~200 chars, but og:image is always served —
+// and recipe posts frequently print the ENTIRE recipe inside the image.
+// Fetch the page's og:image and have Gemini transcribe only the visible text.
+// Runs only when the caption strategies recovered nothing (see the FB branch
+// of runEnrichmentChain).
+async function facebookImageVision(
+  env: Env,
+  sourceUrl: string,
+  _title: string,
+  deps: ImageVisionDeps = {}
+): Promise<EnrichmentResult> {
+  const startedAt = Date.now();
+  const fetchImpl = deps.fetchImpl ?? fetch;
+
+  let host: string;
+  try {
+    host = new URL(sourceUrl).hostname.toLowerCase();
+  } catch {
+    return EMPTY_ENRICHMENT;
+  }
+  const isFacebook = host.includes('facebook.com') || host === 'fb.watch' || host.endsWith('.fb.watch');
+  if (!isFacebook) return EMPTY_ENRICHMENT;
+
+  try {
+    // Page fetch: same target normalization + iPhone UA as fetchOembedCaption.
+    const targetUrl = normalizeFacebookVideoUrl(sourceUrl) ?? sourceUrl;
+    const pageResponse = await fetchImpl(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+      },
+    });
+    if (!pageResponse.ok) return EMPTY_ENRICHMENT;
+    const html = await pageResponse.text();
+
+    // fbcdn URLs come entity-encoded (&amp; in signed query params) — decode or
+    // the CDN rejects the signature.
+    const rawImageUrl = extractOgImageUrlFromHtml(html, targetUrl);
+    if (!rawImageUrl) {
+      console.log('[enrich]', { strategy: 'image-vision', url: sourceUrl, outcome: 'empty', reason: 'no-og-image', duration_ms: Date.now() - startedAt });
+      return EMPTY_ENRICHMENT;
+    }
+    const imageUrl = decodeHtmlEntities(rawImageUrl);
+
+    const imageResponse = await fetchImpl(imageUrl, {
+      headers: { 'Accept': 'image/*' },
+    });
+    if (!imageResponse.ok) return EMPTY_ENRICHMENT;
+    const contentType = (imageResponse.headers.get('content-type') || '').toLowerCase();
+    if (!contentType.startsWith('image/')) {
+      console.log('[enrich]', { strategy: 'image-vision', url: sourceUrl, outcome: 'empty', reason: 'not-an-image', contentType, duration_ms: Date.now() - startedAt });
+      return EMPTY_ENRICHMENT;
+    }
+    const buf = await imageResponse.arrayBuffer();
+    const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
+    if (buf.byteLength === 0 || buf.byteLength > MAX_IMAGE_BYTES) {
+      console.log('[enrich]', { strategy: 'image-vision', url: sourceUrl, outcome: 'empty', reason: 'image-size', bytes: buf.byteLength, duration_ms: Date.now() - startedAt });
+      return EMPTY_ENRICHMENT;
+    }
+
+    const parsed = await callGeminiExtract(env, buildImageTranscribePrompt(), {
+      fetchImpl: deps.fetchImpl,
+      getAccessToken: deps.getAccessToken,
+      getServiceAccount: deps.getServiceAccount,
+      imageInline: { mimeType: contentType.split(';')[0], data: arrayBufferToBase64(buf) },
+    });
+    const base = parsed ? parsedToEnrichmentResult(parsed) : EMPTY_ENRICHMENT;
+    const isEmpty = base.ingredients.length === 0 && base.steps.length === 0;
+    console.log('[enrich]', { strategy: 'image-vision', url: sourceUrl, imageBytes: buf.byteLength, outcome: isEmpty ? 'empty' : 'extracted', duration_ms: Date.now() - startedAt });
+    return { ...base, provenance: isEmpty ? null : 'extracted' };
+  } catch (err) {
+    console.log('[enrich]', { strategy: 'image-vision', url: sourceUrl, outcome: 'error', duration_ms: Date.now() - startedAt, error: String(err) });
+    return EMPTY_ENRICHMENT;
+  }
+}
+
 const YOUTUBE_HOSTS = new Set(['www.youtube.com', 'youtube.com', 'youtu.be', 'm.youtube.com']);
 
 function buildVideoExtractOnlyPrompt(): string {
@@ -6834,6 +6949,8 @@ type ChainStrategies = {
   youtubeVideo: (env: Env, url: string, title: string) => Promise<EnrichmentResult>;
   textInference: (env: Env, url: string, title: string) => Promise<EnrichmentResult>;
   captionProvided?: (env: Env, caption: string, title: string) => Promise<EnrichmentResult>;
+  // FB-only Tier 2: transcribe recipe text printed in the post's og:image.
+  imageVision?: (env: Env, url: string, title: string) => Promise<EnrichmentResult>;
 };
 
 async function runEnrichmentChain(
@@ -6842,7 +6959,7 @@ async function runEnrichmentChain(
   title: string,
   strategies: ChainStrategies,
   providedCaption?: string
-): Promise<{ result: EnrichmentResult; winningStrategy: 'structured-html' | 'caption-extract' | 'youtube-video' | 'text-inference' | 'caption-provided' | null }> {
+): Promise<{ result: EnrichmentResult; winningStrategy: 'structured-html' | 'caption-extract' | 'youtube-video' | 'text-inference' | 'caption-provided' | 'image-vision' | null }> {
   const hasIngredientsOrSteps = (r: EnrichmentResult) => r.ingredients.length > 0 || r.steps.length > 0;
 
   // A caller-supplied caption (the iOS Share Extension's on-device residential
@@ -6869,13 +6986,28 @@ async function runEnrichmentChain(
     }
   }
 
-  // Facebook: login-walled from the worker's datacenter IPs. With no usable
-  // caption (handled above) there's nothing to recover, and text-inference
-  // would only see a TRUNCATED og:description preview, so stop at title-only
-  // rather than fall through and fabricate content.
+  // Facebook sub-chain. captionExtract now recovers the full reel recipe
+  // server-side (og:title read + /reel/<id>/ normalization + og:url-slug
+  // lenient fallback), so it MUST run — the old unconditional title-only
+  // short-circuit predates that fix. When the caption path still comes back
+  // empty (posts: FB hard-caps every anonymous text surface at ~200 chars),
+  // Tier 2 transcribes recipe text printed in the post's og:image, which IS
+  // served anonymously. textInference stays skipped for FB: it would only see
+  // the truncated og:description preview and fabricate content from it.
   if (/facebook\.com|fb\.watch/i.test(resolvedUrl)) {
+    const fbCaptionResult = await strategies.captionExtract(env, resolvedUrl, title);
+    if (hasIngredientsOrSteps(fbCaptionResult)) {
+      return { result: fbCaptionResult, winningStrategy: 'caption-extract' };
+    }
+    if (strategies.imageVision) {
+      const visionResult = await strategies.imageVision(env, resolvedUrl, title);
+      if (hasIngredientsOrSteps(visionResult)) {
+        return { result: visionResult, winningStrategy: 'image-vision' };
+      }
+    }
+    const fbTitle = fbCaptionResult.title || title;
     return {
-      result: { ...EMPTY_ENRICHMENT, title, provenance: title ? 'title-only' : null },
+      result: { ...EMPTY_ENRICHMENT, title: fbTitle, provenance: fbTitle ? 'title-only' : null },
       winningStrategy: null,
     };
   }
@@ -6944,6 +7076,7 @@ export async function enrichAfterSave(
     youtubeVideo,
     textInference,
     captionProvided: (e, cap) => geminiExtractFromCaption(e, cap, { lenient: true }),
+    imageVision: facebookImageVision,
   }, cachedCaption);
   ensureEstimatedDuration(result);
 
@@ -7359,7 +7492,8 @@ async function callGemini(env: Env, prompt: string, deps: CallGeminiDeps = {}) {
     fetchImpl = fetch,
     getAccessToken = getGeminiAccessToken,
     getServiceAccount = getGeminiServiceAccount,
-    videoUrl
+    videoUrl,
+    imageInline
   } = deps;
   const token = await getAccessToken(env);
   const serviceAccount = await getServiceAccount(env);
@@ -7381,7 +7515,12 @@ async function callGemini(env: Env, prompt: string, deps: CallGeminiDeps = {}) {
                   { fileData: { fileUri: videoUrl, mimeType: 'video/*' } },
                   { text: prompt }
                 ]
-              : [{ text: prompt }]
+              : imageInline
+                ? [
+                    { inlineData: { mimeType: imageInline.mimeType, data: imageInline.data } },
+                    { text: prompt }
+                  ]
+                : [{ text: prompt }]
           }
         ],
         generationConfig: {
@@ -7557,6 +7696,7 @@ export {
   fetchOembedCaption,
   geminiExtractFromCaption,
   captionExtract,
+  facebookImageVision,
   youtubeVideo,
   textInference,
   structuredHtml,
