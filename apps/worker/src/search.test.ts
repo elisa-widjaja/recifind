@@ -64,6 +64,15 @@ describe('searchPublicRecipes', () => {
     expect(out[29].id).toBe('r29');
   });
 
+  it('skips a row with malformed JSON instead of throwing', async () => {
+    const { db } = mockDbReturning([
+      okRow('good'),
+      okRow('bad', { meal_types: 'not-json' }),
+    ]);
+    const out = await searchPublicRecipes(db, 'recipe');
+    expect(out.map(r => r.id)).toEqual(['good']);
+  });
+
   it('binds the escaped wrapped term for every LIKE slot', async () => {
     const { db, bind } = mockDbReturning([]);
     await searchPublicRecipes(db, '50%');

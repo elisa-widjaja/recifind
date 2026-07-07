@@ -142,6 +142,7 @@ export default function DiscoverPage({
   useEffect(() => {
     const term = query.trim();
     if (term.length < 2) {
+      ++searchSeq.current;
       setResults([]);
       setSearched(false);
       setSearching(false);

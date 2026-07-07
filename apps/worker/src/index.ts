@@ -1976,8 +1976,18 @@ export async function searchPublicRecipes(
 
   return (rows.results as Array<Record<string, unknown>>)
     .filter(r => !isBrokenDiscoverRow(r))
-    .slice(0, SEARCH_RESULT_LIMIT)
-    .map(mapDiscoverRow);
+    .map(r => {
+      // A row with malformed JSON (meal_types/custom_tags/ingredients/steps)
+      // would otherwise throw and 500 the whole search. Since this scans the
+      // entire public recipe set, drop just that row instead of crashing.
+      try {
+        return mapDiscoverRow(r);
+      } catch {
+        return null;
+      }
+    })
+    .filter((r): r is DiscoverRecipe => r !== null)
+    .slice(0, SEARCH_RESULT_LIMIT);
 }
 
 // Trending Now (public homepage) pulls from the same favorites pool as
