@@ -1954,6 +1954,78 @@ export function escapeLikeTerm(term: string): string {
 // 60, drop broken cards (no image / generic FB title) in JS, then cap at 30.
 const SEARCH_RESULT_LIMIT = 30;
 
+// Query params that are share/tracking noise, not content identity. Stripped
+// when building a dedup key so the same source video saved by different users
+// (one URL carrying ?igsh=, another without) collapses to a single card.
+// Content-bearing params like YouTube's ?v= or Facebook's ?fbid= are KEPT so
+// distinct videos never merge.
+const DEDUP_TRACKING_PARAMS = new Set([
+  'igsh', 'igshid', 'si', 'fbclid', 'mibextid', 'rdid',
+  '_r', '_t', 'share_app_id', 'share_link_id', 'share_id',
+]);
+
+// Normalize a source URL into a dedup key: drop scheme, leading www, trailing
+// slash, fragment, and tracking params (utm_* and the denylist above). Path
+// case is preserved (Instagram/TikTok IDs are case-sensitive). Returns '' for
+// an empty/absent URL so sourceless recipes are never merged together.
+export function normalizeSourceUrlForDedup(rawUrl: string): string {
+  const url = (rawUrl || '').trim();
+  if (!url) return '';
+  try {
+    const u = new URL(url);
+    const keep: Array<[string, string]> = [];
+    for (const [k, v] of u.searchParams.entries()) {
+      const lk = k.toLowerCase();
+      if (DEDUP_TRACKING_PARAMS.has(lk) || lk.startsWith('utm_')) continue;
+      keep.push([k, v]);
+    }
+    keep.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    const host = u.host.toLowerCase().replace(/^www\./, '');
+    const path = u.pathname.replace(/\/+$/, '');
+    const query = keep.length ? '?' + keep.map(([k, v]) => `${k}=${v}`).join('&') : '';
+    return `${host}${path}${query}`;
+  } catch {
+    // Malformed URL: strip fragment + query by hand, keep case (IDs may be
+    // case-sensitive), drop trailing slash.
+    return url.split('#')[0].split('?')[0].replace(/\/+$/, '');
+  }
+}
+
+// A duplicate group's best representative: prefer a copy that has structured
+// content (ingredients + steps) and a clean, presentable title. Image is
+// already guaranteed (broken rows are filtered before dedup).
+function representativeScore(r: DiscoverRecipe): number {
+  const hasContent = r.ingredients.length > 0 && r.steps.length > 0;
+  const cleanTitle = isCleanDiscoveryTitle(r.title);
+  return (hasContent ? 2 : 0) + (cleanTitle ? 1 : 0);
+}
+
+// Collapse recipes that point at the same source video (saved by different
+// users) into one card. Each source appears once, at the rank position of its
+// first occurrence, but shows the highest-scoring representative copy. Recipes
+// with no source URL are never merged. Order is otherwise preserved.
+export function dedupeSearchResults(recipes: DiscoverRecipe[]): DiscoverRecipe[] {
+  const bestByKey = new Map<string, DiscoverRecipe>();
+  for (const r of recipes) {
+    const key = normalizeSourceUrlForDedup(r.sourceUrl);
+    if (!key) continue;
+    const existing = bestByKey.get(key);
+    if (!existing || representativeScore(r) > representativeScore(existing)) {
+      bestByKey.set(key, r);
+    }
+  }
+  const out: DiscoverRecipe[] = [];
+  const emitted = new Set<string>();
+  for (const r of recipes) {
+    const key = normalizeSourceUrlForDedup(r.sourceUrl);
+    if (!key) { out.push(r); continue; }
+    if (emitted.has(key)) continue;
+    emitted.add(key);
+    out.push(bestByKey.get(key)!);
+  }
+  return out;
+}
+
 export async function searchPublicRecipes(
   db: D1Database,
   rawQuery: string,
@@ -1974,7 +2046,7 @@ export async function searchPublicRecipes(
      LIMIT 60`
   ).bind(like, like, like, like, like).all();
 
-  return (rows.results as Array<Record<string, unknown>>)
+  const mapped = (rows.results as Array<Record<string, unknown>>)
     .filter(r => !isBrokenDiscoverRow(r))
     .map(r => {
       // A row with malformed JSON (meal_types/custom_tags/ingredients/steps)
@@ -1986,8 +2058,12 @@ export async function searchPublicRecipes(
         return null;
       }
     })
-    .filter((r): r is DiscoverRecipe => r !== null)
-    .slice(0, SEARCH_RESULT_LIMIT);
+    .filter((r): r is DiscoverRecipe => r !== null);
+
+  // Collapse the same source video saved by multiple users to one card,
+  // showing the cleanest copy. Dedup runs before the cap so we still return
+  // up to SEARCH_RESULT_LIMIT distinct recipes.
+  return dedupeSearchResults(mapped).slice(0, SEARCH_RESULT_LIMIT);
 }
 
 // Trending Now (public homepage) pulls from the same favorites pool as
