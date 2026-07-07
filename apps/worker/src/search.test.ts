@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { escapeLikeTerm, searchPublicRecipes, normalizeSourceUrlForDedup, dedupeSearchResults } from './index';
+import { escapeLikeTerm, searchPublicRecipes, normalizeSourceUrlForDedup, dedupeSearchResults, isExpiredThumbnailUrl } from './index';
 
 describe('escapeLikeTerm', () => {
   it('escapes percent, underscore, and backslash', () => {
@@ -138,6 +138,52 @@ describe('searchPublicRecipes', () => {
     expect(out).toHaveLength(30);
     const fromSameSource = out.filter(r => r.sourceUrl === 'https://example.com/same');
     expect(fromSameSource).toHaveLength(1);
+  });
+
+  it('drops results whose social thumbnail has expired', async () => {
+    const { db } = mockDbReturning([
+      okRow('fresh', { source_url: 'https://example.com/1' }),
+      okRow('dead', {
+        source_url: 'https://example.com/2',
+        // x-expires far in the past (2001), so it is expired at any real run time.
+        image_url: 'https://p16.tiktokcdn-us.com/x~tplv.image?x-expires=1000000000&x-signature=z',
+      }),
+    ]);
+    const out = await searchPublicRecipes(db, 'recipe');
+    expect(out.map(r => r.id)).toEqual(['fresh']);
+  });
+});
+
+describe('isExpiredThumbnailUrl', () => {
+  // Fixed clock: 1.8e12 ms = 2027-01-15 UTC.
+  const NOW = 1_800_000_000_000;
+
+  it('flags an expired TikTok x-expires thumbnail', () => {
+    expect(isExpiredThumbnailUrl('https://p16.tiktokcdn-us.com/x.image?x-expires=1000000000', NOW)).toBe(true);
+  });
+
+  it('keeps a still-valid TikTok thumbnail', () => {
+    expect(isExpiredThumbnailUrl('https://p16.tiktokcdn-us.com/x.image?x-expires=9999999999', NOW)).toBe(false);
+  });
+
+  it('flags an expired Instagram oe thumbnail and keeps a valid one', () => {
+    // 0x3B9ACA00 = 1_000_000_000 (2001, expired); 0x2540BE3FF = 9_999_999_999 (future).
+    expect(isExpiredThumbnailUrl('https://scontent.cdninstagram.com/v/x.jpg?oe=3B9ACA00', NOW)).toBe(true);
+    expect(isExpiredThumbnailUrl('https://scontent.cdninstagram.com/v/x.jpg?oe=2540BE3FF', NOW)).toBe(false);
+  });
+
+  it('does not flag a durable Supabase preview or a plain image url', () => {
+    expect(isExpiredThumbnailUrl('https://jpjuaaxwfpemecbwwthk.supabase.co/storage/v1/x.jpg', NOW)).toBe(false);
+    expect(isExpiredThumbnailUrl('https://img.example.com/x.jpg', NOW)).toBe(false);
+  });
+
+  it('does not flag a CDN thumbnail with no expiry param, or an empty url', () => {
+    expect(isExpiredThumbnailUrl('https://p16.tiktokcdn-us.com/x.image', NOW)).toBe(false);
+    expect(isExpiredThumbnailUrl('', NOW)).toBe(false);
+  });
+
+  it('ignores expiry params on non-CDN hosts (host-gated)', () => {
+    expect(isExpiredThumbnailUrl('https://example.com/x.jpg?x-expires=1000000000', NOW)).toBe(false);
   });
 });
 

@@ -2026,6 +2026,33 @@ export function dedupeSearchResults(recipes: DiscoverRecipe[]): DiscoverRecipe[]
   return out;
 }
 
+// Social CDN thumbnails (TikTok, Instagram, Facebook) are signed and expire
+// after a few months, then 403 and render as a broken image. The expiry is
+// encoded in the URL — TikTok's `x-expires` (unix seconds), Meta's `oe` (hex
+// unix seconds) — so we can detect a dead thumbnail without a network fetch and
+// keep it out of search results. Gated by host so a stray `oe`/`x-expires` on
+// some other CDN (or a durable Supabase preview) is never misread. now is ms.
+export function isExpiredThumbnailUrl(url: string, now: number = Date.now()): boolean {
+  const raw = (url || '').trim();
+  if (!raw) return false;
+  let u: URL;
+  try { u = new URL(raw); } catch { return false; }
+  const host = u.host.toLowerCase();
+  const nowSec = Math.floor(now / 1000);
+  if (host.includes('tiktokcdn')) {
+    const x = u.searchParams.get('x-expires');
+    if (x && /^\d+$/.test(x)) return Number(x) < nowSec;
+  }
+  if (host.includes('cdninstagram') || host.includes('fbcdn')) {
+    const oe = u.searchParams.get('oe');
+    if (oe && /^[0-9a-fA-F]+$/.test(oe)) {
+      const exp = parseInt(oe, 16);
+      if (Number.isFinite(exp) && exp > 0) return exp < nowSec;
+    }
+  }
+  return false;
+}
+
 export async function searchPublicRecipes(
   db: D1Database,
   rawQuery: string,
@@ -2048,6 +2075,7 @@ export async function searchPublicRecipes(
 
   const mapped = (rows.results as Array<Record<string, unknown>>)
     .filter(r => !isBrokenDiscoverRow(r))
+    .filter(r => !isExpiredThumbnailUrl(String(r.image_url ?? '')))
     .map(r => {
       // A row with malformed JSON (meal_types/custom_tags/ingredients/steps)
       // would otherwise throw and 500 the whole search. Since this scans the
