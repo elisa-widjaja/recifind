@@ -282,6 +282,15 @@ export default {
         })();
       }
 
+      // Public endpoint to search all public recipes (title + ingredients + tags)
+      if (url.pathname === '/public/search' && request.method === 'GET') {
+        return await (async () => {
+          const q = url.searchParams.get('q') || '';
+          const recipes = await searchPublicRecipes(env.DB, q);
+          return json({ recipes }, 200, withCors());
+        })();
+      }
+
       // Public endpoint to get editor's pick recipes
       if (url.pathname === '/public/editors-pick' && request.method === 'GET') {
         return await (async () => {
