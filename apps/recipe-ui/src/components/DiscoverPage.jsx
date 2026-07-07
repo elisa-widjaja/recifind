@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Box, Typography, Stack, Skeleton, TextField, InputAdornment, IconButton } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
-import CloseIcon from '@mui/icons-material/Close';
+import ClearIcon from '@mui/icons-material/Clear';
 import RecipeShelf from './RecipeShelf';
 import RecipeListCard from './RecipeListCard';
 import DiscoverRecipes from './DiscoverRecipes';
@@ -202,18 +202,20 @@ export default function DiscoverPage({
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Search recipes"
-        size="small"
-        sx={{ mb: 2 }}
+        sx={{
+          mb: 2,
+          '& .MuiOutlinedInput-root': { height: { xs: '50px', sm: '54px' }, borderRadius: '999px' },
+        }}
         InputProps={{
           startAdornment: (
             <InputAdornment position="start">
-              <SearchIcon fontSize="small" />
+              <SearchIcon color="action" />
             </InputAdornment>
           ),
           endAdornment: query ? (
             <InputAdornment position="end">
-              <IconButton aria-label="clear search" size="small" onClick={() => setQuery('')}>
-                <CloseIcon fontSize="small" />
+              <IconButton aria-label="clear search" edge="end" size="small" onClick={() => setQuery('')}>
+                <ClearIcon fontSize="small" />
               </IconButton>
             </InputAdornment>
           ) : null,
