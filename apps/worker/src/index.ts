@@ -1939,6 +1939,38 @@ export function escapeLikeTerm(term: string): string {
     .replace(/_/g, '\\_');
 }
 
+// Search all public recipes by title + ingredients + tags. Title matches are
+// ranked first (SQL CASE), then newest. A leading-wildcard LIKE forces a full
+// table scan, which is fine at this table size (~1.3k rows). We over-fetch to
+// 60, drop broken cards (no image / generic FB title) in JS, then cap at 30.
+const SEARCH_RESULT_LIMIT = 30;
+
+export async function searchPublicRecipes(
+  db: D1Database,
+  rawQuery: string,
+): Promise<DiscoverRecipe[]> {
+  const term = (rawQuery || '').trim().slice(0, 60);
+  if (term.length < 2) return [];
+
+  const like = `%${escapeLikeTerm(term)}%`;
+  const rows = await db.prepare(
+    `${DISCOVER_SELECT}
+     WHERE shared_with_friends = 1
+       AND hidden_at IS NULL
+       AND (title LIKE ? ESCAPE '\\'
+            OR ingredients LIKE ? ESCAPE '\\'
+            OR custom_tags LIKE ? ESCAPE '\\'
+            OR meal_types LIKE ? ESCAPE '\\')
+     ORDER BY CASE WHEN title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, created_at DESC
+     LIMIT 60`
+  ).bind(like, like, like, like, like).all();
+
+  return (rows.results as Array<Record<string, unknown>>)
+    .filter(r => !isBrokenDiscoverRow(r))
+    .slice(0, SEARCH_RESULT_LIMIT)
+    .map(mapDiscoverRow);
+}
+
 // Trending Now (public homepage) pulls from the same favorites pool as
 // Editor's Picks but uses a different hash seed AND explicitly excludes the
 // IDs already chosen for this week's Editor's Picks — guaranteeing the two
