@@ -223,12 +223,24 @@ export default function RecipesPage({
 
   return (
     <Stack spacing={1.5}>
+      <Typography sx={{
+        fontFamily: "'Fraunces', Georgia, serif",
+        fontWeight: 600,
+        fontSize: '26px',
+        lineHeight: 1.2,
+        letterSpacing: '-0.01em',
+        color: 'text.primary',
+        mb: 2,
+      }}>
+        My recipes
+      </Typography>
+
       {/* Search bar + Add Recipe button + results label */}
       <Stack spacing={{ xs: 2, sm: 3 }}>
         <Box sx={{ position: 'relative' }}>
           <TextField
             inputRef={searchBarRef}
-            placeholder="Search by ingredients"
+            placeholder="Search by ingredients, tags"
             value={ingredientInput}
             onChange={handleIngredientInputChange}
             onFocus={() => {
