@@ -342,7 +342,9 @@ export default function RecipesPage({
             return (
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Typography variant="caption" color="text.secondary">
-                  {filteredRecipes.length === 1 ? '1 result' : `${filteredRecipes.length} results`}
+                  {hasActiveFilters
+                    ? (filteredRecipes.length === 1 ? '1 result' : `${filteredRecipes.length} results`)
+                    : (totalRecipes === 1 ? '1 saved recipe' : `${totalRecipes} saved recipes`)}
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   {hasActiveFilters && (
