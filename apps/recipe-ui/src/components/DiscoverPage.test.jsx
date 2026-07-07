@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import DiscoverPage from './DiscoverPage';
 
 describe('DiscoverPage', () => {
@@ -16,6 +16,13 @@ describe('DiscoverPage', () => {
       }
       if (url.includes('/public/ai-picks')) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ picks: [{ topic: 'GutHealth', reason: 'Probiotics', recipes: [{ id: 'a1', title: 'Kimchi Rice' }] }] }) });
+      }
+      if (url.includes('/public/search')) {
+        const q = new URL(url, 'http://x').searchParams.get('q') || '';
+        if (q === 'nomatch') {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ recipes: [] }) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ recipes: [{ id: 's1', title: 'Garlic Chicken', imageUrl: 'https://img/x.jpg' }] }) });
       }
       return Promise.resolve({ ok: false });
     });
@@ -42,5 +49,55 @@ describe('DiscoverPage', () => {
       expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/public/editors-pick'));
       expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/public/ai-picks'));
     });
+  });
+
+  it('shows a search box and, when typing >=2 chars, replaces shelves with results', async () => {
+    render(<DiscoverPage onOpenRecipe={noop} onSaveRecipe={noop} onShareRecipe={noop} />);
+    await waitFor(() => expect(screen.getByText(/from the community/i)).toBeInTheDocument());
+
+    const input = screen.getByPlaceholderText(/search recipes/i);
+    fireEvent.change(input, { target: { value: 'chicken' } });
+
+    // result appears
+    await waitFor(() => expect(screen.getByText('Garlic Chicken')).toBeInTheDocument());
+    // shelves are hidden while searching
+    expect(screen.queryByText(/from the community/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/editor's picks/i)).not.toBeInTheDocument();
+  });
+
+  it('does not search for queries under 2 chars', async () => {
+    render(<DiscoverPage onOpenRecipe={noop} onSaveRecipe={noop} onShareRecipe={noop} />);
+    await waitFor(() => expect(screen.getByText(/from the community/i)).toBeInTheDocument());
+
+    const input = screen.getByPlaceholderText(/search recipes/i);
+    fireEvent.change(input, { target: { value: 'a' } });
+
+    await waitFor(() => {
+      expect(global.fetch).not.toHaveBeenCalledWith(expect.stringContaining('/public/search'));
+    });
+    // shelves still shown
+    expect(screen.getByText(/from the community/i)).toBeInTheDocument();
+  });
+
+  it('shows a no-results message when the search returns nothing', async () => {
+    render(<DiscoverPage onOpenRecipe={noop} onSaveRecipe={noop} onShareRecipe={noop} />);
+    await waitFor(() => expect(screen.getByText(/from the community/i)).toBeInTheDocument());
+
+    const input = screen.getByPlaceholderText(/search recipes/i);
+    fireEvent.change(input, { target: { value: 'nomatch' } });
+
+    await waitFor(() => expect(screen.getByText(/no recipes found/i)).toBeInTheDocument());
+  });
+
+  it('clearing the search box restores the shelves', async () => {
+    render(<DiscoverPage onOpenRecipe={noop} onSaveRecipe={noop} onShareRecipe={noop} />);
+    await waitFor(() => expect(screen.getByText(/from the community/i)).toBeInTheDocument());
+
+    const input = screen.getByPlaceholderText(/search recipes/i);
+    fireEvent.change(input, { target: { value: 'chicken' } });
+    await waitFor(() => expect(screen.getByText('Garlic Chicken')).toBeInTheDocument());
+
+    fireEvent.change(input, { target: { value: '' } });
+    await waitFor(() => expect(screen.getByText(/from the community/i)).toBeInTheDocument());
   });
 });

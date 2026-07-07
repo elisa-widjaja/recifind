@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
-import { Box, Typography, Stack, Skeleton } from '@mui/material';
+import { useState, useEffect, useRef } from 'react';
+import { Box, Typography, Stack, Skeleton, TextField, InputAdornment, IconButton } from '@mui/material';
+import SearchIcon from '@mui/icons-material/Search';
+import CloseIcon from '@mui/icons-material/Close';
 import RecipeShelf from './RecipeShelf';
 import RecipeListCard from './RecipeListCard';
 import DiscoverRecipes from './DiscoverRecipes';
@@ -90,6 +92,11 @@ export default function DiscoverPage({
   const [discoverLoaded, setDiscoverLoaded] = useState(false);
   const [editorsLoaded, setEditorsLoaded] = useState(false);
   const [aiLoaded, setAiLoaded] = useState(false);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const searchSeq = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -129,6 +136,35 @@ export default function DiscoverPage({
     });
   }, [cookingFor, cuisinePrefs, dietaryPrefs]);
 
+  // Debounced public search. Under 2 chars we don't hit the network and clear
+  // any prior results. A per-request sequence guards against a slow response
+  // for an earlier query overwriting a newer one.
+  useEffect(() => {
+    const term = query.trim();
+    if (term.length < 2) {
+      setResults([]);
+      setSearched(false);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    const seq = ++searchSeq.current;
+    const t = setTimeout(() => {
+      fetchJson(`/public/search?q=${encodeURIComponent(term)}`)
+        .then(d => {
+          if (seq !== searchSeq.current) return;
+          setResults(d?.recipes || []);
+          setSearched(true);
+        })
+        .finally(() => {
+          if (seq === searchSeq.current) setSearching(false);
+        });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const isSearching = query.trim().length >= 2;
+
   // Same de-dup logic as PublicLanding: drop trending overlaps, drop duplicate
   // source URLs, drop YouTube embeds.
   const trendingIds = new Set(trending.map(r => r.id));
@@ -160,7 +196,48 @@ export default function DiscoverPage({
         Discover
       </Typography>
 
-      <Stack sx={{ gap: '32px' }}>
+      <TextField
+        fullWidth
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search recipes"
+        size="small"
+        sx={{ mb: 2 }}
+        InputProps={{
+          startAdornment: (
+            <InputAdornment position="start">
+              <SearchIcon fontSize="small" />
+            </InputAdornment>
+          ),
+          endAdornment: query ? (
+            <InputAdornment position="end">
+              <IconButton aria-label="clear search" size="small" onClick={() => setQuery('')}>
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </InputAdornment>
+          ) : null,
+        }}
+      />
+
+      {isSearching && (
+        <Box>
+          {searching && results.length === 0 ? (
+            <ListSkeleton count={6} />
+          ) : results.length > 0 ? (
+            <Stack spacing={1}>
+              {results.map(recipe => (
+                <RecipeListCard key={recipe.id} recipe={recipe} onSave={onSaveRecipe} onShare={onShareRecipe} onOpen={onOpenRecipe} />
+              ))}
+            </Stack>
+          ) : searched ? (
+            <Typography sx={{ textAlign: 'center', color: 'text.secondary', mt: 4 }}>
+              No recipes found for "{query.trim()}"
+            </Typography>
+          ) : null}
+        </Box>
+      )}
+
+      {!isSearching && (<Stack sx={{ gap: '32px' }}>
         {(!discoverLoaded || videoRecipes.length > 0) && (
           <Box>
             <SectionLabel>From the Community</SectionLabel>
@@ -193,7 +270,7 @@ export default function DiscoverPage({
               : <ShelfSkeleton cardWidth={220} cardHeight={140} count={3} />}
           </Box>
         )}
-      </Stack>
+      </Stack>)}
     </Box>
   );
 }
