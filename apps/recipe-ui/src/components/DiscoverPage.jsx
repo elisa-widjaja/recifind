@@ -203,7 +203,7 @@ export default function DiscoverPage({
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Search recipes"
         sx={{
-          mb: 2,
+          mb: 4,
           '& .MuiOutlinedInput-root': { height: { xs: '50px', sm: '54px' }, borderRadius: '999px' },
         }}
         InputProps={{
