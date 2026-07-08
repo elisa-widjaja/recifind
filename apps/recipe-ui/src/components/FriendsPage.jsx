@@ -127,11 +127,18 @@ function ConnectionsList({ friends, onTapFriend, onRemoveFriend }) {
             key={f.friendId}
             onClick={() => onTapFriend?.(f)}
             sx={{
+              position: 'relative',
               display: 'flex', alignItems: 'center', gap: 1.5,
               py: 1.5, px: 0,
-              borderBottom: isLast ? 0 : 1, borderColor: 'divider',
               cursor: onTapFriend ? 'pointer' : 'default',
               WebkitTapHighlightColor: 'transparent',
+              // Divider inset to align with the name (avatar 40px + 12px gap).
+              ...(isLast ? {} : {
+                '&::after': {
+                  content: '""', position: 'absolute', left: '52px', right: 0, bottom: 0,
+                  borderBottom: '1px solid', borderColor: 'divider',
+                },
+              }),
             }}
           >
             <Avatar src={f.avatarUrl || undefined} sx={{ bgcolor: avatarColor(f.friendId), width: 40, height: 40, fontSize: 16, fontWeight: 700 }}>

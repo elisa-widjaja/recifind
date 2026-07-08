@@ -3096,19 +3096,22 @@ function App() {
     }
   };
 
-  // Open the drawer for one of the mutual friends listed in the Friends tab.
-  // A mutual friend is by definition also the viewer's friend, so re-point the
-  // drawer through the normal friend path (enriching from the friends list when
-  // possible so the "Connected" subline shows).
-  const openMutualFriend = (mutual) => {
-    const existing = friends.find((f) => f.friendId === mutual.userId);
-    fetchFriendRecipes(
-      existing || {
-        friendId: mutual.userId,
-        friendName: mutual.name,
-        avatarUrl: mutual.avatarUrl ?? null,
-      }
-    );
+  // Open the friend drawer from a lightweight { userId, name, avatarUrl } ref
+  // (activity-feed avatar tap, mutual-friends list). If the person is an actual
+  // friend, enrich from the friends list so we go through the friend path and
+  // the "Connected" badge shows. Otherwise fall back to the suggestion path,
+  // which loads shared recipes without a friendship.
+  const openFriendByRef = ({ userId, name, avatarUrl }) => {
+    const existing = friends.find((f) => f.friendId === userId);
+    if (existing) {
+      // fetchFriendRecipes assumes the drawer is already open (its other
+      // callers open it separately), so open it here for the closed-drawer
+      // entry points. No-op when already open (e.g. mutual-friends list).
+      setIsFriendsDialogOpen(true);
+      fetchFriendRecipes(existing);
+    } else {
+      fetchSuggestionRecipes({ userId, name, avatarUrl });
+    }
   };
 
   // Tapping a "Suggested friends" suggestion opens the same drawer as
@@ -6128,7 +6131,7 @@ function App() {
                   onInviteFriend={() => setAddFriendDrawerOpen(true)}
                   onOpenFriends={navigateToFriendsTab}
                   onSuggestionTap={fetchSuggestionRecipes}
-                  onOpenFriendRecipes={(userId, name, avatarUrl) => fetchSuggestionRecipes({ userId, name, avatarUrl })}
+                  onOpenFriendRecipes={(userId, name, avatarUrl) => openFriendByRef({ userId, name, avatarUrl })}
                   onAcceptFriendRequest={acceptFriendRequest}
                   onDeclineFriendRequest={declineFriendRequest}
                   darkMode={darkMode}
@@ -7606,41 +7609,43 @@ function App() {
             The scrollable content area below still has its own
             swipe-down-to-dismiss handler. */}
         {selectedFriend && (
-          <Box sx={{ flexShrink: 0 }}>
-            {/* Top bar: iOS-style close, left-aligned. */}
-            <Box sx={{ display: 'flex', alignItems: 'center', px: 2, pt: 2 }}>
-              <Box
-                component="button"
-                aria-label="Close"
-                onClick={() => {
-                  setIsFriendsDialogOpen(false);
-                  setSelectedFriend(null);
-                  setFriendRecipes([]);
-                  setFriendRecipeSearchOpen(false);
-                  setFriendRecipeSearchQuery('');
-                }}
-                sx={(theme) => ({
-                  width: 36, height: 36, borderRadius: '50%',
-                  bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)',
-                  color: '#8a8a8a',
-                  border: 'none', cursor: 'pointer',
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  flexShrink: 0,
-                  WebkitTapHighlightColor: 'transparent',
-                  transition: 'background-color 150ms ease, transform 150ms ease',
-                  '&:hover': { bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.1)' },
-                  '&:active': { transform: 'scale(0.92)' },
-                })}
-              >
-                <CloseIcon sx={{ fontSize: 18 }} />
-              </Box>
+          <Box sx={{ flexShrink: 0, position: 'relative' }}>
+            {/* iOS-style close, top-left. Absolutely positioned so the centered
+                identity below can start at the same top offset — the avatar's
+                top edge aligns with the close button's top. */}
+            <Box
+              component="button"
+              aria-label="Close"
+              onClick={() => {
+                setIsFriendsDialogOpen(false);
+                setSelectedFriend(null);
+                setFriendRecipes([]);
+                setFriendRecipeSearchOpen(false);
+                setFriendRecipeSearchQuery('');
+              }}
+              sx={(theme) => ({
+                position: 'absolute', top: 16, left: 16, zIndex: 1,
+                width: 36, height: 36, borderRadius: '50%',
+                bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)',
+                color: '#8a8a8a',
+                border: 'none', cursor: 'pointer',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+                WebkitTapHighlightColor: 'transparent',
+                transition: 'background-color 150ms ease, transform 150ms ease',
+                '&:hover': { bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.1)' },
+                '&:active': { transform: 'scale(0.92)' },
+              })}
+            >
+              <CloseIcon sx={{ fontSize: 18 }} />
             </Box>
 
             {/* Centered identity: avatar, name, and (for connected friends)
-                the "Connected {month year}" subline. Uses the friend's avatar
-                image when available, otherwise the same hashed-color initial
-                circle as the activity feed. */}
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', px: 2, pt: 0.5, pb: 1.5 }}>
+                the "Connected {month year}" subline. pt matches the close
+                button's top offset so the avatar top aligns with it. Uses the
+                friend's avatar image when available, otherwise the same
+                hashed-color initial circle as the activity feed. */}
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', px: 2, pt: 2, pb: 1.5 }}>
               {(() => {
                 const avatarSrc = selectedFriend.avatarUrl || selectedFriend.avatar_url;
                 const name = selectedFriend.friendName || '?';
@@ -7652,10 +7657,10 @@ function App() {
                 return (
                   <Box sx={{
                     position: 'relative', overflow: 'hidden',
-                    width: 60, height: 60, borderRadius: '50%', bgcolor: color,
+                    width: 54, height: 54, borderRadius: '50%', bgcolor: color,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                   }}>
-                    <Typography sx={{ color: '#fff', fontSize: 24, fontWeight: 700, lineHeight: 1 }}>{initial}</Typography>
+                    <Typography sx={{ color: '#fff', fontSize: 21, fontWeight: 700, lineHeight: 1 }}>{initial}</Typography>
                     {avatarSrc && (
                       <Box
                         component="img"
@@ -7669,13 +7674,30 @@ function App() {
                   </Box>
                 );
               })()}
-              <Typography sx={{ mt: 1, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 19, fontWeight: 600, textAlign: 'center' }}>
+              <Typography sx={{ mt: '6px', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 16, fontWeight: 600, textAlign: 'center' }}>
                 {selectedFriend.friendName}
               </Typography>
               {selectedFriend.connectedAt && (
-                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.25 }}>
-                  Connected {new Date(selectedFriend.connectedAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
-                </Typography>
+                <Box
+                  sx={(theme) => {
+                    const dark = theme.palette.mode === 'dark';
+                    return {
+                      mt: 0.5,
+                      px: 1.25, py: 0.25,
+                      borderRadius: '999px',
+                      bgcolor: 'transparent',
+                      border: '1px solid',
+                      // Same green as the "Add Friend" pill in SuggestionsShelf.
+                      borderColor: dark ? 'rgba(52,211,153,0.5)' : '#10b981',
+                      color: dark ? '#34d399' : '#059669',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      lineHeight: 1.6,
+                    };
+                  }}
+                >
+                  Connected
+                </Box>
               )}
             </Box>
 
@@ -7697,11 +7719,11 @@ function App() {
               return (
                 <Box sx={{ display: 'flex', borderBottom: '1px solid', borderColor: 'divider' }}>
                   <Box onClick={() => setFriendDrawerTab('recipes')} sx={tabSx(friendDrawerTab === 'recipes')}>
-                    <Typography sx={{ fontSize: 20, fontWeight: 700, lineHeight: 1.1 }}>{recipeCount}</Typography>
+                    <Typography sx={{ fontSize: 18, fontWeight: 700, lineHeight: 1.1 }}>{recipeCount}</Typography>
                     <Typography sx={{ fontSize: 11, letterSpacing: 0.3, textTransform: 'uppercase' }}>Recipes</Typography>
                   </Box>
                   <Box onClick={() => setFriendDrawerTab('friends')} sx={tabSx(friendDrawerTab === 'friends')}>
-                    <Typography sx={{ fontSize: 20, fontWeight: 700, lineHeight: 1.1 }}>{friendCount}</Typography>
+                    <Typography sx={{ fontSize: 18, fontWeight: 700, lineHeight: 1.1 }}>{friendCount}</Typography>
                     <Typography sx={{ fontSize: 11, letterSpacing: 0.3, textTransform: 'uppercase' }}>Friends</Typography>
                   </Box>
                 </Box>
@@ -7751,7 +7773,7 @@ function App() {
                 </Typography>
               ) : (
                 <Box sx={{ pt: 1 }}>
-                  <Typography sx={{ fontSize: 15, fontWeight: 600, mb: 1 }}>
+                  <Typography sx={{ fontSize: 13, fontWeight: 600, mt: '8px', mb: 1 }}>
                     {friendViewStats.mutualCount} mutual {friendViewStats.mutualCount === 1 ? 'friend' : 'friends'}
                   </Typography>
                   <Box sx={{ display: 'flex', flexDirection: 'column' }}>
@@ -7765,10 +7787,16 @@ function App() {
                       return (
                         <Box
                           key={mutual.userId}
-                          onClick={() => openMutualFriend(mutual)}
+                          onClick={() => openFriendByRef(mutual)}
                           sx={{
+                            position: 'relative',
                             display: 'flex', alignItems: 'center', gap: 1.5, py: 1, cursor: 'pointer',
                             WebkitTapHighlightColor: 'transparent',
+                            // Divider inset to align with the name (avatar 38px + 12px gap).
+                            '&:not(:last-of-type)::after': {
+                              content: '""', position: 'absolute', left: '50px', right: 0, bottom: 0,
+                              borderBottom: '1px solid', borderColor: 'divider',
+                            },
                             '&:active': { opacity: 0.6 },
                           }}
                         >
@@ -7808,8 +7836,23 @@ function App() {
               </Typography>
             ) : (
               <Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-                  {friendRecipeSearchOpen ? (
+                {/* Search icon on the left, only when the list is long enough to
+                    be worth searching (>20). The count caption is intentionally
+                    omitted here — it's redundant with the Recipes tab count. */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pt: '14px', mb: 1.5 }}>
+                  {friendRecipes.length > 20 && (
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        setFriendRecipeSearchOpen((prev) => !prev);
+                        if (friendRecipeSearchOpen) setFriendRecipeSearchQuery('');
+                      }}
+                      color={friendRecipeSearchOpen ? 'primary' : 'default'}
+                    >
+                      <SearchIcon sx={{ fontSize: 24 }} />
+                    </IconButton>
+                  )}
+                  {friendRecipeSearchOpen && friendRecipes.length > 20 && (
                     <TextField
                       autoFocus
                       size="small"
@@ -7830,21 +7873,7 @@ function App() {
                       }}
                       sx={{ flex: 1 }}
                     />
-                  ) : (
-                    <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
-                      {friendRecipes.length} {friendRecipes.length === 1 ? 'recipe' : 'recipes'}
-                    </Typography>
                   )}
-                  <IconButton
-                    size="small"
-                    onClick={() => {
-                      setFriendRecipeSearchOpen((prev) => !prev);
-                      if (friendRecipeSearchOpen) setFriendRecipeSearchQuery('');
-                    }}
-                    color={friendRecipeSearchOpen ? 'primary' : 'default'}
-                  >
-                    <SearchIcon fontSize="small" />
-                  </IconButton>
                 </Box>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                   {filteredFriendRecipes.slice(0, visibleRecipeCount).map((recipe) => (
