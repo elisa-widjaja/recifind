@@ -29,7 +29,16 @@ describe('FriendPicker', () => {
     const sendBtn = screen.getByRole('button', { name: /send/i });
     expect(sendBtn).not.toBeDisabled();
     fireEvent.click(sendBtn);
-    await waitFor(() => expect(onSend).toHaveBeenCalledWith(['f1', 'f2']));
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith(['f1', 'f2'], ''));
+  });
+
+  it('passes a trimmed optional message to onSend', async () => {
+    const onSend = vi.fn().mockResolvedValue({ ok: true, value: { shared_with: 1, skipped: 0 } });
+    render(<FriendPicker open friends={FRIENDS} onClose={() => {}} onSend={onSend} />);
+    fireEvent.click(screen.getByText('Alice'));
+    fireEvent.change(screen.getByPlaceholderText(/add a message/i), { target: { value: '  try this!  ' } });
+    fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith(['f1'], 'try this!'));
   });
 
   it('dismisses the drawer after a successful Send (parent owns the snackbar)', async () => {
@@ -46,7 +55,7 @@ describe('FriendPicker', () => {
     render(<FriendPicker open friends={FRIENDS} onClose={() => {}} onSend={onSend} />);
     fireEvent.click(screen.getByText('Alice'));
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
-    await waitFor(() => expect(onSend).toHaveBeenCalledWith(['f1']));
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith(['f1'], ''));
   });
 
   it('empty friend list shows zero state with copy-link fallback', () => {

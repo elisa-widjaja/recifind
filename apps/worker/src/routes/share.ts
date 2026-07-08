@@ -2,10 +2,47 @@ import {
   SHARE_RECIPE_MAX_RECIPIENTS,
   SHARE_RECIPE_MIN_RECIPIENTS,
   SHARE_RECIPE_RATE_LIMIT_PER_HOUR,
+  SHARE_RECIPE_MESSAGE_MAX_LENGTH,
   type ShareRecipeRequest,
   type ShareRecipeResponse,
   type ShareRecipeError,
 } from '../../../shared/contracts';
+
+// Escape a user-supplied string for safe interpolation into email HTML.
+export function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Normalize the optional sharer note: collapse all whitespace (incl. newlines)
+// to single spaces so it stays one line in push/email, trim, then hard-cap
+// independently of the client. Whitespace-only input becomes ''.
+export function sanitizeShareMessage(raw: unknown): string {
+  return (typeof raw === 'string' ? raw : '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, SHARE_RECIPE_MESSAGE_MAX_LENGTH);
+}
+
+// Push body: lead with the sharer's note when present, else the default copy.
+// Plain text (no HTML escaping needed); iOS truncates long bodies.
+export function buildSharePushBody(sharerName: string, recipeTitle: string, message: string): string {
+  return message
+    ? `${sharerName} shared ${recipeTitle}: "${message}"`
+    : `${sharerName} just shared ${recipeTitle} with you`;
+}
+
+// Email note block (escaped, since message is user-controlled). '' when no note.
+export function buildShareNoteHtml(sharerName: string, message: string): string {
+  if (!message) return '';
+  return `<div class="rf-note" style="margin:0 0 16px;padding:12px 14px;border-left:3px solid #6200EA;background-color:#f0ebfb;border-radius:6px;font-size:14px;line-height:1.4;color:#1a1a1a;">
+             ${escapeHtml(sharerName)} wrote: &ldquo;${escapeHtml(message)}&rdquo;
+           </div>`;
+}
 
 type Env = {
   DB: D1Database;
@@ -134,6 +171,9 @@ export async function handleShareRecipe(args: {
   const sharerName = sharer?.display_name ?? 'A friend';
   const recipeTitle = recipeRow?.title ?? 'a recipe';
   const recipeImage = recipeRow?.image_url ?? '';
+
+  // Optional sharer note — delivered only in push + email; never persisted.
+  const message = sanitizeShareMessage(body.message);
   // ?user= lets the recipient's app resolve the recipe via the public lookup
   // endpoint (the recipe isn't in their local list yet).
   const deepLink = `https://recifriend.com/recipes/${recipeId}?user=${recipe!.user_id}`;
@@ -146,7 +186,7 @@ export async function handleShareRecipe(args: {
       ids.map((rid) =>
         sendPushToUser(env as any, rid, {
           title: 'ReciFriend',
-          body: `${sharerName} just shared ${recipeTitle} with you`,
+          body: buildSharePushBody(sharerName, recipeTitle, message),
           deepLink,
         })
       )
@@ -208,14 +248,18 @@ export async function handleShareRecipe(args: {
             </a>
           </td>`
         : '';
+      // Optional note from the sharer, shown as a quoted block above the card.
+      const noteBlock = buildShareNoteHtml(sharerName, message);
       const html = `<!DOCTYPE html><html><head><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><style>
         @media (prefers-color-scheme: dark) {
           .rf-card { background-color: #2a2a2a !important; }
           .rf-title { color: #fafafa !important; }
+          .rf-note { background-color: #2a2540 !important; color: #eae6f7 !important; }
           .rf-unsub, .rf-unsub a { color: #777 !important; }
         }
       </style></head><body style="margin:0;padding:0;">
         <div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
+          ${noteBlock}
           <div class="rf-card" style="background-color:#f5f5f5;border-radius:12px;padding:12px;">
             <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;width:100%;">
               <tr>

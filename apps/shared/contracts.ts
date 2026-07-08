@@ -7,6 +7,9 @@
 
 export type ShareRecipeRequest = {
   recipient_user_ids: string[];
+  // Optional short note from the sharer, delivered in the push + email only
+  // (not persisted). Capped at SHARE_RECIPE_MESSAGE_MAX_LENGTH.
+  message?: string;
 };
 
 export type ShareRecipeResponse = {
@@ -22,6 +25,7 @@ export type ShareRecipeError =
 export const SHARE_RECIPE_MAX_RECIPIENTS = 50;
 export const SHARE_RECIPE_MIN_RECIPIENTS = 1;
 export const SHARE_RECIPE_RATE_LIMIT_PER_HOUR = 20;
+export const SHARE_RECIPE_MESSAGE_MAX_LENGTH = 200;
 
 // ─── C2: Device registration ───────────────────────────────────────
 

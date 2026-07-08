@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { handleShareRecipe } from './share';
+import {
+  handleShareRecipe,
+  sanitizeShareMessage,
+  buildSharePushBody,
+  buildShareNoteHtml,
+  escapeHtml,
+} from './share';
 import type { ShareRecipeRequest } from '../../../shared/contracts';
+import { SHARE_RECIPE_MESSAGE_MAX_LENGTH } from '../../../shared/contracts';
 
 // Minimal D1/KV mock
 function mockEnv(opts: {
@@ -232,5 +239,47 @@ describe('POST /recipes/:id/share', () => {
     expect(String(notif!.args[2])).toContain('Miso Ramen');
     const data = JSON.parse(String(notif!.args[3]));
     expect(data).toMatchObject({ sharerId: SHARER, recipeId: RECIPE });
+  });
+
+  it('accepts an optional message and still succeeds', async () => {
+    const env = mockEnv({ recipeExists: true, friendsOfSharer: ['u-friend'] });
+    const res = await handleShareRecipe({
+      env,
+      sharerId: SHARER,
+      recipeId: RECIPE,
+      body: { recipient_user_ids: ['u-friend'], message: 'try this for dinner!' },
+    });
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('share message helpers', () => {
+  it('sanitizeShareMessage collapses whitespace, trims, and treats blank as empty', () => {
+    expect(sanitizeShareMessage('  hello\n\n  world  ')).toBe('hello world');
+    expect(sanitizeShareMessage('   ')).toBe('');
+    expect(sanitizeShareMessage(undefined)).toBe('');
+    expect(sanitizeShareMessage(123 as unknown)).toBe('');
+  });
+
+  it('sanitizeShareMessage hard-caps at the max length', () => {
+    const long = 'a'.repeat(SHARE_RECIPE_MESSAGE_MAX_LENGTH + 50);
+    expect(sanitizeShareMessage(long)).toHaveLength(SHARE_RECIPE_MESSAGE_MAX_LENGTH);
+  });
+
+  it('buildSharePushBody leads with the note when present, else default copy', () => {
+    expect(buildSharePushBody('Maya', 'Miso Ramen', 'so good')).toBe('Maya shared Miso Ramen: "so good"');
+    expect(buildSharePushBody('Maya', 'Miso Ramen', '')).toBe('Maya just shared Miso Ramen with you');
+  });
+
+  it('buildShareNoteHtml is empty without a message and HTML-escapes a message', () => {
+    expect(buildShareNoteHtml('Maya', '')).toBe('');
+    const html = buildShareNoteHtml('Maya', '<script>alert(1)</script>');
+    expect(html).toContain('Maya wrote:');
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
+  });
+
+  it('escapeHtml escapes the dangerous characters', () => {
+    expect(escapeHtml(`<>&"'`)).toBe('&lt;&gt;&amp;&quot;&#39;');
   });
 });

@@ -6,10 +6,12 @@ import {
   Stack,
   Avatar,
   Typography,
+  TextField,
 } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
 import { getAvatarColor } from '../lib/avatarColor';
+import { SHARE_RECIPE_MESSAGE_MAX_LENGTH } from '../../../shared/contracts';
 
 function FriendRow({ friend, selected, onToggle }) {
   const initial = (friend.display_name ?? '?').charAt(0).toUpperCase();
@@ -74,9 +76,13 @@ function FriendRow({ friend, selected, onToggle }) {
 
 export function FriendPicker({ open, friends, onClose, onSend, darkMode = false }) {
   const [selected, setSelected] = useState(new Set());
+  const [message, setMessage] = useState('');
 
   useEffect(() => {
-    if (!open) setSelected(new Set());
+    if (!open) {
+      setSelected(new Set());
+      setMessage('');
+    }
   }, [open]);
 
   const toggle = (id) => {
@@ -89,11 +95,12 @@ export function FriendPicker({ open, friends, onClose, onSend, darkMode = false 
 
   const handleSend = () => {
     const ids = Array.from(selected);
+    const note = message.trim();
     // Fire-and-forget: dismiss immediately so the drawer never feels stuck
     // on a slow API. Parent owns progress + result via snackbar.
     onClose('sent', ids.length);
     Promise.resolve()
-      .then(() => onSend(ids))
+      .then(() => onSend(ids, note))
       .catch((err) => console.error('FriendPicker send threw:', err));
   };
 
@@ -165,15 +172,39 @@ export function FriendPicker({ open, friends, onClose, onSend, darkMode = false 
         </Box>
 
         {friends.length > 0 && (
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', px: 2, py: 1.5, borderTop: 1, borderColor: 'divider' }}>
-            <Button
-              onClick={handleSend}
-              variant="contained"
-              disabled={selected.size === 0}
-              sx={{ minWidth: 120 }}
-            >
-              Send
-            </Button>
+          <Box sx={{ px: 2, py: 1.5, borderTop: 1, borderColor: 'divider' }}>
+            {/* Optional short note delivered with the share (push + email). */}
+            <TextField
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Add a message (optional)"
+              fullWidth
+              multiline
+              minRows={1}
+              maxRows={3}
+              size="small"
+              inputProps={{ maxLength: SHARE_RECIPE_MESSAGE_MAX_LENGTH }}
+              sx={{ mb: message.length > 0 ? 0.25 : 1.5 }}
+            />
+            {message.length > 0 && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'block', textAlign: 'right', mb: 1 }}
+              >
+                {message.length}/{SHARE_RECIPE_MESSAGE_MAX_LENGTH}
+              </Typography>
+            )}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Button
+                onClick={handleSend}
+                variant="contained"
+                disabled={selected.size === 0}
+                sx={{ minWidth: 120 }}
+              >
+                Send
+              </Button>
+            </Box>
           </Box>
         )}
       </Box>

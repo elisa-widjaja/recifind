@@ -5800,11 +5800,11 @@ function App() {
     setPickerOpen(true);
   };
 
-  const handlePickerSend = async (recipientUserIds) => {
+  const handlePickerSend = async (recipientUserIds, message) => {
     setSnackbarState({ open: true, message: 'Sending…', severity: 'info' });
     let result;
     try {
-      result = await shareRecipe({ apiBase: API_BASE_URL, jwt: accessToken, recipeId: pickerRecipeId, recipientUserIds });
+      result = await shareRecipe({ apiBase: API_BASE_URL, jwt: accessToken, recipeId: pickerRecipeId, recipientUserIds, message });
     } catch (err) {
       console.error('shareRecipe threw:', err);
       const detail = `${err?.name || 'Error'}: ${err?.message || String(err)} | recipe=${pickerRecipeId} | api=${API_BASE_URL} | token=${accessToken ? 'yes' : 'NO'}`;
