@@ -1918,6 +1918,10 @@ function App() {
   const [friendViewStats, setFriendViewStats] = useState(null);
   const [friendViewStatsLoading, setFriendViewStatsLoading] = useState(false);
   const [friendDrawerTab, setFriendDrawerTab] = useState('recipes');
+  // Drill-down trail for the friend drawer. When you tap a mutual friend, the
+  // current view is pushed here so the header's close button can become a back
+  // button and return to the friend you came from. Reset when the drawer closes.
+  const [friendBackStack, setFriendBackStack] = useState([]);
   const [visibleRecipeCount, setVisibleRecipeCount] = useState(7);
   const friendRecipesSentinelRef = useRef(null);
   const inviteAcceptDispatchedRef = useRef(false); // prevents bottom check-invites from racing accept-invite
@@ -3112,6 +3116,34 @@ function App() {
     } else {
       fetchSuggestionRecipes({ userId, name, avatarUrl });
     }
+  };
+
+  // Re-open a previously-viewed friend from a stored selectedFriend object
+  // (used by the drawer's back button). Routes suggestions through the
+  // suggestion path so a non-friend still loads without a friendship check.
+  const navigateToStoredFriend = (f) => {
+    if (!f) return;
+    if (f.isSuggestion) {
+      fetchSuggestionRecipes({ userId: f.friendId, name: f.friendName, avatarUrl: f.avatarUrl });
+    } else {
+      setIsFriendsDialogOpen(true);
+      fetchFriendRecipes(f);
+    }
+  };
+
+  // Drill from the current friend view into one of their mutual friends,
+  // remembering where we came from so the back button can return.
+  const drillIntoFriend = (mutual) => {
+    if (selectedFriend) setFriendBackStack((s) => [...s, selectedFriend]);
+    openFriendByRef(mutual);
+  };
+
+  // Back button: pop the trail and return to the previous friend view.
+  const goBackToPreviousFriend = () => {
+    const prev = friendBackStack[friendBackStack.length - 1];
+    if (!prev) return;
+    setFriendBackStack((s) => s.slice(0, -1));
+    navigateToStoredFriend(prev);
   };
 
   // Tapping a "Suggested friends" suggestion opens the same drawer as
@@ -7577,6 +7609,7 @@ function App() {
           setFriendRecipes([]);
           setFriendDrawerTab('recipes');
           setFriendViewStats(null);
+          setFriendBackStack([]);
           setIsAddFriendOpen(false);
           setAddFriendEmail('');
           setOpenInviteLink(null);
@@ -7610,35 +7643,49 @@ function App() {
             swipe-down-to-dismiss handler. */}
         {selectedFriend && (
           <Box sx={{ flexShrink: 0, position: 'relative' }}>
-            {/* iOS-style close, top-left. Absolutely positioned so the centered
-                identity below can start at the same top offset — the avatar's
-                top edge aligns with the close button's top. */}
-            <Box
-              component="button"
-              aria-label="Close"
-              onClick={() => {
-                setIsFriendsDialogOpen(false);
-                setSelectedFriend(null);
-                setFriendRecipes([]);
-                setFriendRecipeSearchOpen(false);
-                setFriendRecipeSearchQuery('');
-              }}
-              sx={(theme) => ({
-                position: 'absolute', top: 16, left: 16, zIndex: 1,
-                width: 36, height: 36, borderRadius: '50%',
-                bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)',
-                color: '#8a8a8a',
-                border: 'none', cursor: 'pointer',
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                flexShrink: 0,
-                WebkitTapHighlightColor: 'transparent',
-                transition: 'background-color 150ms ease, transform 150ms ease',
-                '&:hover': { bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.1)' },
-                '&:active': { transform: 'scale(0.92)' },
-              })}
-            >
-              <CloseIcon sx={{ fontSize: 18 }} />
-            </Box>
+            {/* Top-left button. When drilled into a mutual friend it's a back
+                button (returns to the friend you came from); otherwise it's the
+                iOS-style close. Absolutely positioned so the centered identity
+                below can start at the same top offset — the avatar's top edge
+                aligns with this button's top. */}
+            {(() => {
+              const canGoBack = friendBackStack.length > 0;
+              return (
+                <Box
+                  component="button"
+                  aria-label={canGoBack ? 'Back' : 'Close'}
+                  onClick={() => {
+                    if (canGoBack) {
+                      setFriendRecipeSearchOpen(false);
+                      setFriendRecipeSearchQuery('');
+                      goBackToPreviousFriend();
+                    } else {
+                      setIsFriendsDialogOpen(false);
+                      setSelectedFriend(null);
+                      setFriendRecipes([]);
+                      setFriendBackStack([]);
+                      setFriendRecipeSearchOpen(false);
+                      setFriendRecipeSearchQuery('');
+                    }
+                  }}
+                  sx={(theme) => ({
+                    position: 'absolute', top: 16, left: 16, zIndex: 1,
+                    width: 36, height: 36, borderRadius: '50%',
+                    bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)',
+                    color: '#8a8a8a',
+                    border: 'none', cursor: 'pointer',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0,
+                    WebkitTapHighlightColor: 'transparent',
+                    transition: 'background-color 150ms ease, transform 150ms ease',
+                    '&:hover': { bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.1)' },
+                    '&:active': { transform: 'scale(0.92)' },
+                  })}
+                >
+                  {canGoBack ? <ArrowBackIcon sx={{ fontSize: 18 }} /> : <CloseIcon sx={{ fontSize: 18 }} />}
+                </Box>
+              );
+            })()}
 
             {/* Centered identity: avatar, name, and (for connected friends)
                 the "Connected {month year}" subline. pt matches the close
@@ -7750,6 +7797,7 @@ function App() {
               } else {
                 setIsFriendsDialogOpen(false);
                 setSelectedFriend(null); setFriendRecipes([]);
+                setFriendBackStack([]);
                 setIsAddFriendOpen(false); setAddFriendEmail('');
                 setFriendRecipeSearchOpen(false); setFriendRecipeSearchQuery('');
                 setFriendsDrawerExpanded(false);
@@ -7787,7 +7835,7 @@ function App() {
                       return (
                         <Box
                           key={mutual.userId}
-                          onClick={() => openFriendByRef(mutual)}
+                          onClick={() => drillIntoFriend(mutual)}
                           sx={{
                             position: 'relative',
                             display: 'flex', alignItems: 'center', gap: 1.5, py: 1, cursor: 'pointer',
