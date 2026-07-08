@@ -989,6 +989,16 @@ export default {
         return await handleGetUserSharedRecipes(request, env, user, targetId);
       }
 
+      // GET /users/:id/friend-view-stats — recipe count, friend count, and the
+      // viewer<->target mutual-friends list for the Friend Drawer tabs.
+      const friendViewStatsMatch = url.pathname.match(/^\/users\/([^/]+)\/friend-view-stats$/);
+      if (friendViewStatsMatch && request.method === 'GET') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        const targetId = decodeURIComponent(friendViewStatsMatch[1]);
+        const stats = await handleFriendViewStats(env.DB, user.userId, targetId);
+        return json(stats, 200, withCors());
+      }
+
       const friendRecipeShareMatch = url.pathname.match(/^\/friends\/([^/]+)\/recipes\/([^/]+)\/share$/);
       if (friendRecipeShareMatch && request.method === 'POST') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
@@ -4444,6 +4454,67 @@ async function handleGetUserSharedRecipes(request: Request, env: Env, user: Auth
     visibility: 'private', maxAge: 60, etag,
     lastModified: targetMeta?.updatedAt ? new Date(targetMeta.updatedAt) : undefined
   }));
+}
+
+// Stats shown in the Friend Drawer header/tabs when the viewer opens someone's
+// drawer: how many shared recipes and friends the target has, plus the friends
+// the viewer and target have in common (the "mutual friends" list). Keyed by
+// user id so it works for both an already-connected friend and a suggestion
+// preview. Exported for unit testing.
+export async function handleFriendViewStats(
+  db: D1Database,
+  viewerId: string,
+  targetId: string
+): Promise<{
+  recipeCount: number;
+  friendCount: number;
+  mutualCount: number;
+  mutualFriends: Array<{ userId: string; name: string; avatarUrl: string | null }>;
+}> {
+  // Shared-recipe count matches exactly what the Recipes tab lists.
+  const recipeRow = await db.prepare(
+    'SELECT COUNT(*) AS cnt FROM recipes WHERE user_id = ? AND shared_with_friends = 1 AND hidden_at IS NULL'
+  ).bind(targetId).first<{ cnt: number }>();
+
+  // friends is one row per direction, so the target's outgoing edges = their
+  // friend count.
+  const friendRow = await db.prepare(
+    'SELECT COUNT(*) AS cnt FROM friends WHERE user_id = ?'
+  ).bind(targetId).first<{ cnt: number }>();
+
+  // Mutual friends: users who are friends of BOTH the viewer and the target.
+  // Same self-join shape as handleFriendSuggestions, joined to profiles for the
+  // display name + avatar. Nameless / deleted profiles are filtered so no
+  // gibberish row renders.
+  const mutualRows = await db.prepare(`
+    SELECT
+      f_t.friend_id  AS userId,
+      p.display_name AS name,
+      p.avatar_url   AS avatarUrl
+    FROM friends f_v
+    JOIN friends f_t ON f_t.friend_id = f_v.friend_id
+    JOIN profiles p ON p.user_id = f_t.friend_id
+    WHERE f_v.user_id = ?
+      AND f_t.user_id = ?
+      AND p.deleted_at IS NULL
+      AND p.display_name IS NOT NULL AND TRIM(p.display_name) <> ''
+    ORDER BY p.display_name
+  `).bind(viewerId, targetId).all<{ userId: string; name: string; avatarUrl: string | null }>();
+
+  const mutualFriends = (mutualRows.results || [])
+    .filter(row => row.name && String(row.name).trim())
+    .map(row => ({
+      userId: row.userId,
+      name: row.name,
+      avatarUrl: row.avatarUrl ?? null,
+    }));
+
+  return {
+    recipeCount: recipeRow?.cnt ?? 0,
+    friendCount: friendRow?.cnt ?? 0,
+    mutualCount: mutualFriends.length,
+    mutualFriends,
+  };
 }
 
 async function handleGetNotifications(env: Env, user: AuthenticatedUser) {

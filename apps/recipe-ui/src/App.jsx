@@ -1911,6 +1911,13 @@ function App() {
   const [selectedFriend, setSelectedFriend] = useState(null);
   const [friendRecipes, setFriendRecipes] = useState([]);
   const [friendRecipesLoading, setFriendRecipesLoading] = useState(false);
+  // Friend Drawer header stats + Recipes/Friends tabs. friendViewStats holds
+  // { recipeCount, friendCount, mutualCount, mutualFriends }; friendDrawerTab
+  // switches the drawer body between the shared-recipe list and the
+  // mutual-friends list.
+  const [friendViewStats, setFriendViewStats] = useState(null);
+  const [friendViewStatsLoading, setFriendViewStatsLoading] = useState(false);
+  const [friendDrawerTab, setFriendDrawerTab] = useState('recipes');
   const [visibleRecipeCount, setVisibleRecipeCount] = useState(7);
   const friendRecipesSentinelRef = useRef(null);
   const inviteAcceptDispatchedRef = useRef(false); // prevents bottom check-invites from racing accept-invite
@@ -3044,11 +3051,36 @@ function App() {
     await markOnboardingSeen();
   };
 
+  // Load the Friend Drawer header stats (recipe count, friend count, mutual
+  // friends) for whichever user's drawer is open. Keyed by user id so it works
+  // for both a connected friend and a suggestion preview. Failures are silent —
+  // the tabs just fall back to a dash — since the recipe list is the primary
+  // content and shouldn't be blocked by a stats hiccup.
+  const fetchFriendViewStats = async (userId) => {
+    if (!userId) return;
+    setFriendViewStats(null);
+    setFriendViewStatsLoading(true);
+    try {
+      const response = await callRecipesApi(
+        `/users/${encodeURIComponent(userId)}/friend-view-stats`,
+        {},
+        accessToken
+      );
+      setFriendViewStats(response ?? null);
+    } catch (error) {
+      setFriendViewStats(null);
+    } finally {
+      setFriendViewStatsLoading(false);
+    }
+  };
+
   const fetchFriendRecipes = async (friend) => {
     trackEvent('view_friend_recipes', { friend_name: friend.friendName || '' });
     setSelectedFriend(friend);
+    setFriendDrawerTab('recipes');
     setVisibleRecipeCount(7);
     setFriendRecipesLoading(true);
+    fetchFriendViewStats(friend.friendId);
     try {
       const response = await callRecipesApi(
         `/friends/${encodeURIComponent(friend.friendId)}/recipes`,
@@ -3062,6 +3094,21 @@ function App() {
     } finally {
       setFriendRecipesLoading(false);
     }
+  };
+
+  // Open the drawer for one of the mutual friends listed in the Friends tab.
+  // A mutual friend is by definition also the viewer's friend, so re-point the
+  // drawer through the normal friend path (enriching from the friends list when
+  // possible so the "Connected" subline shows).
+  const openMutualFriend = (mutual) => {
+    const existing = friends.find((f) => f.friendId === mutual.userId);
+    fetchFriendRecipes(
+      existing || {
+        friendId: mutual.userId,
+        friendName: mutual.name,
+        avatarUrl: mutual.avatarUrl ?? null,
+      }
+    );
   };
 
   // Tapping a "Suggested friends" suggestion opens the same drawer as
@@ -3083,8 +3130,10 @@ function App() {
       isSuggestion: true,
       fromHomeFeed,
     });
+    setFriendDrawerTab('recipes');
     setVisibleRecipeCount(7);
     setFriendRecipesLoading(true);
+    fetchFriendViewStats(suggestion.userId);
     try {
       const response = await callRecipesApi(
         `/users/${encodeURIComponent(suggestion.userId)}/recipes`,
@@ -7523,6 +7572,8 @@ function App() {
           setIsFriendsDialogOpen(false);
           setSelectedFriend(null);
           setFriendRecipes([]);
+          setFriendDrawerTab('recipes');
+          setFriendViewStats(null);
           setIsAddFriendOpen(false);
           setAddFriendEmail('');
           setOpenInviteLink(null);
@@ -7550,75 +7601,112 @@ function App() {
           }
         }}
       >
-        {/* Header — single row: avatar + name on the left, iOS-style X
-            close on the right. Drag-grabber removed; the scrollable
-            content area below still has its own swipe-down-to-dismiss
-            handler. */}
+        {/* Header — close on the left, avatar + name centered, then two
+            tabs (Recipes / Friends) whose counts come from friendViewStats.
+            The scrollable content area below still has its own
+            swipe-down-to-dismiss handler. */}
         {selectedFriend && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 2, pt: 2, pb: 2.5, flexShrink: 0 }}>
-            {/* Avatar + friend name. Uses the friend's avatar image when
-                available, otherwise renders the same hashed-color initial
-                circle as the activity feed for visual continuity (same
-                palette as FriendSections.ActivityItem). */}
+          <Box sx={{ flexShrink: 0 }}>
+            {/* Top bar: iOS-style close, left-aligned. */}
+            <Box sx={{ display: 'flex', alignItems: 'center', px: 2, pt: 2 }}>
+              <Box
+                component="button"
+                aria-label="Close"
+                onClick={() => {
+                  setIsFriendsDialogOpen(false);
+                  setSelectedFriend(null);
+                  setFriendRecipes([]);
+                  setFriendRecipeSearchOpen(false);
+                  setFriendRecipeSearchQuery('');
+                }}
+                sx={(theme) => ({
+                  width: 36, height: 36, borderRadius: '50%',
+                  bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)',
+                  color: '#8a8a8a',
+                  border: 'none', cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0,
+                  WebkitTapHighlightColor: 'transparent',
+                  transition: 'background-color 150ms ease, transform 150ms ease',
+                  '&:hover': { bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.1)' },
+                  '&:active': { transform: 'scale(0.92)' },
+                })}
+              >
+                <CloseIcon sx={{ fontSize: 18 }} />
+              </Box>
+            </Box>
+
+            {/* Centered identity: avatar, name, and (for connected friends)
+                the "Connected {month year}" subline. Uses the friend's avatar
+                image when available, otherwise the same hashed-color initial
+                circle as the activity feed. */}
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', px: 2, pt: 0.5, pb: 1.5 }}>
+              {(() => {
+                const avatarSrc = selectedFriend.avatarUrl || selectedFriend.avatar_url;
+                const name = selectedFriend.friendName || '?';
+                const palette = ['#7c3aed', '#10b981', '#f59e0b', '#ef4444', '#06b6d4'];
+                let h = 0;
+                for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
+                const color = palette[Math.abs(h) % palette.length];
+                const initial = name.charAt(0).toUpperCase();
+                return (
+                  <Box sx={{
+                    position: 'relative', overflow: 'hidden',
+                    width: 60, height: 60, borderRadius: '50%', bgcolor: color,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  }}>
+                    <Typography sx={{ color: '#fff', fontSize: 24, fontWeight: 700, lineHeight: 1 }}>{initial}</Typography>
+                    {avatarSrc && (
+                      <Box
+                        component="img"
+                        src={avatarSrc}
+                        alt=""
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover',
+                          WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
+                      />
+                    )}
+                  </Box>
+                );
+              })()}
+              <Typography sx={{ mt: 1, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 19, fontWeight: 600, textAlign: 'center' }}>
+                {selectedFriend.friendName}
+              </Typography>
+              {selectedFriend.connectedAt && (
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.25 }}>
+                  Connected {new Date(selectedFriend.connectedAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
+                </Typography>
+              )}
+            </Box>
+
+            {/* Recipes / Friends tabs. Counts come from friendViewStats; while
+                it loads, show a dash rather than jump. Recipe count falls back
+                to the loaded list length if the stats call failed. */}
             {(() => {
-              const avatarSrc = selectedFriend.avatarUrl || selectedFriend.avatar_url;
-              const name = selectedFriend.friendName || '?';
-              const palette = ['#7c3aed', '#10b981', '#f59e0b', '#ef4444', '#06b6d4'];
-              let h = 0;
-              for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
-              const color = palette[Math.abs(h) % palette.length];
-              const initial = name.charAt(0).toUpperCase();
+              const recipeCount = friendViewStats
+                ? friendViewStats.recipeCount
+                : (friendViewStatsLoading ? '–' : friendRecipes.length);
+              const friendCount = friendViewStats ? friendViewStats.friendCount : '–';
+              const tabSx = (active) => (theme) => ({
+                flex: 1, textAlign: 'center', py: 1, pb: 1.25, cursor: 'pointer',
+                borderBottom: '2px solid',
+                borderColor: active ? theme.palette.primary.main : 'transparent',
+                color: active ? theme.palette.primary.main : theme.palette.text.secondary,
+                WebkitTapHighlightColor: 'transparent',
+              });
               return (
-                <Box sx={{
-                  position: 'relative', overflow: 'hidden',
-                  width: 38, height: 38, borderRadius: '50%', bgcolor: color,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                }}>
-                  {/* Colored initial backdrop; photo overlays and removes
-                      itself on load failure so a broken URL falls back here. */}
-                  <Typography sx={{ color: '#fff', fontSize: 16, fontWeight: 700, lineHeight: 1 }}>{initial}</Typography>
-                  {avatarSrc && (
-                    <Box
-                      component="img"
-                      src={avatarSrc}
-                      alt=""
-                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                      sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover',
-                        // Suppress iOS WKWebView long-press image menu on this avatar.
-                        WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
-                    />
-                  )}
+                <Box sx={{ display: 'flex', borderBottom: '1px solid', borderColor: 'divider' }}>
+                  <Box onClick={() => setFriendDrawerTab('recipes')} sx={tabSx(friendDrawerTab === 'recipes')}>
+                    <Typography sx={{ fontSize: 20, fontWeight: 700, lineHeight: 1.1 }}>{recipeCount}</Typography>
+                    <Typography sx={{ fontSize: 11, letterSpacing: 0.3, textTransform: 'uppercase' }}>Recipes</Typography>
+                  </Box>
+                  <Box onClick={() => setFriendDrawerTab('friends')} sx={tabSx(friendDrawerTab === 'friends')}>
+                    <Typography sx={{ fontSize: 20, fontWeight: 700, lineHeight: 1.1 }}>{friendCount}</Typography>
+                    <Typography sx={{ fontSize: 11, letterSpacing: 0.3, textTransform: 'uppercase' }}>Friends</Typography>
+                  </Box>
                 </Box>
               );
             })()}
-            <Typography sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 16, fontWeight: 500 }}>
-              {selectedFriend.friendName}
-            </Typography>
-            <Box
-              component="button"
-              aria-label="Close"
-              onClick={() => {
-                setIsFriendsDialogOpen(false);
-                setSelectedFriend(null);
-                setFriendRecipes([]);
-                setFriendRecipeSearchOpen(false);
-                setFriendRecipeSearchQuery('');
-              }}
-              sx={(theme) => ({
-                width: 36, height: 36, borderRadius: '50%',
-                bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)',
-                color: '#8a8a8a',
-                border: 'none', cursor: 'pointer',
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                flexShrink: 0,
-                WebkitTapHighlightColor: 'transparent',
-                transition: 'background-color 150ms ease, transform 150ms ease',
-                '&:hover': { bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.1)' },
-                '&:active': { transform: 'scale(0.92)' },
-              })}
-            >
-              <CloseIcon sx={{ fontSize: 18 }} />
-            </Box>
           </Box>
         )}
 
@@ -7649,7 +7737,68 @@ function App() {
           sx={{ flex: 1, overflowY: 'auto', pt: 0, px: 2, pb: 2 }}
         >
           {selectedFriend ? (
-            friendRecipesLoading ? (
+            friendDrawerTab === 'friends' ? (
+              /* Mutual-friends list. Header shows the mutual count; each row
+                 re-points the drawer at that friend (a mutual friend is also
+                 the viewer's friend). */
+              friendViewStatsLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                  <CircularProgress />
+                </Box>
+              ) : (friendViewStats?.mutualFriends?.length ?? 0) === 0 ? (
+                <Typography color="text.secondary" align="center" sx={{ py: 4 }}>
+                  No mutual friends yet
+                </Typography>
+              ) : (
+                <Box sx={{ pt: 1 }}>
+                  <Typography sx={{ fontSize: 15, fontWeight: 600, mb: 1 }}>
+                    {friendViewStats.mutualCount} mutual {friendViewStats.mutualCount === 1 ? 'friend' : 'friends'}
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                    {friendViewStats.mutualFriends.map((mutual) => {
+                      const palette = ['#7c3aed', '#10b981', '#f59e0b', '#ef4444', '#06b6d4'];
+                      const mName = mutual.name || '?';
+                      let mh = 0;
+                      for (let i = 0; i < mName.length; i++) mh = (mh * 31 + mName.charCodeAt(i)) | 0;
+                      const mColor = palette[Math.abs(mh) % palette.length];
+                      const mInitial = mName.charAt(0).toUpperCase();
+                      return (
+                        <Box
+                          key={mutual.userId}
+                          onClick={() => openMutualFriend(mutual)}
+                          sx={{
+                            display: 'flex', alignItems: 'center', gap: 1.5, py: 1, cursor: 'pointer',
+                            WebkitTapHighlightColor: 'transparent',
+                            '&:active': { opacity: 0.6 },
+                          }}
+                        >
+                          <Box sx={{
+                            position: 'relative', overflow: 'hidden',
+                            width: 38, height: 38, borderRadius: '50%', bgcolor: mColor,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                          }}>
+                            <Typography sx={{ color: '#fff', fontSize: 16, fontWeight: 700, lineHeight: 1 }}>{mInitial}</Typography>
+                            {mutual.avatarUrl && (
+                              <Box
+                                component="img"
+                                src={mutual.avatarUrl}
+                                alt=""
+                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover',
+                                  WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
+                              />
+                            )}
+                          </Box>
+                          <Typography sx={{ fontSize: 15, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {mutual.name}
+                          </Typography>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                </Box>
+              )
+            ) : friendRecipesLoading ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
                 <CircularProgress />
               </Box>
