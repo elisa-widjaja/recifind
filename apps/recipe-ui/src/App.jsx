@@ -7760,7 +7760,11 @@ function App() {
                 flex: 1, textAlign: 'center', py: 1, pb: 1.25, cursor: 'pointer',
                 borderBottom: '2px solid',
                 borderColor: active ? theme.palette.primary.main : 'transparent',
-                color: active ? theme.palette.primary.main : theme.palette.text.secondary,
+                // Active label is white in dark mode (the primary purple is hard
+                // to read there); keeps the brand color in light mode.
+                color: active
+                  ? (theme.palette.mode === 'dark' ? '#fff' : theme.palette.primary.main)
+                  : theme.palette.text.secondary,
                 WebkitTapHighlightColor: 'transparent',
               });
               return (
