@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, structuredHtml, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe, isAllowedSourceHost, isFacebookLinkShim, resolveSourceUrl, extractRecipeDetailsFromHtml, stripFacebookEngagementPrefix, geminiExtractFromCaption, facebookImageVision } from './index';
+import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, structuredHtml, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe, isAllowedSourceHost, isFacebookLinkShim, resolveSourceUrl, extractRecipeDetailsFromHtml, stripFacebookEngagementPrefix, geminiExtractFromCaption, facebookImageVision, extractFacebookPostMessage } from './index';
 import type { Env } from './index';
 
 describe('fetchRawRecipeText', () => {
@@ -192,6 +192,116 @@ describe('fetchOembedCaption', () => {
     );
     expect(result).toBeNull();
   });
+
+  // FB post pages serve the full caption ONLY in the embedded feed JSON
+  // ("message":{"text":"..."}), and only to a Googlebot UA — og:title is just
+  // the page name and og:description/twitter:description are capped ~200 chars.
+  const fbPostJsonHtml = `<html><head>
+    <meta property="og:title" content="Recipes Palace" />
+    <meta name="twitter:description" content="Honey Chili Coconut Chicken - A deliciously sweet and spicy Honey Chili Coconut Chicken that brings together creamy coconut, golden honey, and a..." />
+    </head><body><script>
+    {"message":{"text":"Recipes Palace"},"other":1}
+    {"message":{"text":"Honey Chili Coconut Chicken\\n\\n\\ud83c\\udf6f A deliciously sweet and spicy Honey Chili Coconut Chicken!\\n\\nIngredients:\\n\\n1 \\u00bd lbs (700 g) boneless, skinless chicken thighs\\n2 tbsp olive oil\\n4 cloves garlic, minced\\n\\nInstructions:\\n\\nSear the chicken until golden."}}
+    </script></body></html>`;
+
+  it('recovers the full FB post caption from embedded message JSON, preferring it over the truncated description', async () => {
+    const mockFetch = vi.fn(async () => ({ ok: true, text: async () => fbPostJsonHtml })) as unknown as typeof fetch;
+    const result = await fetchOembedCaption(
+      'https://www.facebook.com/61556380906367/posts/pfbid02abc/?d=n&mibextid=wwXIfr',
+      { fetchImpl: mockFetch }
+    );
+    expect(result).not.toBeNull();
+    expect(result).toContain('Ingredients:');
+    expect(result).toContain('1 ½ lbs (700 g) boneless, skinless chicken thighs');
+    expect(result).toContain('Sear the chicken until golden.');
+    // Real newlines, not literal \n escapes.
+    expect(result).not.toContain('\\n');
+  });
+
+  it('fetches FB post URLs with a Googlebot UA (posts serve the full page only to crawler UAs)', async () => {
+    const mockFetch = vi.fn(async () => ({ ok: true, text: async () => fbPostJsonHtml })) as unknown as typeof fetch;
+    await fetchOembedCaption(
+      'https://www.facebook.com/61556380906367/posts/pfbid02abc/',
+      { fetchImpl: mockFetch }
+    );
+    expect((mockFetch.mock.calls[0][1] as RequestInit).headers).toMatchObject({
+      'User-Agent': expect.stringContaining('Googlebot'),
+    });
+  });
+
+  it('keeps the iPhone UA for FB reel URLs', async () => {
+    const html = `<html><head><meta property="og:title" content="Full reel recipe with ingredients and steps that is long enough to win | Page | Facebook"></head></html>`;
+    const mockFetch = vi.fn(async () => ({ ok: true, text: async () => html })) as unknown as typeof fetch;
+    await fetchOembedCaption(
+      'https://www.facebook.com/reel/12345678/',
+      { fetchImpl: mockFetch }
+    );
+    expect((mockFetch.mock.calls[0][1] as RequestInit).headers).toMatchObject({
+      'User-Agent': expect.stringContaining('iPhone'),
+    });
+  });
+
+  // story.php / permalink.php / group-permalink forms serve a stub to
+  // datacenter IPs even with the Googlebot UA — the canonical /posts/ form is
+  // the one Facebook answers with the full page. Normalize before fetching.
+  it('normalizes m.facebook story.php to the canonical /posts/ form before fetching', async () => {
+    const mockFetch = vi.fn(async () => ({ ok: true, text: async () => fbPostJsonHtml })) as unknown as typeof fetch;
+    await fetchOembedCaption(
+      'https://m.facebook.com/story.php?story_fbid=pfbid0uCEtog&id=61556380906367&mibextid=wwXIfr',
+      { fetchImpl: mockFetch }
+    );
+    expect(String(mockFetch.mock.calls[0][0])).toBe('https://www.facebook.com/61556380906367/posts/pfbid0uCEtog/');
+    expect((mockFetch.mock.calls[0][1] as RequestInit).headers).toMatchObject({
+      'User-Agent': expect.stringContaining('Googlebot'),
+    });
+  });
+
+  it('normalizes group permalink URLs to the canonical groups /posts/ form before fetching', async () => {
+    const mockFetch = vi.fn(async () => ({ ok: true, text: async () => fbPostJsonHtml })) as unknown as typeof fetch;
+    await fetchOembedCaption(
+      'https://m.facebook.com/groups/514659721546955/permalink/1085167177829537/?mibextid=wwXIfr',
+      { fetchImpl: mockFetch }
+    );
+    expect(String(mockFetch.mock.calls[0][0])).toBe('https://www.facebook.com/groups/514659721546955/posts/1085167177829537/');
+  });
+
+  it('normalizes permalink.php to the canonical /posts/ form before fetching', async () => {
+    const mockFetch = vi.fn(async () => ({ ok: true, text: async () => fbPostJsonHtml })) as unknown as typeof fetch;
+    await fetchOembedCaption(
+      'https://www.facebook.com/permalink.php?story_fbid=123456&id=98765',
+      { fetchImpl: mockFetch }
+    );
+    expect(String(mockFetch.mock.calls[0][0])).toBe('https://www.facebook.com/98765/posts/123456/');
+  });
+
+  it('falls back to the truncated description when the FB post page has no message JSON', async () => {
+    const html = `<html><head>
+      <meta property="og:title" content="Recipes Palace" />
+      <meta name="twitter:description" content="Honey Chili Coconut Chicken - a deliciously sweet and spicy dinner idea for weeknights..." />
+      </head></html>`;
+    const mockFetch = vi.fn(async () => ({ ok: true, text: async () => html })) as unknown as typeof fetch;
+    const result = await fetchOembedCaption(
+      'https://www.facebook.com/61556380906367/posts/pfbid02abc/',
+      { fetchImpl: mockFetch }
+    );
+    expect(result).toContain('Honey Chili Coconut Chicken - a deliciously sweet and spicy dinner idea');
+  });
+});
+
+describe('extractFacebookPostMessage', () => {
+  it('returns the longest decoded message text from embedded JSON', () => {
+    const html = `{"message":{"text":"Short page name"}} {"message":{"text":"Long caption\\nwith \\u00bd cup sugar and \\"quoted\\" text"}}`;
+    expect(extractFacebookPostMessage(html)).toBe('Long caption\nwith ½ cup sugar and "quoted" text');
+  });
+
+  it('returns null when no message JSON is present', () => {
+    expect(extractFacebookPostMessage('<html><body>nothing here</body></html>')).toBeNull();
+  });
+
+  it('skips malformed escape sequences without throwing', () => {
+    const html = `{"message":{"text":"bad \\u00zz escape"}} {"message":{"text":"good caption text"}}`;
+    expect(extractFacebookPostMessage(html)).toBe('good caption text');
+  });
 });
 
 describe('captionExtract', () => {
@@ -251,6 +361,57 @@ describe('captionExtract', () => {
       longCaptionForCache,
       expect.objectContaining({ expirationTtl: expect.any(Number) })
     );
+  });
+
+  // A truncated FB caption (trailing "…" from the ~200-char og:description cap)
+  // cached before the Googlebot post-recovery shipped must NOT lock out the
+  // live fetch for its 7-day TTL — refetch, prefer the longer recovery, and
+  // overwrite the stale entry. The cached copy stays as fallback when the
+  // refetch loses the dice roll.
+  const truncatedFbCaption = 'Recipe by Facebook creator:\n\nCrockpot Korean Gochujang Pot Roast Tacos - melt-in-your-mouth beef slow-cooked in a spicy,...';
+  const fullFbCaption = 'Recipe by Facebook creator:\n\nCrockpot Korean Gochujang Pot Roast Tacos\n\nIngredients:\n- 3 lbs chuck roast\n- 1/4 cup gochujang\n\nInstructions:\n1. Sear the beef\n2. Slow-cook 8 hours';
+
+  it('refetches when the cached FB caption is truncated and overwrites the cache with the longer recovery', async () => {
+    const cacheGet = vi.fn(async () => truncatedFbCaption);
+    const cachePut = vi.fn(async () => {});
+    const env = { AI_PICKS_CACHE: { get: cacheGet, put: cachePut } } as unknown as Env;
+    const fetchOembedCaption = vi.fn(async () => fullFbCaption);
+    const deps = { ...baseDeps, fetchOembedCaption, fetchImpl: validGeminiFetch() };
+
+    const result = await captionExtract(env, 'https://m.facebook.com/story.php?story_fbid=pfbid0abc&id=123', '', deps);
+
+    expect(fetchOembedCaption).toHaveBeenCalled();
+    expect(cachePut).toHaveBeenCalledWith(
+      'caption:https://m.facebook.com/story.php?story_fbid=pfbid0abc&id=123',
+      fullFbCaption,
+      expect.objectContaining({ expirationTtl: expect.any(Number) })
+    );
+    expect(result.ingredients.length).toBeGreaterThan(0);
+  });
+
+  it('falls back to the cached truncated FB caption when the refetch fails, without re-writing the cache', async () => {
+    const cachePut = vi.fn(async () => {});
+    const env = { AI_PICKS_CACHE: { get: vi.fn(async () => truncatedFbCaption), put: cachePut } } as unknown as Env;
+    const fetchOembedCaption = vi.fn(async () => null);
+    const deps = { ...baseDeps, fetchOembedCaption, fetchImpl: validGeminiFetch() };
+
+    const result = await captionExtract(env, 'https://m.facebook.com/groups/1/permalink/2/', '', deps);
+
+    expect(fetchOembedCaption).toHaveBeenCalled();
+    expect(cachePut).not.toHaveBeenCalled();
+    // Still extracted from the cached truncated caption rather than bailing.
+    expect(result.ingredients.length).toBeGreaterThan(0);
+  });
+
+  it('does not refetch for a cached non-FB caption even when it ends with an ellipsis', async () => {
+    const igCaption = 'Recipe by Instagram creator:\n\nGreat pasta.\n\nIngredients:\n- 1 cup flour\n- 2 eggs\n\nSteps:\n1. Mix well and bake...';
+    const fetchOembedCaption = vi.fn(async () => 'SHOULD NOT BE CALLED');
+    const env = { AI_PICKS_CACHE: { get: vi.fn(async () => igCaption), put: vi.fn(async () => {}) } } as unknown as Env;
+    const deps = { ...baseDeps, fetchOembedCaption, fetchImpl: validGeminiFetch() };
+
+    await captionExtract(env, 'https://www.instagram.com/reel/ABC/', '', deps);
+
+    expect(fetchOembedCaption).not.toHaveBeenCalled();
   });
 
   it('does not cache a null/too-short caption (lets the next attempt retry IG)', async () => {
@@ -431,6 +592,12 @@ describe('facebookImageVision', () => {
     expect(result.ingredients).toContain('1 cup mayonnaise');
     expect(result.steps).toContain('Preheat oven to 375F');
     expect(result.provenance).toBe('extracted');
+  });
+
+  it('normalizes story.php to the canonical /posts/ form for the page fetch (m.facebook story stubs have no og:image)', async () => {
+    const fetchImpl = routedFetch();
+    await facebookImageVision(fakeEnv, 'https://m.facebook.com/story.php?story_fbid=pfbid0xyz&id=555', '', { ...baseDeps, fetchImpl });
+    expect(String((fetchImpl as any).mock.calls[0][0])).toBe('https://www.facebook.com/555/posts/pfbid0xyz/');
   });
 
   it('sends the image as inlineData base64 with a transcribe-only prompt', async () => {

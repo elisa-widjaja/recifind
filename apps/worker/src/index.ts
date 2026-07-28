@@ -5960,6 +5960,89 @@ function captionFromFacebookOgUrl(ogUrl: string): string | null {
   return text;
 }
 
+// True when a Facebook caption ends in the ellipsis FB appends when capping
+// og:description at ~200 chars — the marker that the full caption was cut.
+// Shared by the enrichment chain (device-caption partial detection) and
+// captionExtract (stale truncated cache detection).
+function looksTruncatedFacebookCaption(s: string): boolean {
+  return /(?:\.\.\.|…)\s*["'”’]?\s*$/.test(s);
+}
+
+// True for Facebook POST permalinks (timeline/page posts, group posts,
+// story.php/permalink.php forms) — as opposed to reels/videos. Posts never
+// carry the recipe in og tags: og:title is just the page name and every
+// anonymous description surface is capped ~200 chars. Their full caption
+// lives only in the embedded feed JSON, served to crawler UAs.
+function isFacebookPostUrl(rawUrl: string): boolean {
+  try {
+    const u = new URL(rawUrl);
+    if (!u.hostname.toLowerCase().includes('facebook.com')) return false;
+    if (/\/(?:story|permalink)\.php$/i.test(u.pathname)) return true;
+    return /\/posts\/|\/permalink\//i.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
+// Canonicalizes Facebook POST permalink variants to the `/posts/` form that
+// Facebook answers with the full page. The equivalent story.php /
+// permalink.php / group-permalink forms serve a stripped stub to datacenter
+// IPs even with the Googlebot UA (verified 2026-07-28: story.php failed from
+// the worker while the same post's /posts/ form succeeded); the canonical
+// forms are:
+//   story.php?story_fbid=<pfbid>&id=<page> → /<page>/posts/<pfbid>/
+//   /groups/<gid>/permalink/<pid>/         → /groups/<gid>/posts/<pid>/
+// Also swaps m.facebook.com → www.facebook.com. Returns null when the URL is
+// not a recognizable post permalink needing normalization.
+function normalizeFacebookPostUrl(rawUrl: string): string | null {
+  try {
+    const u = new URL(rawUrl);
+    if (!u.hostname.toLowerCase().includes('facebook.com')) return null;
+    if (/\/(?:story|permalink)\.php$/i.test(u.pathname)) {
+      const storyFbid = u.searchParams.get('story_fbid');
+      const pageId = u.searchParams.get('id');
+      if (storyFbid && pageId && /^\d+$/.test(pageId)) {
+        return `https://www.facebook.com/${pageId}/posts/${storyFbid}/`;
+      }
+      return null;
+    }
+    const groupMatch = u.pathname.match(/\/groups\/([^/]+)\/(?:permalink|posts)\/(\d+)/i);
+    if (groupMatch) {
+      return `https://www.facebook.com/groups/${groupMatch[1]}/posts/${groupMatch[2]}/`;
+    }
+    const postsMatch = u.pathname.match(/^\/([^/]+)\/posts\/([^/?#]+)/i);
+    if (postsMatch) {
+      return `https://www.facebook.com/${postsMatch[1]}/posts/${postsMatch[2]}/`;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Recovers the full post caption from the feed JSON Facebook embeds in the
+// post page HTML: `"message":{"text":"<caption>"}` (present several times —
+// page name, SEO block, feed story). Only the Googlebot UA fetch returns the
+// full page containing this JSON; browser UAs from datacenter IPs get a ~10KB
+// stub. Decodes the JSON string escapes (\n, \", \uXXXX) and returns the
+// longest candidate, which is the real caption when several texts appear.
+function extractFacebookPostMessage(html: string): string | null {
+  let best = '';
+  const re = /"message":\{"text":"((?:[^"\\]|\\.)*)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    let text: string;
+    try {
+      text = JSON.parse(`"${m[1]}"`);
+    } catch {
+      continue;
+    }
+    text = text.trim();
+    if (text.length > best.length) best = text;
+  }
+  return best || null;
+}
+
 function extractRecipeDetailsFromHtml(html: string, sourceUrl: string): ParsedRecipeDetails | null {
   if (!html) {
     return null;
@@ -6544,8 +6627,16 @@ async function fetchOembedCaption(
   // stub's og:url after the first attempt.
   let targetUrl = sourceUrl;
   if (isFacebook) {
-    targetUrl = normalizeFacebookVideoUrl(sourceUrl) ?? sourceUrl;
+    targetUrl = normalizeFacebookVideoUrl(sourceUrl)
+      ?? normalizeFacebookPostUrl(sourceUrl)
+      ?? sourceUrl;
   }
+  // FB POST permalinks (not reels/videos): no anonymous surface carries the
+  // full caption — og:title is the bare page name and og:/twitter:description
+  // cap at ~200 chars. A Googlebot UA is the one fetch FB answers with the
+  // full page, which embeds the complete caption as `"message":{"text":...}`
+  // JSON; extractFacebookPostMessage pulls it out below.
+  const isFacebookPost = isFacebook && isFacebookPostUrl(targetUrl);
   // FB og:url slug caption seen on a stub attempt — kept as the LAST resort,
   // returned only when no retry recovers a real og:description/og:title.
   let pendingSlugCaption: string | null = null;
@@ -6566,7 +6657,9 @@ async function fetchOembedCaption(
         // often, while an iPhone Safari UA gets the real og tags — same
         // per-platform split as DeviceMetadataFetcher.swift (keep in sync).
         headers: {
-          'User-Agent': isFacebook
+          'User-Agent': isFacebookPost
+            ? 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'
+            : isFacebook
             ? 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
             : 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -6594,7 +6687,11 @@ async function fetchOembedCaption(
         let best = '';
         const descCandidate = raw ? stripFacebookEngagementPrefix(decodeHtmlEntities(raw)) : '';
         const titleCandidate = rawTitle ? cleanFacebookOgTitle(decodeHtmlEntities(rawTitle)) : '';
-        for (const cand of [descCandidate, titleCandidate]) {
+        // Post pages fetched with the Googlebot UA embed the FULL caption as
+        // feed JSON — the gold candidate, always longer than the capped og
+        // descriptions when present.
+        const messageCandidate = extractFacebookPostMessage(html) ?? '';
+        for (const cand of [descCandidate, titleCandidate, messageCandidate]) {
           if (cand && !looksLikeFacebookGenericText(cand) && cand.length > best.length) best = cand;
         }
         if (best) {
@@ -6873,6 +6970,19 @@ async function captionExtract(
     // Best-effort cache read; fall through to a live fetch.
   }
 
+  // A cached TRUNCATED FB caption (trailing "…" — the ~200-char og:description
+  // cap, typically written by the device's captionProvided path) must not lock
+  // out the live fetch for its 7-day TTL: the Googlebot post recovery can often
+  // do better now. Refetch, keep the cached copy only as a fallback, and let
+  // the longer recovery overwrite the stale entry below.
+  let staleTruncatedCache: string | null = null;
+  const isFacebookSource = /facebook\.com|fb\.watch/i.test(sourceUrl);
+  if (caption !== null && isFacebookSource && looksTruncatedFacebookCaption(caption)) {
+    staleTruncatedCache = caption;
+    caption = null;
+    captionFromCache = false;
+  }
+
   if (caption === null) {
     try {
       caption = await captionFetcher(sourceUrl, {
@@ -6881,7 +6991,14 @@ async function captionExtract(
       });
     } catch (err) {
       console.log('[enrich]', { strategy: 'caption-extract', url: sourceUrl, outcome: 'error', duration_ms: Date.now() - startedAt, error: String(err) });
-      return EMPTY_ENRICHMENT;
+      caption = null;
+    }
+    // Refetch lost the dice roll or came back shorter than the stale cache —
+    // the truncated caption is still the best signal we have.
+    if (staleTruncatedCache && (!caption || caption.length <= staleTruncatedCache.length)) {
+      caption = staleTruncatedCache;
+      captionFromCache = true;
+      usedSlugFallback = false;
     }
   }
 
@@ -6978,7 +7095,11 @@ async function facebookImageVision(
 
   try {
     // Page fetch: same target normalization + iPhone UA as fetchOembedCaption.
-    const targetUrl = normalizeFacebookVideoUrl(sourceUrl) ?? sourceUrl;
+    // Post permalinks normalize to the /posts/ form — the m.facebook story.php
+    // stub carries no og:image while the canonical form's stub does.
+    const targetUrl = normalizeFacebookVideoUrl(sourceUrl)
+      ?? normalizeFacebookPostUrl(sourceUrl)
+      ?? sourceUrl;
     const pageResponse = await fetchImpl(targetUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
@@ -7228,7 +7349,7 @@ async function runEnrichmentChain(
     }
     const r = await strategies.captionProvided(env, cap, title);
     if (hasIngredientsOrSteps(r)) {
-      const truncatedFbCaption = isFacebookUrl && /(?:\.\.\.|…)\s*["'”’]?\s*$/.test(cap);
+      const truncatedFbCaption = isFacebookUrl && looksTruncatedFacebookCaption(cap);
       if (!truncatedFbCaption) {
         return { result: r, winningStrategy: 'caption-provided' };
       }
@@ -7972,6 +8093,7 @@ export {
   isAllowedSourceHost,
   isFacebookLinkShim,
   stripFacebookEngagementPrefix,
+  extractFacebookPostMessage,
   resolveSourceUrl,
   extractRecipeDetailsFromHtml,
   extractInstagramRecipeTitle,
