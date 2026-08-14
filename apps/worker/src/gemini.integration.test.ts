@@ -20,9 +20,10 @@ describe('Gemini integration', () => {
   it(
     'retrieves IG reel content via the proxy and receives JSON text from Gemini',
     async () => {
+      const geminiApiKey = process.env.GEMINI_API_KEY;
       const geminiKey = process.env.GEMINI_SERVICE_ACCOUNT_B64;
-      if (!geminiKey) {
-        throw new Error('GEMINI_SERVICE_ACCOUNT_B64 must be set via .dev.vars to run integration test');
+      if (!geminiApiKey && !geminiKey) {
+        throw new Error('GEMINI_API_KEY (or legacy GEMINI_SERVICE_ACCOUNT_B64) must be set via .dev.vars to run integration test');
       }
 
       const rawText = await fetchRawRecipeText(SOURCE_URL);
@@ -48,7 +49,7 @@ describe('Gemini integration', () => {
       };
 
       const prompt = buildGeminiPrompt(recipe as any, rawText);
-      const response = await callGemini({ GEMINI_SERVICE_ACCOUNT_B64: geminiKey } as Env, prompt);
+      const response = await callGemini({ GEMINI_API_KEY: geminiApiKey, GEMINI_SERVICE_ACCOUNT_B64: geminiKey } as Env, prompt);
       const parsed = parseGeminiRecipeJson(response);
 
       expect(response).toContain('"title"');

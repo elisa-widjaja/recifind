@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, structuredHtml, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe, isAllowedSourceHost, isFacebookLinkShim, resolveSourceUrl, extractRecipeDetailsFromHtml, stripFacebookEngagementPrefix, geminiExtractFromCaption, facebookImageVision, extractFacebookPostMessage } from './index';
+import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, structuredHtml, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe, isAllowedSourceHost, isFacebookLinkShim, resolveSourceUrl, extractRecipeDetailsFromHtml, stripFacebookEngagementPrefix, geminiExtractFromCaption, facebookImageVision, extractFacebookPostMessage, callGemini } from './index';
 import type { Env } from './index';
 
 describe('fetchRawRecipeText', () => {
@@ -1875,5 +1875,81 @@ describe('geminiExtractFromCaption', () => {
     });
     expect(result.ingredients).toEqual([]);
     expect(result.provenance).toBeNull();
+  });
+});
+
+describe('callGemini auth', () => {
+  const geminiOk = (text: string) => ({
+    ok: true,
+    json: async () => ({ candidates: [{ content: { parts: [{ text }] } }] })
+  });
+
+  it('uses x-goog-api-key when GEMINI_API_KEY is set and never mints an SA token', async () => {
+    let captured: Record<string, string> | undefined;
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      captured = init.headers as Record<string, string>;
+      return geminiOk('hello');
+    }) as unknown as typeof fetch;
+    const getAccessToken = vi.fn(async () => 'sa-token');
+    const getServiceAccount = vi.fn(async () => ({ project_id: 'p' }) as any);
+
+    const text = await callGemini({ GEMINI_API_KEY: 'test-key' } as unknown as Env, 'prompt', {
+      fetchImpl, getAccessToken, getServiceAccount,
+    });
+
+    expect(text).toBe('hello');
+    expect(captured?.['x-goog-api-key']).toBe('test-key');
+    expect(captured?.Authorization).toBeUndefined();
+    expect(captured?.['X-Goog-User-Project']).toBeUndefined();
+    expect(getAccessToken).not.toHaveBeenCalled();
+    expect(getServiceAccount).not.toHaveBeenCalled();
+  });
+
+  it('falls back to service-account bearer auth when GEMINI_API_KEY is absent', async () => {
+    let captured: Record<string, string> | undefined;
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      captured = init.headers as Record<string, string>;
+      return geminiOk('hello');
+    }) as unknown as typeof fetch;
+
+    const text = await callGemini({} as unknown as Env, 'prompt', {
+      fetchImpl,
+      getAccessToken: async () => 'sa-token',
+      getServiceAccount: async () => ({ project_id: 'proj-1' }) as any,
+    });
+
+    expect(text).toBe('hello');
+    expect(captured?.Authorization).toBe('Bearer sa-token');
+    expect(captured?.['X-Goog-User-Project']).toBe('proj-1');
+    expect(captured?.['x-goog-api-key']).toBeUndefined();
+  });
+});
+
+describe('runEnrichmentChain captionProvided errors', () => {
+  const filled = () => ({
+    title: 'x', imageUrl: '', mealTypes: [], cuisines: [],
+    ingredients: ['a'], steps: ['b'], durationMinutes: null, notes: '',
+    provenance: 'extracted' as const,
+  });
+  const empty = () => ({
+    title: '', imageUrl: '', mealTypes: [], cuisines: [],
+    ingredients: [], steps: [], durationMinutes: null, notes: '', provenance: null,
+  });
+
+  it('a throwing captionProvided strategy falls through instead of aborting the chain', async () => {
+    const strategies = {
+      structuredHtml: vi.fn(async () => empty()),
+      captionExtract: vi.fn(async () => filled()),
+      youtubeVideo: vi.fn(async () => empty()),
+      textInference: vi.fn(async () => empty()),
+      captionProvided: vi.fn(async () => { throw new Error('Gemini request failed: 403 PERMISSION_DENIED'); }),
+    };
+    const { winningStrategy, result } = await runEnrichmentChain(
+      {} as Env, 'https://www.instagram.com/reel/ABC/', '', strategies as any,
+      'Ingredients: 1 cup flour. Steps: mix well and bake until golden brown.'
+    );
+    expect(strategies.captionProvided).toHaveBeenCalledTimes(1);
+    expect(winningStrategy).toBe('caption-extract');
+    expect(result.ingredients).toEqual(['a']);
   });
 });

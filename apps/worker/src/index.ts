@@ -13,6 +13,10 @@ const MAX_PAGE_SIZE = 1000;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB per preview upload.
 const JWKS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes.
 const GEMINI_SCOPE = 'https://www.googleapis.com/auth/generative-language';
+// gemini-2.5-flash 404s for new API keys ("no longer available to new users",
+// 2026-08); 3.6-flash is the current stable Flash tier. NOTE: the GCP abuse-cap
+// quota preference is scoped per model — re-scope it when changing this.
+const GEMINI_MODEL = 'gemini-3.6-flash';
 
 export interface Env {
   DB: D1Database;
@@ -27,6 +31,7 @@ export interface Env {
   SUPABASE_STORAGE_BUCKET: string;
   SUPABASE_JWT_SECRET?: string;
   GEMINI_SERVICE_ACCOUNT_B64?: string;
+  GEMINI_API_KEY?: string;
   RESEND_API_KEY?: string;
   // === [S05] APNs secrets ===
   APNS_AUTH_KEY_P8?: string;
@@ -3175,7 +3180,7 @@ async function handleEnrichRecipe(request: Request, env: Env) {
     throw new HttpError(400, 'That Facebook link is a redirect, not a recipe. Paste the reel or video link directly.');
   }
 
-  if (!env.GEMINI_SERVICE_ACCOUNT_B64) {
+  if (!env.GEMINI_API_KEY && !env.GEMINI_SERVICE_ACCOUNT_B64) {
     throw new HttpError(503, 'Enrichment service is not configured');
   }
 
@@ -3480,7 +3485,7 @@ export async function handleReEnrichRecipe(
   deps: { runEnrichmentChain?: typeof runEnrichmentChain } = {},
   caption?: string
 ) {
-  if (!env.GEMINI_SERVICE_ACCOUNT_B64) {
+  if (!env.GEMINI_API_KEY && !env.GEMINI_SERVICE_ACCOUNT_B64) {
     throw new HttpError(503, 'Enrichment service is not configured');
   }
 
@@ -7347,7 +7352,16 @@ async function runEnrichmentChain(
         await env.AI_PICKS_CACHE?.put(`caption:${resolvedUrl}`, cap, { expirationTtl: 7 * 24 * 60 * 60 });
       } catch { /* best-effort cache write */ }
     }
-    const r = await strategies.captionProvided(env, cap, title);
+    // Errors fall through to the rest of the chain like every other strategy
+    // (the others catch internally); an uncaught throw here would turn a Gemini
+    // outage into a 500 on re-enrich instead of a title-only degrade.
+    let r: EnrichmentResult;
+    try {
+      r = await strategies.captionProvided(env, cap, title);
+    } catch (err) {
+      console.log('[enrich]', { strategy: 'caption-provided', url: resolvedUrl, captionLength: cap.length, outcome: 'error', error: String(err) });
+      r = EMPTY_ENRICHMENT;
+    }
     if (hasIngredientsOrSteps(r)) {
       const truncatedFbCaption = isFacebookUrl && looksTruncatedFacebookCaption(cap);
       if (!truncatedFbCaption) {
@@ -7439,7 +7453,7 @@ export async function enrichAfterSave(
   title: string,
   deps: { runEnrichmentChain?: typeof runEnrichmentChain } = {}
 ): Promise<void> {
-  if (!sourceUrl || !env.GEMINI_SERVICE_ACCOUNT_B64) return;
+  if (!sourceUrl || (!env.GEMINI_API_KEY && !env.GEMINI_SERVICE_ACCOUNT_B64)) return;
 
   const resolvedUrl = await resolveSourceUrl(sourceUrl);
   const startedAt = Date.now();
@@ -7881,16 +7895,28 @@ async function callGemini(env: Env, prompt: string, deps: CallGeminiDeps = {}) {
     videoUrl,
     imageInline
   } = deps;
-  const token = await getAccessToken(env);
-  const serviceAccount = await getServiceAccount(env);
+  // Google rejects service-account OAuth tokens on the Gemini Developer API
+  // (403 PERMISSION_DENIED "restricted with service accounts", 2026-08), so an
+  // API key is the primary auth; the SA token path remains only as a fallback
+  // for environments where GEMINI_API_KEY is not yet set.
+  let authHeaders: Record<string, string>;
+  if (env.GEMINI_API_KEY) {
+    authHeaders = { 'x-goog-api-key': env.GEMINI_API_KEY };
+  } else {
+    const token = await getAccessToken(env);
+    const serviceAccount = await getServiceAccount(env);
+    authHeaders = {
+      Authorization: `Bearer ${token}`,
+      ...(serviceAccount.project_id ? { 'X-Goog-User-Project': serviceAccount.project_id } : {})
+    };
+  }
   const response = await fetchImpl(
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
     {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        ...(serviceAccount.project_id ? { 'X-Goog-User-Project': serviceAccount.project_id } : {})
+        ...authHeaders,
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         contents: [
@@ -7918,8 +7944,10 @@ async function callGemini(env: Env, prompt: string, deps: CallGeminiDeps = {}) {
           // drop ingredients/steps. All three callGemini callers are recipe
           // extraction calls that already expect JSON, so this is uniform.
           responseMimeType: 'application/json',
+          // Gemini 3.x replaces the 2.5-era thinkingBudget with named levels;
+          // 'minimal' is the floor (thinking can't be fully disabled).
           thinkingConfig: {
-            thinkingBudget: 0
+            thinkingLevel: 'minimal'
           }
         }
       })
