@@ -533,6 +533,41 @@ export default {
         return await handleTestNudgeEmail({ env, user, adminEmails: env.ADMIN_EMAILS, request });
       }
 
+      // Dev-only fetch probe: shows how an external host answers ONE request
+      // (status + location + og:url) from the worker's datacenter vantage,
+      // where redirect behavior differs from residential IPs (e.g. FB login
+      // loops). Gated to DEV_API_KEY callers. Removable once fb.watch
+      // resolution is settled.
+      if (url.pathname === '/admin/fetch-probe' && request.method === 'POST') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        if (user.userId !== 'dev-user') throw new HttpError(403, 'DEV_API_KEY required');
+        const body = await request.json() as { url?: string; ua?: string; method?: string };
+        if (!body.url || !/^https:\/\/(r\.jina\.ai\/https:\/\/)?([a-z0-9-]+\.)*(facebook\.com|fb\.watch)\//i.test(body.url)) {
+          throw new HttpError(400, 'url must be a facebook.com or fb.watch https URL (optionally via r.jina.ai)');
+        }
+        const uas: Record<string, string> = {
+          iphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+          googlebot: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+          bot: 'Mozilla/5.0 (compatible; RecipeBot/1.0)',
+        };
+        const method = body.method === 'GET' ? 'GET' : 'HEAD';
+        const resp = await fetch(body.url, {
+          method,
+          redirect: 'manual',
+          headers: { 'User-Agent': uas[body.ua ?? 'iphone'] ?? uas.iphone },
+        });
+        let ogUrl: string | null = null;
+        let htmlBytes = 0;
+        let bodyHead: string | null = null;
+        if (method === 'GET' && resp.ok) {
+          const html = await resp.text();
+          htmlBytes = html.length;
+          ogUrl = extractMetaContent(html, 'property', 'og:url');
+          bodyHead = html.slice(0, 600);
+        }
+        return json({ status: resp.status, location: resp.headers.get('location'), ogUrl, htmlBytes, bodyHead });
+      }
+
       // Dev-only push tester. Bypasses friend/canView checks so we can verify
       // APNs end-to-end without setting up a real share. Gated to DEV_API_KEY
       // callers only (user.userId === 'dev-user'). Removable once push is
@@ -6540,6 +6575,41 @@ function isFacebookLinkShim(parsedUrl: URL): boolean {
   return parsedUrl.searchParams.has('u');
 }
 
+// fetch with MANUAL redirect-following, hard-capped at `maxHops`. Facebook
+// serves datacenter IPs an endlessly-NESTING login redirect for fb.watch links
+// (login/?next=login/?next=...), so redirect:'follow' burns ~20 subrequests per
+// fetch (Cloudflare counts every hop) and one enrich request blows the whole
+// 50-subrequest budget — every later fetch dies with "Too many subrequests".
+// Returns the final response (non-redirect, or the last 3xx when capped).
+async function fetchFollowCapped(input: string, init: RequestInit = {}, maxHops = 3): Promise<Response> {
+  let current = input;
+  for (let hop = 0; ; hop++) {
+    const response = await fetch(current, { ...init, redirect: 'manual' });
+    const location = response.status >= 300 && response.status < 400
+      ? response.headers.get('location')
+      : null;
+    if (!location || hop >= maxHops - 1) return response;
+    const next = new URL(location, current).toString();
+    // Never follow INTO a login wall — it only nests deeper. Hand the 3xx back
+    // so callers can see the login Location and stop retrying.
+    if (next === current || isFacebookLoginWallUrl(next)) return response;
+    current = next;
+  }
+}
+
+// True for Facebook's login-wall URLs (www.facebook.com/login.php?next=...,
+// www.fb.watch/login/?next=...) — the dead-end FB redirects datacenter IPs to.
+function isFacebookLoginWallUrl(rawUrl: string): boolean {
+  try {
+    const u = new URL(rawUrl);
+    const host = u.hostname.toLowerCase();
+    const isFb = host.includes('facebook.com') || host === 'fb.watch' || host.endsWith('.fb.watch');
+    return isFb && u.pathname.toLowerCase().startsWith('/login');
+  } catch {
+    return false;
+  }
+}
+
 // Resolve iOS Share Extension short URLs (vm.tiktok.com, tiktok.com/t/..., etc.)
 // to their canonical form and strip tracking params. r.jina.ai and oEmbed both
 // return better results when given the fully-expanded URL.
@@ -6564,16 +6634,47 @@ async function resolveSourceUrl(sourceUrl: string): Promise<string> {
 
     if (!needsResolve) return clean.toString();
 
+    // Follow redirects MANUALLY, hard-capped at 3 hops. redirect:'follow'
+    // counts every hop against the invocation's 50-subrequest budget, and FB
+    // serves datacenter IPs a login-redirect loop for fb.watch links — one
+    // resolve then burns the whole budget and every later fetch in the enrich
+    // request dies with "Too many subrequests". FB also gets the iPhone Safari
+    // UA (same split as fetchOembedCaption): the bot UA is what draws the
+    // login-wall redirect in the first place.
+    const isFacebookShort =
+      parsed.hostname === 'fb.watch' ||
+      parsed.hostname.endsWith('.fb.watch') ||
+      parsed.hostname.endsWith('facebook.com');
+    const userAgent = isFacebookShort
+      ? 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
+      : 'Mozilla/5.0 (compatible; RecipeBot/1.0)';
+
+    const MAX_HOPS = 3;
+    let current = clean.toString();
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     try {
-      const response = await fetch(clean.toString(), {
-        method: 'HEAD',
-        redirect: 'follow',
-        signal: controller.signal,
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)' },
-      });
-      return response.url || clean.toString();
+      for (let hop = 0; hop < MAX_HOPS; hop++) {
+        const response = await fetch(current, {
+          method: 'HEAD',
+          redirect: 'manual',
+          signal: controller.signal,
+          headers: { 'User-Agent': userAgent },
+        });
+        const location = response.status >= 300 && response.status < 400
+          ? response.headers.get('location')
+          : null;
+        console.log('[resolve]', { hop, url: current.slice(0, 120), status: response.status, location: location ? location.slice(0, 120) : null });
+        if (!location) break;
+        const next = new URL(location, current).toString();
+        if (next === current) break;
+        current = next;
+        // A login-wall hop never leads anywhere useful — FB nests
+        // login/?next=login/?next=... forever. Bail out with the ORIGINAL url
+        // so the login URL never becomes the cache key / strategy target.
+        if (isFacebookLoginWallUrl(current)) return clean.toString();
+      }
+      return isFacebookLoginWallUrl(current) ? clean.toString() : current;
     } finally {
       clearTimeout(timeoutId);
     }
@@ -6608,7 +6709,9 @@ async function fetchOembedCaption(
   sourceUrl: string,
   deps: FetchOembedCaptionDeps = {}
 ): Promise<string | null> {
-  const { fetchImpl = fetch } = deps;
+  // Default goes through fetchFollowCapped: FB login-redirect loops otherwise
+  // eat the invocation's subrequest budget (see that helper's comment).
+  const { fetchImpl = fetchFollowCapped } = deps;
   let parsed: URL;
   let isInstagram = false;
   let isTikTok = false;
@@ -6672,6 +6775,12 @@ async function fetchOembedCaption(
         },
       });
       if (!response.ok) {
+        // A redirect into the FB login wall is deterministic for this
+        // invocation's IP — further attempts are wasted subrequests.
+        const redirectTarget = response.status >= 300 && response.status < 400
+          ? response.headers.get('location')
+          : null;
+        if (redirectTarget && isFacebookLoginWallUrl(new URL(redirectTarget, targetUrl).toString())) break;
         if (isLast) break;
         continue;
       }
@@ -7087,7 +7196,8 @@ async function facebookImageVision(
   deps: ImageVisionDeps = {}
 ): Promise<EnrichmentResult> {
   const startedAt = Date.now();
-  const fetchImpl = deps.fetchImpl ?? fetch;
+  // Capped default for the same subrequest-budget reason as fetchOembedCaption.
+  const fetchImpl = deps.fetchImpl ?? fetchFollowCapped;
 
   let host: string;
   try {
@@ -7749,12 +7859,12 @@ async function fetchOgImage(sourceUrl: string | undefined): Promise<string | nul
   }
 
   try {
-    const response = await fetch(sourceUrl, {
+    // Capped manual redirects — same subrequest-budget guard as fetchOembedCaption.
+    const response = await fetchFollowCapped(sourceUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)',
         'Accept': 'text/html'
-      },
-      redirect: 'follow'
+      }
     });
     if (!response.ok) {
       return null;

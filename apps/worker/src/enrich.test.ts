@@ -1585,14 +1585,82 @@ describe('Facebook allowlist + resolution', () => {
     expect(isAllowedSourceHost('fb.watch.evil.com')).toBe(false);
   });
 
-  it('resolves an fb.watch short link to its canonical url via HEAD redirect', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-      ok: true,
-      url: 'https://www.facebook.com/reel/123456789',
-    })) as unknown as typeof fetch);
+  it('resolves an fb.watch short link by following redirects manually with the iPhone UA', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ status: 302, headers: new Headers({ location: 'https://www.facebook.com/reel/123456789' }) })
+      .mockResolvedValueOnce({ status: 200, headers: new Headers() });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
 
     const resolved = await resolveSourceUrl('https://fb.watch/abc123/');
     expect(resolved).toBe('https://www.facebook.com/reel/123456789');
+    // FB serves bot-shaped UAs a login-redirect loop; resolution must present
+    // the same iPhone Safari UA the caption fetch uses.
+    const headers = (fetchMock.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
+    expect(headers['User-Agent']).toContain('iPhone');
+  });
+
+  it('resolves a relative Location header against the current url', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ status: 301, headers: new Headers({ location: '/watch/?v=42' }) })
+      .mockResolvedValueOnce({ status: 200, headers: new Headers() });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    const resolved = await resolveSourceUrl('https://fb.watch/abc123/');
+    expect(resolved).toBe('https://fb.watch/watch/?v=42');
+  });
+
+  it('returns the original url when resolution dead-ends at a facebook login wall', async () => {
+    const fetchMock = vi.fn(async (url: string) => ({
+      status: 302,
+      headers: new Headers({ location: `https://www.fb.watch/login/?next=${encodeURIComponent(url)}` }),
+    }));
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    const resolved = await resolveSourceUrl('https://fb.watch/abc123/');
+    expect(resolved).toBe('https://fb.watch/abc123/');
+  });
+
+  it('fetchOembedCaption default fetch caps redirect hops on a login-redirect loop', async () => {
+    let n = 0;
+    const fetchMock = vi.fn(async (url: string) => ({
+      ok: false,
+      status: 302,
+      headers: new Headers({ location: `https://www.fb.watch/login/?next=${encodeURIComponent(url)}&n=${n++}` }),
+    }));
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    const caption = await fetchOembedCaption('https://fb.watch/abc123/');
+    expect(caption).toBeNull();
+    // The login-wall redirect is detected on the first attempt and retries
+    // stop; redirect:'follow' would have burned ~20 subrequests per attempt on
+    // the endlessly-nesting login loop.
+    expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(3);
+  });
+
+  it('caps a redirect loop at 3 hops instead of exhausting the subrequest budget', async () => {
+    const fetchMock = vi.fn(async (url: string) => ({
+      status: 302,
+      headers: new Headers({
+        location: url.includes('/pong/') ? 'https://fb.watch/ping/' : 'https://fb.watch/pong/',
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    const resolved = await resolveSourceUrl('https://fb.watch/abc123/');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(typeof resolved).toBe('string');
+  });
+
+  it('keeps the non-facebook short-link UA for tiktok resolution', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ status: 302, headers: new Headers({ location: 'https://www.tiktok.com/@user/video/999' }) })
+      .mockResolvedValueOnce({ status: 200, headers: new Headers() });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    const resolved = await resolveSourceUrl('https://vm.tiktok.com/ZM123/');
+    expect(resolved).toBe('https://www.tiktok.com/@user/video/999');
+    const headers = (fetchMock.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
+    expect(headers['User-Agent']).toContain('RecipeBot');
   });
 });
 
