@@ -4,6 +4,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, Button,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import badgeIcon from '../assets/founding-chef.png';
 
 const API_BASE_URL = import.meta.env.VITE_RECIPES_API_BASE_URL || '';
 
@@ -334,36 +335,64 @@ export default function SuggestionsShelf({ accessToken, onOpenFriends, onTapCard
               >
                 <CloseIcon sx={{ fontSize: v.closeIcon }} />
               </IconButton>
-              <Box
-                sx={{
-                  position: 'relative',
-                  width: v.avatarSize,
-                  height: v.avatarSize,
-                  borderRadius: '50%',
-                  background: gradientFor(s.userId),
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: v.avatarFont,
-                  fontWeight: 700,
-                  color: '#fff',
-                  flexShrink: 0,
-                  overflow: 'hidden',
-                }}
-              >
-                {/* Gradient initial is the backdrop; the photo overlays it and
-                    hides itself if it fails to load, falling back to the
-                    initial instead of a broken-image icon. */}
-                {initialOf(s.name)}
-                {s.avatarUrl && (
+              <Box sx={{ position: 'relative', flexShrink: 0 }}>
+                <Box
+                  sx={{
+                    position: 'relative',
+                    width: v.avatarSize,
+                    height: v.avatarSize,
+                    borderRadius: '50%',
+                    background: gradientFor(s.userId),
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: v.avatarFont,
+                    fontWeight: 700,
+                    color: '#fff',
+                    flexShrink: 0,
+                    overflow: 'hidden',
+                  }}
+                >
+                  {/* Gradient initial is the backdrop; the photo overlays it and
+                      hides itself if it fails to load, falling back to the
+                      initial instead of a broken-image icon. */}
+                  {initialOf(s.name)}
+                  {s.avatarUrl && (
+                    <Box
+                      component="img"
+                      src={s.avatarUrl}
+                      alt=""
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover',
+                        // Suppress iOS WKWebView long-press image menu on this avatar.
+                        WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
+                    />
+                  )}
+                </Box>
+                {s.foundingChefAt && (
                   <Box
                     component="img"
-                    src={s.avatarUrl}
-                    alt=""
-                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                    sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover',
-                      // Suppress iOS WKWebView long-press image menu on this avatar.
-                      WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
+                    src={badgeIcon}
+                    alt="Founding Chef"
+                    sx={(theme) => {
+                      // Cutout ring, same look as the friends-list badge. Cards
+                      // are transparent in dark mode, so the ring matches the
+                      // surface behind the card: the add-friend drawer paper
+                      // (#212328) for the compact variant, the page background
+                      // for the feed variant. Light-mode cards are paper.
+                      const ring = theme.palette.mode === 'dark'
+                        ? (variant === 'compact' ? '#212328' : theme.palette.background.default)
+                        : theme.palette.background.paper;
+                      return {
+                        position: 'absolute', bottom: -3, right: -3,
+                        width: v.avatarSize >= 48 ? 20 : 18,
+                        height: v.avatarSize >= 48 ? 20 : 18,
+                        borderRadius: '50%',
+                        border: '2px solid',
+                        borderColor: ring,
+                        bgcolor: ring,
+                      };
+                    }}
                   />
                 )}
               </Box>

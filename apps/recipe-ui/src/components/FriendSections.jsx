@@ -38,6 +38,9 @@ function timeAgo(iso) {
  *   onDeclineFriendRequest?: (fromUserId) => Promise<void> — called when user taps Decline on a friend_request activity item
  */
 export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe, onShareRecipe, onInviteFriend, onOpenFriends, onSuggestionTap, onOpenFriendRecipes, onAcceptFriendRequest, onDeclineFriendRequest, darkMode, onCookWithFriendsVisible, onReady }) {
+  // NOTE: onOpenFriends also doubles as the tap target for reward_granted
+  // activity rows (Founding Chef notification) — same "go to Friends tab"
+  // action as the "See all" link on the suggestions shelf.
   const [unifiedFeed, setUnifiedFeed] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [requestDialogItem, setRequestDialogItem] = useState(null);
@@ -188,6 +191,7 @@ export default function FriendSections({ accessToken, onOpenRecipe, onSaveRecipe
               onOpenRecipe={onOpenRecipe}
               onOpenFriendRequest={(it) => setRequestDialogItem(it)}
               onOpenFriendRecipes={onOpenFriendRecipes}
+              onOpenFriends={onOpenFriends}
             />
           </Box>
         )
@@ -372,7 +376,7 @@ function FriendActivitySkeleton() {
   );
 }
 
-function FriendActivityTicker({ title, items, onOpenRecipe, onOpenFriendRequest, onOpenFriendRecipes }) {
+function FriendActivityTicker({ title, items, onOpenRecipe, onOpenFriendRequest, onOpenFriendRecipes, onOpenFriends }) {
   // Cap the pool the ticker will ever surface. Excess items are dropped.
   const cappedItems = items.slice(0, FA_MAX_ITEMS);
   const [idx, setIdx] = useState(0);
@@ -473,7 +477,7 @@ function FriendActivityTicker({ title, items, onOpenRecipe, onOpenFriendRequest,
         {Header}
         <Stack spacing={`${FA_GAP}px`}>
           {cappedItems.map((item) => (
-            <ActivityStrip key={item.id} item={item} onOpenRecipe={onOpenRecipe} onOpenFriendRequest={onOpenFriendRequest} onOpenFriendRecipes={onOpenFriendRecipes} />
+            <ActivityStrip key={item.id} item={item} onOpenRecipe={onOpenRecipe} onOpenFriendRequest={onOpenFriendRequest} onOpenFriendRecipes={onOpenFriendRecipes} onOpenFriends={onOpenFriends} />
           ))}
         </Stack>
         <Typography
@@ -533,6 +537,7 @@ function FriendActivityTicker({ title, items, onOpenRecipe, onOpenFriendRequest,
               onOpenRecipe={onOpenRecipe}
               onOpenFriendRequest={onOpenFriendRequest}
               onOpenFriendRecipes={onOpenFriendRecipes}
+              onOpenFriends={onOpenFriends}
             />
           ))}
         </Box>
@@ -557,7 +562,7 @@ function FriendActivityTicker({ title, items, onOpenRecipe, onOpenFriendRequest,
 }
 
 // Single activity row rendered as a pill-card strip with its own shadow.
-function ActivityStrip({ item, onOpenRecipe, onOpenFriendRequest, onOpenFriendRecipes }) {
+function ActivityStrip({ item, onOpenRecipe, onOpenFriendRequest, onOpenFriendRecipes, onOpenFriends }) {
   return (
     <Box sx={{
       bgcolor: 'background.paper',
@@ -568,7 +573,7 @@ function ActivityStrip({ item, onOpenRecipe, onOpenFriendRequest, onOpenFriendRe
       minHeight: FA_ROW_HEIGHT,
       display: 'flex', alignItems: 'center',
     }}>
-      <ActivityItem item={item} onOpenRecipe={onOpenRecipe} onOpenFriendRequest={onOpenFriendRequest} onOpenFriendRecipes={onOpenFriendRecipes} />
+      <ActivityItem item={item} onOpenRecipe={onOpenRecipe} onOpenFriendRequest={onOpenFriendRequest} onOpenFriendRecipes={onOpenFriendRecipes} onOpenFriends={onOpenFriends} />
     </Box>
   );
 }
@@ -676,7 +681,7 @@ const RECIPE_TYPES = new Set([
   'friend_saved_your_recipe',
 ]);
 
-export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest, onOpenFriendRecipes }) {
+export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest, onOpenFriendRecipes, onOpenFriends }) {
   const friendName = item.friendName ?? '?';
   // Hash friendName (string-safe; same friend gets the same color across
   // multiple activities). The previous version hashed item.id which broke
@@ -699,18 +704,25 @@ export function ActivityItem({ item, onOpenRecipe, onOpenFriendRequest, onOpenFr
     item.fromUserId.length > 0 &&
     !item.resolved;
   const isResolvedFriendRequest = item.type === 'friend_request' && item.resolved;
-  const isClickable = isRecipeNotif || isFriendRequest;
+  // reward_granted (Founding Chef badge earned) has no recipe/actor — tapping
+  // it takes the user to the Friends tab, same destination as "See all" on
+  // the suggestions shelf, so they can see the badge on their own profile.
+  const isRewardGranted = item.type === 'reward_granted';
+  const isClickable = isRecipeNotif || isFriendRequest || isRewardGranted;
 
   function handleClick() {
     if (isRecipeNotif) onOpenRecipe?.(item.recipe);
     else if (isFriendRequest) onOpenFriendRequest?.(item);
+    else if (isRewardGranted) onOpenFriends?.();
   }
 
   const ariaLabel = isRecipeNotif
     ? `View ${item.recipe.title}`
     : isFriendRequest
       ? `Respond to friend request from ${friendName}`
-      : undefined;
+      : isRewardGranted
+        ? 'View Friends'
+        : undefined;
 
   return (
     <Box

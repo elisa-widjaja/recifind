@@ -116,6 +116,8 @@ import OnboardingDrawer from './components/OnboardingDrawer';
 import SettingsDrawer from './components/SettingsDrawer';
 import FriendsPage from './components/FriendsPage';
 import AddFriendDrawer from './components/AddFriendDrawer';
+import ReferralProgramDialog from './components/ReferralProgramDialog';
+import foundingChefBadge from './assets/founding-chef.png';
 import SourcesWorkflowRow from './components/SourcesWorkflowRow';
 // === [S04] Friend picker wiring ===
 import { FriendPicker } from './components/FriendPicker';
@@ -1373,6 +1375,11 @@ function App() {
   // (which was used inside the old friends drawer; that surface is now
   // page-based and the FAB on FriendsPage opens this drawer instead).
   const [addFriendDrawerOpen, setAddFriendDrawerOpen] = useState(false);
+  // Founding Chef dialog (milestone re-surfacing variant of ReferralProgramCard).
+  // See maybeShowReferralDialog below for eligibility + trigger wiring.
+  const [referralDialogOpen, setReferralDialogOpen] = useState(false);
+  const [referralDialogProgress, setReferralDialogProgress] = useState(null);
+  const referralDialogFiredRef = useRef(false);
   // Bumped when the user taps "Get started" so OnboardingChecklist remounts
   // and re-reads the now-set onboarding_checklist_collapsed sessionStorage
   // flag (its useState initial only runs once at mount).
@@ -3105,7 +3112,7 @@ function App() {
   // friend, enrich from the friends list so we go through the friend path and
   // the "Connected" badge shows. Otherwise fall back to the suggestion path,
   // which loads shared recipes without a friendship.
-  const openFriendByRef = ({ userId, name, avatarUrl }) => {
+  const openFriendByRef = ({ userId, name, avatarUrl, foundingChefAt }) => {
     const existing = friends.find((f) => f.friendId === userId);
     if (existing) {
       // fetchFriendRecipes assumes the drawer is already open (its other
@@ -3114,7 +3121,7 @@ function App() {
       setIsFriendsDialogOpen(true);
       fetchFriendRecipes(existing);
     } else {
-      fetchSuggestionRecipes({ userId, name, avatarUrl });
+      fetchSuggestionRecipes({ userId, name, avatarUrl, foundingChefAt });
     }
   };
 
@@ -3154,6 +3161,33 @@ function App() {
   // open (i.e. tapped from FriendSections) — header hides the "← Friends"
   // back row so swipe-down is the only way back, returning to home rather
   // than to the friends list.
+  // "Connect" CTA on the friend drawer header for not-yet-connected users
+  // (suggestion previews). Same POST /friends/request {userId} the suggestion
+  // cards use; requestSent is tracked on selectedFriend so the CTA flips to
+  // "Requested" and resets naturally when a different drawer opens.
+  const sendDrawerConnect = async () => {
+    const targetId = selectedFriend?.friendId;
+    if (!targetId) return;
+    setSelectedFriend((prev) => (prev ? { ...prev, requestSent: true } : prev));
+    try {
+      await callRecipesApi('/friends/request', {
+        method: 'POST',
+        body: JSON.stringify({ userId: targetId }),
+      }, accessToken);
+      trackEvent('send_friend_request', { source: 'friend_drawer' });
+      setSnackbarState({ open: true, message: 'Friend request sent!', severity: 'success' });
+      fetchFriendRequests();
+    } catch (error) {
+      const msg = error.message || '';
+      // "already sent" / "already friends" keep the Requested state; anything
+      // else reverts the CTA so the user can retry.
+      if (!msg.includes('already')) {
+        setSelectedFriend((prev) => (prev ? { ...prev, requestSent: false } : prev));
+        setSnackbarState({ open: true, message: msg || 'Could not send request.', severity: 'error' });
+      }
+    }
+  };
+
   const fetchSuggestionRecipes = async (suggestion) => {
     const fromHomeFeed = !isFriendsDialogOpen;
     trackEvent('view_suggestion_recipes', { name: suggestion.name || '' });
@@ -3162,6 +3196,8 @@ function App() {
       friendId: suggestion.userId,
       friendName: suggestion.name,
       avatarUrl: suggestion.avatarUrl ?? null,
+      foundingChefAt: suggestion.foundingChefAt ?? null,
+      requestSent: !!suggestion.requestSent,
       isSuggestion: true,
       fromHomeFeed,
     });
@@ -3862,6 +3898,65 @@ function App() {
     }
     syncRecipesFromApi();
   }, [isRemoteEnabled, isAuthChecked, syncRecipesFromApi]);
+
+  // ---- Founding Chef dialog (milestone re-surfacing) ----
+  // Eligibility mirrors the worker's shouldShowReferralDialog (src/referrals.ts)
+  // exactly: 10+ recipes, badge not earned, dialog not yet acted on, and
+  // (never shown OR current count >= last-shown-count + 10). At most one show
+  // per app session, enforced by referralDialogFiredRef; the server-side
+  // shown-at-count makes double-triggering across sessions harmless too.
+  const maybeShowReferralDialog = useCallback(async () => {
+    if (referralDialogFiredRef.current) return;
+    if (!accessToken) return;
+    // Cheap local pre-filter so clearly-ineligible users (the majority) never
+    // hit the progress endpoint on every launch/foreground/save. Threshold is
+    // 9, not 10, because local state can lag one save behind the server (the
+    // post-import trigger fires before the new recipe lands in `recipes`).
+    // Only ever used to skip; the server count decides actual eligibility.
+    if (recipes.length < 9) return;
+    try {
+      const progress = await callRecipesApi('/friends/referral-progress', {}, accessToken);
+      if (!progress) return;
+      const recipeCount = progress.recipeCount ?? 0;
+      const eligible = !progress.foundingChefAt
+        && !progress.dialogActedAt
+        && recipeCount >= 10
+        && (progress.dialogShownAtCount == null || recipeCount >= progress.dialogShownAtCount + 10);
+      if (!eligible) return;
+      referralDialogFiredRef.current = true;
+      setReferralDialogProgress(progress);
+      setTimeout(() => {
+        setReferralDialogOpen(true);
+      }, 3000);
+      callRecipesApi('/friends/referral-dialog-event', {
+        method: 'POST',
+        body: JSON.stringify({ event: 'shown' }),
+      }, accessToken).catch(() => {});
+    } catch {
+      // best-effort; never block the UI on this
+    }
+  }, [accessToken, recipes.length]);
+
+  // Trigger 1: app launch, once the session is ready and the recipe list has
+  // rendered (remoteState reaches 'success' after syncRecipesFromApi above).
+  useEffect(() => {
+    if (!accessToken) return;
+    if (remoteState.status !== 'success') return;
+    maybeShowReferralDialog();
+  }, [accessToken, remoteState.status, maybeShowReferralDialog]);
+
+  const handleReferralDialogInvite = () => {
+    setReferralDialogOpen(false);
+    callRecipesApi('/friends/referral-dialog-event', {
+      method: 'POST',
+      body: JSON.stringify({ event: 'acted' }),
+    }, accessToken).catch(() => {});
+    setAddFriendDrawerOpen(true);
+  };
+
+  const handleReferralDialogDismiss = () => {
+    setReferralDialogOpen(false);
+  };
 
   // Refetch recipes when the app returns to the foreground — the share
   // extension may have saved a new recipe while we were backgrounded.
@@ -5624,6 +5719,10 @@ function App() {
         message,
         severity: 'success'
       });
+      // Trigger 2: post-import, once the user lands back on the recipe
+      // listing screen after a successful add/import (maybeShowReferralDialog
+      // itself applies the ~3s delay before the dialog opens).
+      maybeShowReferralDialog();
     };
 
     if (isRemoteEnabled) {
@@ -5946,6 +6045,13 @@ function App() {
         }}
       />
 
+      <ReferralProgramDialog
+        open={referralDialogOpen}
+        progress={referralDialogProgress}
+        onInvite={handleReferralDialogInvite}
+        onDismiss={handleReferralDialogDismiss}
+      />
+
       <ShareSheet
         open={Boolean(shareSheetState)}
         onClose={() => setShareSheetState(null)}
@@ -6235,6 +6341,7 @@ function App() {
                 sentRequests={sentRequests}
                 sentInvites={sentInvites}
                 initialTab={friendsInitialTab}
+                accessToken={accessToken}
                 onTapFriend={(friend) => {
                   setIsFriendsDialogOpen(true);
                   fetchFriendRecipes(friend);
@@ -6245,6 +6352,7 @@ function App() {
                   message: `Remove ${friend.friendName || friend.friendEmail} from your friends?`,
                   onConfirm: () => removeFriend(friend.friendId),
                 })}
+                onViewUser={openFriendByRef}
                 onAccept={acceptFriendRequest}
                 onDecline={declineFriendRequest}
                 onCancelSentRequest={cancelSentFriendRequest}
@@ -6269,6 +6377,7 @@ function App() {
                   displayName: userProfile?.displayName,
                   email: session.user?.email,
                   avatarUrl: userProfile?.avatarUrl ?? null,
+                  foundingChefAt: userProfile?.foundingChefAt ?? null,
                 }}
                 themePref={themePref}
                 onThemeChange={updateThemePref}
@@ -7724,28 +7833,136 @@ function App() {
               <Typography sx={{ mt: '6px', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 16, fontWeight: 600, textAlign: 'center' }}>
                 {selectedFriend.friendName}
               </Typography>
-              {selectedFriend.connectedAt && (
-                <Box
-                  sx={(theme) => {
+              {(friendViewStats?.foundingChefAt || selectedFriend.foundingChefAt) && (
+                <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, mt: 0.75, px: 1.5, py: 0.5, borderRadius: 999, bgcolor: 'rgba(245,166,35,0.15)' }}>
+                  <Box component="img" src={foundingChefBadge} alt="" sx={{ width: 20, height: 20 }} />
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: '#f5a623' }}>Founding Chef</Typography>
+                </Box>
+              )}
+              {(() => {
+                // With the Founding Chef chip above, push the status pill down
+                // for breathing room; without it, the pill takes the chip's
+                // spot so the header height stays consistent.
+                const hasBadge = !!(friendViewStats?.foundingChefAt || selectedFriend.foundingChefAt);
+                const pillMt = hasBadge ? 1.25 : 0.75;
+                if (selectedFriend.connectedAt) {
+                  return (
+                    <Box
+                      sx={(theme) => {
+                        const dark = theme.palette.mode === 'dark';
+                        return {
+                          mt: pillMt,
+                          px: 1.25, py: 0.25,
+                          borderRadius: '999px',
+                          bgcolor: 'transparent',
+                          border: '1px solid',
+                          // Same green as the "Add Friend" pill in SuggestionsShelf.
+                          borderColor: dark ? 'rgba(52,211,153,0.5)' : '#10b981',
+                          color: dark ? '#34d399' : '#059669',
+                          fontSize: 12,
+                          fontWeight: 500,
+                          lineHeight: 1.6,
+                        };
+                      }}
+                    >
+                      Connected
+                    </Box>
+                  );
+                }
+                // They already asked to connect: offer Accept/Decline right in
+                // the drawer instead of a Connect CTA that would collide with
+                // their pending request.
+                const incoming = friendRequests.find((r) => r.fromUserId === selectedFriend.friendId);
+                if (incoming) {
+                  const actionPillSx = (colors) => (theme) => {
                     const dark = theme.palette.mode === 'dark';
                     return {
-                      mt: 0.5,
-                      px: 1.25, py: 0.25,
+                      mt: pillMt,
+                      px: 1.5, py: 0.5,
                       borderRadius: '999px',
                       bgcolor: 'transparent',
                       border: '1px solid',
-                      // Same green as the "Add Friend" pill in SuggestionsShelf.
-                      borderColor: dark ? 'rgba(52,211,153,0.5)' : '#10b981',
-                      color: dark ? '#34d399' : '#059669',
+                      borderColor: colors.border(dark),
+                      color: colors.text(dark),
                       fontSize: 12,
-                      fontWeight: 500,
-                      lineHeight: 1.6,
+                      fontWeight: 600,
+                      lineHeight: 1.5,
+                      fontFamily: 'inherit',
+                      cursor: 'pointer',
+                      WebkitTapHighlightColor: 'transparent',
+                      '&:active': { opacity: 0.7 },
                     };
-                  }}
-                >
-                  Connected
-                </Box>
-              )}
+                  };
+                  return (
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Box
+                        component="button"
+                        onClick={() => {
+                          acceptFriendRequest(incoming.fromUserId);
+                          // Optimistic flip to Connected; the friends refresh
+                          // catches up in the background.
+                          setSelectedFriend((prev) => (prev ? { ...prev, connectedAt: new Date().toISOString() } : prev));
+                        }}
+                        sx={actionPillSx({
+                          border: (dark) => (dark ? 'rgba(52,211,153,0.5)' : '#10b981'),
+                          text: (dark) => (dark ? '#34d399' : '#059669'),
+                        })}
+                      >
+                        Accept
+                      </Box>
+                      <Box
+                        component="button"
+                        onClick={() => declineFriendRequest(incoming.fromUserId)}
+                        sx={actionPillSx({
+                          border: (dark) => (dark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.25)'),
+                          text: () => 'text.secondary',
+                        })}
+                      >
+                        Decline
+                      </Box>
+                    </Box>
+                  );
+                }
+                const requested = !!selectedFriend.requestSent
+                  || sentRequests.some((r) => r.toUserId === selectedFriend.friendId);
+                return (
+                  <Box
+                    component="button"
+                    disabled={requested}
+                    onClick={sendDrawerConnect}
+                    sx={(theme) => {
+                      const dark = theme.palette.mode === 'dark';
+                      return {
+                        mt: pillMt,
+                        // py 0.5 + lineHeight 1.5 + 1px borders = ~28px, matching
+                        // the Founding Chef pill (20px icon + py 0.5). The green
+                        // Connected pill intentionally stays at its smaller size.
+                        px: 1.25, py: 0.5,
+                        borderRadius: '999px',
+                        bgcolor: 'transparent',
+                        border: '1px solid',
+                        // Brand purple outline CTA; lighter tone in dark mode
+                        // (same reason the tabs swap purple for white there).
+                        borderColor: requested
+                          ? (dark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)')
+                          : (dark ? 'rgba(167,139,250,0.6)' : theme.palette.primary.main),
+                        color: requested
+                          ? 'text.secondary'
+                          : (dark ? '#a78bfa' : theme.palette.primary.main),
+                        fontSize: 12,
+                        fontWeight: 600,
+                        lineHeight: 1.5,
+                        fontFamily: 'inherit',
+                        cursor: requested ? 'default' : 'pointer',
+                        WebkitTapHighlightColor: 'transparent',
+                        '&:active': requested ? undefined : { opacity: 0.7 },
+                      };
+                    }}
+                  >
+                    {requested ? 'Requested' : 'Connect'}
+                  </Box>
+                );
+              })()}
             </Box>
 
             {/* Recipes / Friends tabs. Counts come from friendViewStats; while
@@ -7852,20 +8069,38 @@ function App() {
                             '&:active': { opacity: 0.6 },
                           }}
                         >
-                          <Box sx={{
-                            position: 'relative', overflow: 'hidden',
-                            width: 38, height: 38, borderRadius: '50%', bgcolor: mColor,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                          }}>
-                            <Typography sx={{ color: '#fff', fontSize: 16, fontWeight: 700, lineHeight: 1 }}>{mInitial}</Typography>
-                            {mutual.avatarUrl && (
+                          <Box sx={{ position: 'relative', flexShrink: 0 }}>
+                            <Box sx={{
+                              position: 'relative', overflow: 'hidden',
+                              width: 38, height: 38, borderRadius: '50%', bgcolor: mColor,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                            }}>
+                              <Typography sx={{ color: '#fff', fontSize: 16, fontWeight: 700, lineHeight: 1 }}>{mInitial}</Typography>
+                              {mutual.avatarUrl && (
+                                <Box
+                                  component="img"
+                                  src={mutual.avatarUrl}
+                                  alt=""
+                                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                  sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover',
+                                    WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
+                                />
+                              )}
+                            </Box>
+                            {mutual.foundingChefAt && (
                               <Box
                                 component="img"
-                                src={mutual.avatarUrl}
-                                alt=""
-                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                                sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover',
-                                  WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
+                                src={foundingChefBadge}
+                                alt="Founding Chef"
+                                sx={(theme) => ({
+                                  position: 'absolute', bottom: -3, right: -3,
+                                  width: 18, height: 18, borderRadius: '50%',
+                                  // Cutout ring matches the drawer paper behind
+                                  // these rows: #212328 dark, paper in light.
+                                  border: '2px solid',
+                                  borderColor: theme.palette.mode === 'dark' ? '#212328' : theme.palette.background.paper,
+                                  bgcolor: theme.palette.mode === 'dark' ? '#212328' : theme.palette.background.paper,
+                                })}
                               />
                             )}
                           </Box>
@@ -8279,6 +8514,9 @@ function App() {
           // body-locks scroll — PTR would preventDefault every downward drag
           // and freeze the drawer's own scroll.
           && !onboardingDrawerOpen
+          // Add Friend drawer: same body-lock situation, and a downward drag
+          // there should scroll the suggestions, never refresh the page.
+          && !addFriendDrawerOpen
         }
         onRefresh={handlePullRefresh}
       />

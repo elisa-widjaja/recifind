@@ -3,6 +3,8 @@ import { Box, Typography, Tabs, Tab, IconButton, Button, Avatar } from '@mui/mat
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
+import ReferralProgramCard from './ReferralProgramCard';
+import badgeIcon from '../assets/founding-chef.png';
 
 const AVATAR_COLORS = ['#7c3aed', '#10b981', '#f59e0b', '#ef4444', '#06b6d4'];
 function avatarColor(seed) {
@@ -18,12 +20,14 @@ export default function FriendsPage({
   sentRequests = [],      // requests user sent, still pending
   sentInvites = [],       // open invites user sent (no recipient yet)
   initialTab,             // 'connections' | 'pending'
+  accessToken,
   onTapFriend,
   onRemoveFriend,
   onAccept,
   onDecline,
   onCancelSentRequest,
   onCancelInvite,
+  onViewUser,
 }) {
   const [tab, setTab] = useState(initialTab || 'connections');
 
@@ -81,6 +85,8 @@ export default function FriendsPage({
         </Tabs>
       </Box>
 
+      <ReferralProgramCard accessToken={accessToken} />
+
       {tab === 'connections' && (
         <ConnectionsList
           friends={friends}
@@ -98,6 +104,7 @@ export default function FriendsPage({
           onDecline={onDecline}
           onCancelSentRequest={onCancelSentRequest}
           onCancelInvite={onCancelInvite}
+          onViewUser={onViewUser}
         />
       )}
     </Box>
@@ -141,9 +148,27 @@ function ConnectionsList({ friends, onTapFriend, onRemoveFriend }) {
               }),
             }}
           >
-            <Avatar src={f.avatarUrl || undefined} sx={{ bgcolor: avatarColor(f.friendId), width: 40, height: 40, fontSize: 16, fontWeight: 700 }}>
-              {name.charAt(0).toUpperCase()}
-            </Avatar>
+            <Box sx={{ position: 'relative', flexShrink: 0 }}>
+              <Avatar src={f.avatarUrl || undefined} sx={{ bgcolor: avatarColor(f.friendId), width: 40, height: 40, fontSize: 16, fontWeight: 700 }}>
+                {name.charAt(0).toUpperCase()}
+              </Avatar>
+              {f.foundingChefAt && (
+                <Box
+                  component="img"
+                  src={badgeIcon}
+                  alt="Founding Chef"
+                  sx={{
+                    position: 'absolute', bottom: -3, right: -3,
+                    width: 20, height: 20, borderRadius: '50%',
+                    // Page background here is `background.default` (see the
+                    // page-level Box in FriendsPage), not `background.paper` —
+                    // the ring must match the page bg it's cutting out from.
+                    border: '2px solid', borderColor: 'background.default',
+                    bgcolor: 'background.default',
+                  }}
+                />
+              )}
+            </Box>
             <Typography sx={{ flex: 1, fontSize: 15, fontWeight: 500 }}>{name}</Typography>
             <IconButton
               edge="end"
@@ -161,7 +186,7 @@ function ConnectionsList({ friends, onTapFriend, onRemoveFriend }) {
   );
 }
 
-function PendingList({ pendingRequests, sentRequests, sentInvites, onAccept, onDecline, onCancelSentRequest, onCancelInvite }) {
+function PendingList({ pendingRequests, sentRequests, sentInvites, onAccept, onDecline, onCancelSentRequest, onCancelInvite, onViewUser }) {
   const total = pendingRequests.length + sentRequests.length + sentInvites.length;
   if (total === 0) {
     return (
@@ -193,6 +218,7 @@ function PendingList({ pendingRequests, sentRequests, sentInvites, onAccept, onD
             avatarUrl={r.avatarUrl}
             sub="wants to connect"
             isLast={isLast}
+            onTap={r.fromUserId ? () => onViewUser?.({ userId: r.fromUserId, name, avatarUrl: r.avatarUrl }) : undefined}
             actions={
               <>
                 <CircleActionButton
@@ -230,6 +256,7 @@ function PendingList({ pendingRequests, sentRequests, sentInvites, onAccept, onD
             avatarUrl={r.avatarUrl}
             sub="awaiting response"
             isLast={isLast}
+            onTap={r.toUserId ? () => onViewUser?.({ userId: r.toUserId, name, avatarUrl: r.avatarUrl }) : undefined}
             actions={
               <Button
                 size="small"
@@ -348,7 +375,7 @@ function CircleActionButton({ ariaLabel, onClick, children, variant }) {
   );
 }
 
-function PendingRow({ seed, name, sub, isLast, actions, avatarUrl, email }) {
+function PendingRow({ seed, name, sub, isLast, actions, avatarUrl, email, onTap }) {
   // Show the email only when it adds info (i.e. differs from the display
   // name shown on line 1). Status sub always renders beneath it.
   const showEmail = email && email !== name;
@@ -359,15 +386,26 @@ function PendingRow({ seed, name, sub, isLast, actions, avatarUrl, email }) {
       py: 1.5, px: 0,
       borderBottom: isLast ? 0 : 1, borderColor: 'divider',
     }}>
-      <Avatar src={avatarUrl || undefined} sx={{ bgcolor: avatarColor(seed), width: 40, height: 40, fontSize: 16, fontWeight: 700 }}>
-        {(name || '?').charAt(0).toUpperCase()}
-      </Avatar>
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography sx={{ fontSize: 15, fontWeight: 600, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {name}
-        </Typography>
-        {showEmail && <Typography sx={lineSx}>{email}</Typography>}
-        {sub && <Typography sx={lineSx}>{sub}</Typography>}
+      {/* Avatar + name region opens the person's drawer when onTap is set
+          (rows without a real account behind them, e.g. open invites, pass
+          no onTap and stay inert). Action buttons sit outside this region. */}
+      <Box
+        onClick={onTap}
+        sx={{
+          display: 'flex', alignItems: 'center', gap: 1.5, flex: 1, minWidth: 0,
+          ...(onTap ? { cursor: 'pointer', WebkitTapHighlightColor: 'transparent', '&:active': { opacity: 0.6 } } : {}),
+        }}
+      >
+        <Avatar src={avatarUrl || undefined} sx={{ bgcolor: avatarColor(seed), width: 40, height: 40, fontSize: 16, fontWeight: 700 }}>
+          {(name || '?').charAt(0).toUpperCase()}
+        </Avatar>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography sx={{ fontSize: 15, fontWeight: 600, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {name}
+          </Typography>
+          {showEmail && <Typography sx={lineSx}>{email}</Typography>}
+          {sub && <Typography sx={lineSx}>{sub}</Typography>}
+        </Box>
       </Box>
       <Box sx={{ display: 'flex', gap: 1.5, flexShrink: 0 }}>
         {actions}

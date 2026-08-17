@@ -4,6 +4,7 @@ import SettingsBrightnessOutlinedIcon from '@mui/icons-material/SettingsBrightne
 import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined';
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
 import LogoutIcon from '@mui/icons-material/Logout';
+import badgeIcon from '../assets/founding-chef.png';
 
 function LineIcon({ d, size = 22, strokeWidth = 2 }) {
   return (
@@ -218,6 +219,12 @@ export default function ProfilePage({
           </Box>
         </Box>
         <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{user?.email || ''}</Typography>
+        {user?.foundingChefAt && (
+          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, mt: 0.75, px: 1.5, py: 0.5, borderRadius: 999, bgcolor: 'rgba(245,166,35,0.15)' }}>
+            <Box component="img" src={badgeIcon} alt="" sx={{ width: 20, height: 20 }} />
+            <Typography sx={{ fontSize: 12, fontWeight: 600, color: '#f5a623' }}>Founding Chef</Typography>
+          </Box>
+        )}
       </Box>
 
       {/* Settings */}

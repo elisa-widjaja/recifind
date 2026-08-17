@@ -4,6 +4,7 @@ import SmsOutlinedIcon from '@mui/icons-material/SmsOutlined';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CloseIcon from '@mui/icons-material/Close';
 import SuggestionsShelf from './SuggestionsShelf';
+import ReferralProgramCard from './ReferralProgramCard';
 
 // Bottom-sheet drawer triggered by the "+ Add Friend" FAB on FriendsPage.
 // Hosts the existing share-link invite UI (Email / Text / Copy link) plus
@@ -116,6 +117,8 @@ export default function AddFriendDrawer({
                 onClick={() => onShareCopyLink?.(inviteToken)}
               />
             </Box>
+
+            <ReferralProgramCard accessToken={accessToken} />
 
             <Box sx={{ mt: 0, mb: 3, borderTop: 1, borderColor: 'divider' }} />
             <SuggestionsShelf accessToken={accessToken} variant="compact" onTapCard={onTapSuggestion} />

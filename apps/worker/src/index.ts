@@ -89,7 +89,7 @@ interface Friend {
 }
 
 interface NotificationItem {
-  type: 'friend_request' | 'friend_accepted' | 'friend_cooked_recipe' | 'friend_saved_recipe' | 'friend_saved_your_recipe';
+  type: 'friend_request' | 'friend_accepted' | 'friend_cooked_recipe' | 'friend_saved_recipe' | 'friend_saved_your_recipe' | 'reward_granted';
   message: string;
   data: Record<string, string>;
   createdAt: string;
@@ -939,6 +939,25 @@ export default {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
         return await handleAcceptOpenInvite(request, env, user);
       }
+      if (url.pathname === '/friends/referral-progress' && request.method === 'GET') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return await (async () => {
+          const { getReferralProgress } = await import('./referrals');
+          return json(await getReferralProgress(env, user.userId));
+        })();
+      }
+      if (url.pathname === '/friends/referral-dialog-event' && request.method === 'POST') {
+        if (!user) throw new HttpError(401, 'Missing Authorization header');
+        return await (async () => {
+          const body = await request.json().catch(() => ({})) as { event?: string };
+          if (body.event !== 'shown' && body.event !== 'acted') {
+            throw new HttpError(400, 'Invalid event');
+          }
+          const { recordReferralDialogEvent } = await import('./referrals');
+          await recordReferralDialogEvent(env, user.userId, body.event);
+          return json({ ok: true });
+        })();
+      }
       const cancelInviteMatch = url.pathname.match(/^\/friends\/invites\/([^/]+)$/);
       if (cancelInviteMatch && request.method === 'DELETE') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
@@ -1104,6 +1123,19 @@ export default {
       console.log('[cron] brokenRecipeDigest', result);
     } catch (err) {
       console.error('[cron] brokenRecipeDigest failed', err);
+    }
+
+    // Founding Chef referral rewards + solo-user promo nudge. Isolated so a
+    // failure never blocks nudges; internally gated to the 17:00 UTC tick.
+    // See docs/superpowers/specs/2026-08-14-founding-chef-referral-program-design.md
+    try {
+      const { runReferralRewards, isRewardTick } = await import('./referrals');
+      if (isRewardTick(new Date(event.scheduledTime))) {
+        const result = await runReferralRewards(env, new Date(event.scheduledTime));
+        console.log('[cron] referralRewards', result);
+      }
+    } catch (err) {
+      console.error('[cron] referralRewards failed', err);
     }
 
     // Kill switch: pause nudge-email sending while leaving the rest of the cron running.
@@ -1466,8 +1498,8 @@ async function handleGetProfile(env: Env, user: AuthenticatedUser) {
   const profile = await getOrCreateProfile(env, user.userId, user.email, user.claims);
   const meta = await getCollectionMeta(env, user.userId);
   const onboardingRow = await env.DB.prepare(
-    'SELECT onboarding_seen FROM profiles WHERE user_id = ?'
-  ).bind(user.userId).first<{ onboarding_seen: number | null }>();
+    'SELECT onboarding_seen, founding_chef_at FROM profiles WHERE user_id = ?'
+  ).bind(user.userId).first<{ onboarding_seen: number | null; founding_chef_at: string | null }>();
   // Server-side derivation for the "Share a recipe" onboarding step so it
   // survives app reinstall (the localStorage flag gets wiped with WebView
   // data on reinstall). Mirrors the `friends.length > 0` fallback the
@@ -1486,6 +1518,7 @@ async function handleGetProfile(env: Env, user: AuthenticatedUser) {
     avatarUrl: profile.avatarUrl,
     onboardingSeen: Boolean(onboardingRow?.onboarding_seen),
     hasSharedRecipe: Boolean(sharedRow),
+    foundingChefAt: onboardingRow?.founding_chef_at ?? null,
   });
 }
 
@@ -2555,7 +2588,7 @@ export async function getFriendActivity(
   // Types where the viewer is entitled to see the recipe even if it's
   // private: they own it (someone saved it) or it was explicitly shared
   // with them.
-  const OWNER_VISIBLE_TYPES = new Set(['friend_saved_your_recipe', 'friend_shared_recipe']);
+  const OWNER_VISIBLE_TYPES = new Set(['friend_saved_your_recipe', 'friend_shared_recipe', 'reward_granted']);
 
   // Resolve actor display names LIVE from profiles. The notification message
   // and data.friendName are baked at event time, so they go stale when the
@@ -3731,8 +3764,8 @@ export async function handleFriendSuggestions(
   userId: string
 ): Promise<{
   suggestions: Array<
-    | { userId: string; name: string; avatarUrl: string | null; kind: 'fof'; mutualCount: number; requestSent: boolean }
-    | { userId: string; name: string; avatarUrl: string | null; kind: 'seed'; label: string; requestSent: boolean }
+    | { userId: string; name: string; avatarUrl: string | null; foundingChefAt: string | null; kind: 'fof'; mutualCount: number; requestSent: boolean }
+    | { userId: string; name: string; avatarUrl: string | null; foundingChefAt: string | null; kind: 'seed'; label: string; requestSent: boolean }
   >;
 }> {
   // Pre-load this user's pending sent-request set so we can surface a
@@ -3753,6 +3786,7 @@ export async function handleFriendSuggestions(
       f2.friend_id                  AS userId,
       p.display_name                AS name,
       p.avatar_url                  AS avatarUrl,
+      p.founding_chef_at            AS foundingChefAt,
       COUNT(DISTINCT f1.friend_id)  AS mutualCount
     FROM friends f1
     JOIN friends f2 ON f2.user_id = f1.friend_id
@@ -3773,7 +3807,7 @@ export async function handleFriendSuggestions(
              (SELECT COUNT(*) FROM recipes r
               WHERE r.user_id = f2.friend_id AND r.hidden_at IS NULL) DESC
     LIMIT 10
-  `).bind(userId, userId, userId, userId).all<{ userId: string; name: string; avatarUrl: string | null; mutualCount: number }>();
+  `).bind(userId, userId, userId, userId).all<{ userId: string; name: string; avatarUrl: string | null; foundingChefAt: string | null; mutualCount: number }>();
 
   const fofSuggestions = (fofRows.results || [])
     // Guard in JS too: the SQL filters nameless rows, but this keeps a
@@ -3784,6 +3818,7 @@ export async function handleFriendSuggestions(
       userId: row.userId,
       name: row.name,
       avatarUrl: row.avatarUrl ?? null,
+      foundingChefAt: row.foundingChefAt ?? null,
       kind: 'fof' as const,
       mutualCount: row.mutualCount,
       requestSent: sentToIds.has(row.userId),
@@ -3804,7 +3839,7 @@ export async function handleFriendSuggestions(
   const emailPlaceholders = seedEmails.map(() => '?').join(', ');
 
   const seedRows = await db.prepare(`
-    SELECT p.user_id AS userId, p.display_name AS name, p.avatar_url AS avatarUrl, p.email AS email
+    SELECT p.user_id AS userId, p.display_name AS name, p.avatar_url AS avatarUrl, p.founding_chef_at AS foundingChefAt, p.email AS email
     FROM profiles p
     WHERE p.email IN (${emailPlaceholders})
       AND p.user_id != ?
@@ -3816,6 +3851,7 @@ export async function handleFriendSuggestions(
     userId: string;
     name: string;
     avatarUrl: string | null;
+    foundingChefAt: string | null;
     email: string;
   }>();
 
@@ -3831,6 +3867,7 @@ export async function handleFriendSuggestions(
       userId: row.userId,
       name: row.name,
       avatarUrl: row.avatarUrl ?? null,
+      foundingChefAt: row.foundingChefAt ?? null,
       kind: 'seed' as const,
       label: labelByEmail.get(row.email) || '',
       requestSent: sentToIds.has(row.userId),
@@ -4082,6 +4119,9 @@ async function handleAcceptInvite(request: Request, env: Env, user: Authenticate
   await env.DB.batch([
     env.DB.prepare('INSERT OR IGNORE INTO friends (user_id, friend_id, friend_email, friend_name, connected_at) VALUES (?, ?, ?, ?, ?)').bind(inviterUserId, user.userId, newUserProfile.email, newUserProfile.displayName, now),
     env.DB.prepare('INSERT OR IGNORE INTO friends (user_id, friend_id, friend_email, friend_name, connected_at) VALUES (?, ?, ?, ?, ?)').bind(user.userId, inviterUserId, inviterProfile.email, inviterProfile.displayName, now),
+    // Durable referral attribution: the email-invite path used to leave no
+    // trace once pending_invites was deleted (Founding Chef program needs it).
+    env.DB.prepare('INSERT OR IGNORE INTO open_invite_used (inviter_user_id, accepter_user_id, accepted_at) VALUES (?, ?, ?)').bind(inviterUserId, user.userId, now),
     env.DB.prepare('DELETE FROM pending_invites WHERE id = ?').bind(token),
   ]);
   ctx.waitUntil(addNotification(env, inviterUserId, {
@@ -4126,6 +4166,9 @@ async function handleCheckInvites(env: Env, user: AuthenticatedUser, ctx: Execut
     await env.DB.batch([
       env.DB.prepare('INSERT OR IGNORE INTO friends (user_id, friend_id, friend_email, friend_name, connected_at) VALUES (?, ?, ?, ?, ?)').bind(inviterUserId, user.userId, newUserProfile.email, newUserProfile.displayName, now),
       env.DB.prepare('INSERT OR IGNORE INTO friends (user_id, friend_id, friend_email, friend_name, connected_at) VALUES (?, ?, ?, ?, ?)').bind(user.userId, inviterUserId, inviterProfile.email, inviterProfile.displayName, now),
+      // Durable referral attribution: the email-invite path used to leave no
+      // trace once pending_invites was deleted (Founding Chef program needs it).
+      env.DB.prepare('INSERT OR IGNORE INTO open_invite_used (inviter_user_id, accepter_user_id, accepted_at) VALUES (?, ?, ?)').bind(inviterUserId, user.userId, now),
       env.DB.prepare('DELETE FROM pending_invites WHERE id = ?').bind(invite.id),
     ]);
 
@@ -4256,7 +4299,8 @@ async function handleListFriends(env: Env, user: AuthenticatedUser) {
   const result = await env.DB.prepare(
     `SELECT f.friend_id, f.friend_email, f.connected_at,
             COALESCE(NULLIF(p.display_name, ''), NULLIF(f.friend_name, '')) AS friend_name,
-            p.avatar_url AS avatar_url
+            p.avatar_url AS avatar_url,
+            p.founding_chef_at AS founding_chef_at
      FROM friends f
      LEFT JOIN profiles p ON p.user_id = f.friend_id AND p.deleted_at IS NULL
      WHERE f.user_id = ? LIMIT 100`
@@ -4268,6 +4312,7 @@ async function handleListFriends(env: Env, user: AuthenticatedUser) {
     friendName: (row.friend_name as string | null) || GENERIC_DISPLAY_NAME,
     avatarUrl: (row.avatar_url as string | null) ?? null,
     connectedAt: row.connected_at as string,
+    foundingChefAt: (row.founding_chef_at as string | null) ?? null,
   }));
 
   return json({ friends });
@@ -4509,7 +4554,8 @@ export async function handleFriendViewStats(
   recipeCount: number;
   friendCount: number;
   mutualCount: number;
-  mutualFriends: Array<{ userId: string; name: string; avatarUrl: string | null }>;
+  mutualFriends: Array<{ userId: string; name: string; avatarUrl: string | null; foundingChefAt: string | null }>;
+  foundingChefAt: string | null;
 }> {
   // Shared-recipe count matches exactly what the Recipes tab lists.
   const recipeRow = await db.prepare(
@@ -4528,9 +4574,10 @@ export async function handleFriendViewStats(
   // gibberish row renders.
   const mutualRows = await db.prepare(`
     SELECT
-      f_t.friend_id  AS userId,
-      p.display_name AS name,
-      p.avatar_url   AS avatarUrl
+      f_t.friend_id      AS userId,
+      p.display_name     AS name,
+      p.avatar_url       AS avatarUrl,
+      p.founding_chef_at AS foundingChefAt
     FROM friends f_v
     JOIN friends f_t ON f_t.friend_id = f_v.friend_id
     JOIN profiles p ON p.user_id = f_t.friend_id
@@ -4539,7 +4586,7 @@ export async function handleFriendViewStats(
       AND p.deleted_at IS NULL
       AND p.display_name IS NOT NULL AND TRIM(p.display_name) <> ''
     ORDER BY p.display_name
-  `).bind(viewerId, targetId).all<{ userId: string; name: string; avatarUrl: string | null }>();
+  `).bind(viewerId, targetId).all<{ userId: string; name: string; avatarUrl: string | null; foundingChefAt: string | null }>();
 
   const mutualFriends = (mutualRows.results || [])
     .filter(row => row.name && String(row.name).trim())
@@ -4547,13 +4594,22 @@ export async function handleFriendViewStats(
       userId: row.userId,
       name: row.name,
       avatarUrl: row.avatarUrl ?? null,
+      foundingChefAt: row.foundingChefAt ?? null,
     }));
+
+  // Founding Chef badge on the drawer header avatar. Read from profiles here
+  // (rather than trusting the caller's friend object) so the badge shows no
+  // matter which surface opened the drawer.
+  const badgeRow = await db.prepare(
+    'SELECT founding_chef_at FROM profiles WHERE user_id = ?'
+  ).bind(targetId).first<{ founding_chef_at: string | null }>();
 
   return {
     recipeCount: recipeRow?.cnt ?? 0,
     friendCount: friendRow?.cnt ?? 0,
     mutualCount: mutualFriends.length,
     mutualFriends,
+    foundingChefAt: badgeRow?.founding_chef_at ?? null,
   };
 }
 
