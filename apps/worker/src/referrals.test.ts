@@ -240,7 +240,7 @@ describe('runReferralRewards', () => {
         'inv-1': { email: 'inv@example.com', display_name: 'Inga', founding_chef_at: null, referral_promo_at: null, deleted_at: null, created_at: '2026-01-01' },
       },
     });
-    const env = { DB: db } as unknown as import('./index').Env;
+    const env = { DB: db, REFERRAL_PROMO_ENABLED: 'true' } as unknown as import('./index').Env;
     const result = await runReferralRewards(env, new Date('2026-08-14T17:00:00.000Z'));
 
     expect(result.granted).toBe(1);
@@ -262,7 +262,7 @@ describe('runReferralRewards', () => {
         'inv-1': { email: 'inv@example.com', display_name: 'Inga', founding_chef_at: '2026-08-13T17:00:00.000Z', referral_promo_at: null, deleted_at: null, created_at: '2026-01-01' },
       },
     });
-    const env = { DB: db } as unknown as import('./index').Env;
+    const env = { DB: db, REFERRAL_PROMO_ENABLED: 'true' } as unknown as import('./index').Env;
     const result = await runReferralRewards(env, new Date('2026-08-14T17:00:00.000Z'));
 
     expect(result.granted).toBe(0);
@@ -280,7 +280,7 @@ describe('runReferralRewards', () => {
         'inv-1': { email: 'inv@example.com', display_name: 'Inga', founding_chef_at: null, referral_promo_at: null, deleted_at: null, created_at: '2026-01-01' },
       },
     });
-    const env = { DB: db } as unknown as import('./index').Env;
+    const env = { DB: db, REFERRAL_PROMO_ENABLED: 'true' } as unknown as import('./index').Env;
     const result = await runReferralRewards(env, new Date('2026-08-14T17:00:00.000Z'));
 
     expect(result.granted).toBe(0); // no new referral_rewards insert
@@ -298,7 +298,7 @@ describe('runReferralRewards', () => {
         'inv-1': { email: 'inv@example.com', display_name: 'Inga', founding_chef_at: '2026-08-13T17:00:00.000Z', referral_promo_at: null, deleted_at: null, created_at: '2026-01-01' },
       },
     });
-    const env = { DB: db } as unknown as import('./index').Env;
+    const env = { DB: db, REFERRAL_PROMO_ENABLED: 'true' } as unknown as import('./index').Env;
 
     vi.mocked(sendEmailNotification).mockResolvedValueOnce({ ok: false, status: 500 });
     const first = await runReferralRewards(env, new Date('2026-08-14T17:00:00.000Z'));
@@ -319,7 +319,7 @@ describe('runReferralRewards', () => {
         'u2': { email: 'u2@example.com', display_name: 'U2', founding_chef_at: null, referral_promo_at: null, deleted_at: null, created_at: '2026-01-02', eligibleForPromo: true },
       },
     });
-    const env = { DB: db } as unknown as import('./index').Env;
+    const env = { DB: db, REFERRAL_PROMO_ENABLED: 'true' } as unknown as import('./index').Env;
     const result = await runReferralRewards(env, new Date('2026-08-14T17:00:00.000Z'));
 
     expect(result.promosSent).toBe(1);
@@ -327,6 +327,21 @@ describe('runReferralRewards', () => {
     expect(state.profiles['u2'].referral_promo_at).toBe('2026-08-14T17:00:00.000Z');
     expect(state.notifications.filter(n => n.user_id === 'u2')).toHaveLength(1);
     expect(state.notifications.filter(n => n.user_id === 'u1')).toHaveLength(0);
+  });
+
+  it('promo kill switch: no promos sent and no state written unless REFERRAL_PROMO_ENABLED is "true"', async () => {
+    const { db, state } = makeFakeDb({
+      openInviteRows: [],
+      profiles: {
+        'u2': { email: 'u2@example.com', display_name: 'U2', founding_chef_at: null, referral_promo_at: null, deleted_at: null, created_at: '2026-01-02', eligibleForPromo: true },
+      },
+    });
+    const env = { DB: db } as unknown as import('./index').Env; // flag unset
+    const result = await runReferralRewards(env, new Date('2026-08-14T17:00:00.000Z'));
+
+    expect(result.promosSent).toBe(0);
+    expect(state.profiles['u2'].referral_promo_at).toBeNull();
+    expect(state.notifications).toHaveLength(0);
   });
 });
 

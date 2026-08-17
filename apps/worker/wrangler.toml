@@ -35,6 +35,9 @@ SUPABASE_STORAGE_BUCKET = "recipe-previews"
 # Nudge-email kill switch: "false" pauses the hourly send (cron still syncs admin stats).
 # Set back to "true" once the nudge email is finalized.
 NUDGE_EMAILS_ENABLED = "true"
+# Founding Chef promo push: one-shot per user; hold until an iOS build with
+# the program UI is live (flip to "true" when 1.1.3+ ships).
+REFERRAL_PROMO_ENABLED = "false"
 # Percent of nudge sends that get the v2 (hero) email; rest get v1. "0" = all v1 (rollback).
 NUDGE_V2_PCT = "0"
 

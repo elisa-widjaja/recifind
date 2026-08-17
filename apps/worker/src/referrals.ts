@@ -225,6 +225,14 @@ export async function runReferralRewards(env: Env, now: Date): Promise<{ granted
   }
 
   // --- 4. One-time promo nudge for heavy solo users ---
+  // Kill switch: the promo is a ONE-SHOT send per user (referral_promo_at
+  // burns forever) and most targets are App Store users, so it stays OFF
+  // until an iOS build with the program UI is live. Flip
+  // REFERRAL_PROMO_ENABLED="true" in wrangler.toml [vars] to arm it.
+  // Grants/admin emails above are unaffected.
+  if (env.REFERRAL_PROMO_ENABLED !== 'true') {
+    return { granted, adminEmailsSent, promosSent };
+  }
   const excludedPlaceholders = METRICS_EXCLUDED_EMAILS.map(() => '?').join(',');
   const promoTargets = await env.DB.prepare(
     `SELECT p.user_id FROM profiles p
