@@ -298,7 +298,7 @@ describe('enrichAfterSave', () => {
     // the SET clause — preserves anything the user supplied at save time.
     expect(update).toBeDefined();
     expect(update!.binds).toContain('title-only');
-    expect(update!.sql).toMatch(/SET\s+provenance\s*=\s*\?,\s*updated_at\s*=\s*\?/i);
+    expect(update!.sql).toMatch(/SET\s+provenance\s*=\s*\?,\s*is_food\s*=\s*COALESCE\(\?,\s*is_food\),\s*updated_at\s*=\s*\?/i);
     expect(update!.sql).not.toMatch(/ingredients\s*=/i);
     expect(update!.sql).not.toMatch(/meal_types\s*=/i);
   });

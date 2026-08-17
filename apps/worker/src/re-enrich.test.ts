@@ -98,6 +98,28 @@ describe('handleReEnrichRecipe', () => {
     expect(runCalls.find(c => c.sql.includes('UPDATE recipes'))).toBeUndefined();
   });
 
+  it('stamps is_food = 0 on an empty non-food result without touching content', async () => {
+    // The re-enrich button is the heal path for junk already on the community
+    // shelf: preserve-on-empty must still hold for content, but the non-food
+    // verdict has to land so the discover filter can drop the row.
+    const existing = makeRow({
+      ingredients: JSON.stringify(['old-i']),
+      steps: JSON.stringify(['old-s']),
+      provenance: 'inferred',
+    });
+    const { db, runCalls } = makeDb(existing);
+    const env = { DB: db as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'x' } as Env;
+    const chain = baseFakeChain({ ...EMPTY, isFood: false }, null);
+    const res = await handleReEnrichRecipe(env, user, 'recipe-1', { runEnrichmentChain: chain as any });
+    const body = await res.json() as { recipe: { ingredients: string[] } };
+    expect(body.recipe.ingredients).toEqual(['old-i']);
+    const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
+    expect(update).toBeDefined();
+    expect(update!.sql).toMatch(/is_food/);
+    expect(update!.sql).not.toMatch(/ingredients\s*=/i);
+    expect(update!.binds).toContain(0);
+  });
+
   it('503 when GEMINI_SERVICE_ACCOUNT_B64 is not configured', async () => {
     const { db } = makeDb(makeRow());
     const env = { DB: db as unknown as D1Database } as Env; // no GEMINI key

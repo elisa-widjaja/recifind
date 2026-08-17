@@ -1256,6 +1256,54 @@ describe('geminiExtractFromCaption lenient mode', () => {
   });
 });
 
+describe('isFood classification', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  const sa = {
+    getAccessToken: async () => 'fake-token',
+    getServiceAccount: async () => ({
+      client_email: 'svc@example.com', private_key: 'fake-key',
+      token_uri: 'https://oauth2.googleapis.com/token', project_id: 'proj-123',
+    }),
+  };
+  const env = {} as Env;
+  const emptyPayload = { ingredients: [], steps: [], mealTypes: [], cuisines: [], durationMinutes: null, notes: '', title: '' };
+
+  const makeFetch = (sent: { body: string }, payload: Record<string, unknown>) => vi.fn(async (_url: unknown, init: any) => {
+    sent.body = String(init?.body ?? '');
+    return {
+      ok: true,
+      json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(payload) }] } }] }),
+    };
+  }) as unknown as typeof fetch;
+
+  it('asks Gemini for an isFood verdict in both caption prompt variants', async () => {
+    const sentStrict = { body: '' };
+    await geminiExtractFromCaption(env, 'some caption', { ...sa, fetchImpl: makeFetch(sentStrict, emptyPayload) });
+    expect(sentStrict.body).toContain('isFood');
+
+    const sentLenient = { body: '' };
+    await geminiExtractFromCaption(env, 'some caption', { ...sa, fetchImpl: makeFetch(sentLenient, emptyPayload), lenient: true });
+    expect(sentLenient.body).toContain('isFood');
+  });
+
+  it('carries isFood=false through to the result for non-food content', async () => {
+    const sent = { body: '' };
+    const result = await geminiExtractFromCaption(env, '10k training plan: run 5 miles every morning', {
+      ...sa, fetchImpl: makeFetch(sent, { ...emptyPayload, isFood: false }),
+    });
+    expect(result.isFood).toBe(false);
+  });
+
+  it('defaults isFood to null when Gemini omits the field', async () => {
+    const sent = { body: '' };
+    const result = await geminiExtractFromCaption(env, 'a caption', {
+      ...sa, fetchImpl: makeFetch(sent, emptyPayload),
+    });
+    expect(result.isFood).toBeNull();
+  });
+});
+
 describe('enrichAfterSave', () => {
   it('binds provenance in the UPDATE when the chain returns a non-empty result', async () => {
     const runCalls: Array<{ sql: string; binds: any[] }> = [];
@@ -1344,7 +1392,59 @@ describe('enrichAfterSave', () => {
     // Bookkeeping-only — content fields must NOT be in the SET clause.
     expect(update!.sql).not.toMatch(/ingredients\s*=/i);
     expect(update!.sql).not.toMatch(/meal_types\s*=/i);
-    expect(update!.sql).toMatch(/SET\s+provenance\s*=\s*\?,\s*updated_at\s*=\s*\?/i);
+    // is_food rides along under COALESCE (null verdict here → existing value kept).
+    expect(update!.sql).toMatch(/SET\s+provenance\s*=\s*\?,\s*is_food\s*=\s*COALESCE\(\?,\s*is_food\),\s*updated_at\s*=\s*\?/i);
+    expect(update!.binds).toContain(null);
+  });
+
+  it('stamps is_food = 0 in the bookkeeping UPDATE when the chain judges non-food', async () => {
+    const runCalls: Array<{ sql: string; binds: any[] }> = [];
+    const dbMock = {
+      prepare: (sql: string) => ({
+        bind: (...binds: any[]) => ({
+          run: async () => { runCalls.push({ sql, binds: [...binds] }); return { success: true }; },
+          first: async () => null,
+        }),
+      }),
+    };
+    const env = { DB: dbMock as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'x' } as unknown as Env;
+    const fakeChain = async () => ({
+      result: {
+        title: '', imageUrl: '', mealTypes: [], ingredients: [], steps: [],
+        durationMinutes: null, notes: '', provenance: null, isFood: false,
+      },
+      winningStrategy: null,
+    });
+    await enrichAfterSave(env, 'user-1', 'recipe-1', 'https://www.instagram.com/reel/hike/', 'Best hikes near Seattle', { runEnrichmentChain: fakeChain as any });
+    const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
+    expect(update).toBeDefined();
+    expect(update!.sql).toMatch(/is_food\s*=\s*COALESCE\(\?,\s*is_food\)/i);
+    expect(update!.binds).toContain(0);
+  });
+
+  it('stamps is_food = 1 on a full extraction the chain judged as food', async () => {
+    const runCalls: Array<{ sql: string; binds: any[] }> = [];
+    const dbMock = {
+      prepare: (sql: string) => ({
+        bind: (...binds: any[]) => ({
+          run: async () => { runCalls.push({ sql, binds: [...binds] }); return { success: true }; },
+          first: async () => null,
+        }),
+      }),
+    };
+    const env = { DB: dbMock as unknown as D1Database, GEMINI_SERVICE_ACCOUNT_B64: 'x' } as unknown as Env;
+    const fakeChain = async () => ({
+      result: {
+        title: 'X', imageUrl: '', mealTypes: [], ingredients: ['a'], steps: ['b'],
+        durationMinutes: null, notes: '', provenance: 'extracted' as const, isFood: true,
+      },
+      winningStrategy: 'caption-extract' as const,
+    });
+    await enrichAfterSave(env, 'user-1', 'recipe-1', 'https://e.com/x', 'T', { runEnrichmentChain: fakeChain as any });
+    const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
+    expect(update).toBeDefined();
+    expect(update!.sql).toMatch(/is_food\s*=\s*COALESCE\(\?,\s*is_food\)/i);
+    expect(update!.binds).toContain(1);
   });
 
   it('writes a bookkeeping-only UPDATE for title-only — preserves user-supplied meal_types / cuisines / duration_minutes / notes', async () => {
@@ -1383,7 +1483,7 @@ describe('enrichAfterSave', () => {
     expect(update!.sql).not.toMatch(/ingredients\s*=/i);
     expect(update!.sql).not.toMatch(/steps\s*=/i);
     expect(update!.sql).not.toMatch(/notes\s*=/i);
-    expect(update!.sql).toMatch(/SET\s+provenance\s*=\s*\?,\s*updated_at\s*=\s*\?/i);
+    expect(update!.sql).toMatch(/SET\s+provenance\s*=\s*\?,\s*is_food\s*=\s*COALESCE\(\?,\s*is_food\),\s*updated_at\s*=\s*\?/i);
   });
 });
 

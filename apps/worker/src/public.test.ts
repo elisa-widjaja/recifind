@@ -56,6 +56,19 @@ describe('getPublicDiscover', () => {
     const result = await getPublicDiscover(mockDb);
     expect(result.map(r => r.id)).toEqual(['ok']);
   });
+
+  it('excludes rows the enricher flagged as non-food in SQL (NULL/1 still shown)', async () => {
+    const sqls: string[] = [];
+    const mockDb = {
+      prepare: vi.fn((sql: string) => {
+        sqls.push(sql);
+        return { all: vi.fn().mockResolvedValue({ results: [] }) };
+      })
+    } as unknown as D1Database;
+
+    await getPublicDiscover(mockDb);
+    expect(sqls.some(s => s.includes('(is_food IS NULL OR is_food = 1)'))).toBe(true);
+  });
 });
 
 describe('getEditorsPick', () => {

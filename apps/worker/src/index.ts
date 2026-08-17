@@ -1996,7 +1996,7 @@ export async function getPublicDiscover(db: D1Database): Promise<DiscoverRecipe[
   if (CURATED_YOUTUBE_SHORTS_IDS.length > 0) {
     const placeholders = CURATED_YOUTUBE_SHORTS_IDS.map(() => '?').join(', ');
     const curatedRows = await db.prepare(
-      `${DISCOVER_SELECT} WHERE id IN (${placeholders}) AND shared_with_friends = 1 AND hidden_at IS NULL`
+      `${DISCOVER_SELECT} WHERE id IN (${placeholders}) AND shared_with_friends = 1 AND hidden_at IS NULL AND (is_food IS NULL OR is_food = 1)`
     ).bind(...CURATED_YOUTUBE_SHORTS_IDS).all();
     curatedShorts = (curatedRows.results as Array<Record<string, unknown>>).map(mapDiscoverRow);
   }
@@ -2008,6 +2008,7 @@ export async function getPublicDiscover(db: D1Database): Promise<DiscoverRecipe[
     `${DISCOVER_SELECT}
      WHERE shared_with_friends = 1
        AND hidden_at IS NULL
+       AND (is_food IS NULL OR is_food = 1)
        AND (source_url LIKE '%tiktok.com%' OR source_url LIKE '%instagram.com%'
             OR source_url LIKE '%youtube.com/shorts%' OR source_url LIKE '%facebook.com%')
      ORDER BY created_at DESC
@@ -3608,6 +3609,15 @@ export async function handleReEnrichRecipe(
   // shopping list without steps) still goes through — we treat partial data as
   // better than nothing.
   if (result.ingredients.length === 0 && result.steps.length === 0) {
+    // Content is preserved, but a confident non-food verdict still lands:
+    // re-enrich is the heal path for junk already on the community shelf,
+    // and without this stamp the discover filter could never drop the row.
+    if (result.isFood === false) {
+      const now = new Date().toISOString();
+      await env.DB.prepare(
+        `UPDATE recipes SET is_food = ?, updated_at = ? WHERE user_id = ? AND id = ?`
+      ).bind(0, now, user.userId, recipeId).run();
+    }
     return json({ recipe: existing });
   }
 
@@ -6936,6 +6946,12 @@ type EnrichmentResult = {
   durationMinutes: number | null;
   notes: string;
   provenance: 'extracted' | 'inferred' | 'title-only' | null;
+  // Gemini's verdict on whether the source content is about food/cooking at
+  // all. false = confidently non-food (workout reels, hiking trails) and gets
+  // persisted as is_food = 0 so the public discover shelf can drop the row.
+  // null/undefined = no verdict (chain never saw content) — never overwrites
+  // a stored value.
+  isFood?: boolean | null;
 };
 
 const EMPTY_ENRICHMENT: EnrichmentResult = {
@@ -6948,6 +6964,7 @@ const EMPTY_ENRICHMENT: EnrichmentResult = {
   durationMinutes: null,
   notes: '',
   provenance: null,
+  isFood: null,
 };
 
 function buildExtractOnlyPrompt(captionText: string): string {
@@ -6962,9 +6979,11 @@ Rules:
 - Short marketing blurbs, hashtag dumps, navigation/chrome text, and error pages (like "HTTP ERROR 429") are NOT recipes — return empty arrays.
 
 Return JSON matching this schema:
-{ "ingredients": [], "steps": [], "mealTypes": [], "cuisines": [], "durationMinutes": null, "notes": "", "title": "" }
+{ "ingredients": [], "steps": [], "mealTypes": [], "cuisines": [], "durationMinutes": null, "notes": "", "title": "", "isFood": true }
 
 For cuisines, pick at most 2 entries from this enum based ONLY on what's explicit (dish name, hashtags, creator's words): ["african","american","british","chinese","filipino","french","indian","indonesian","italian","japanese","korean","mediterranean","mexican","middle-eastern","nordic","thai","vietnamese"]. Use the lowercase hyphenated form. If nothing in the text indicates a cuisine, return [].
+
+For isFood: set false ONLY when the content is clearly not about food, cooking, or drink (e.g., workout routines, hiking trails, travel vlogs, fashion). Food-adjacent, ambiguous, or unreadable content (error pages, empty chrome text) stays true.
 
 Text:
 ${captionText}`;
@@ -6990,9 +7009,11 @@ Rules:
 - Pure hashtag dumps, marketing blurbs with no ingredient list, navigation/chrome text, and error pages (like "HTTP ERROR 429") are NOT recipes — return empty arrays.
 
 Return JSON matching this schema:
-{ "ingredients": [], "steps": [], "mealTypes": [], "cuisines": [], "durationMinutes": null, "notes": "", "title": "" }
+{ "ingredients": [], "steps": [], "mealTypes": [], "cuisines": [], "durationMinutes": null, "notes": "", "title": "", "isFood": true }
 
 For cuisines, pick at most 2 entries from this enum based ONLY on what's explicit (dish name, hashtags, creator's words): ["african","american","british","chinese","filipino","french","indian","indonesian","italian","japanese","korean","mediterranean","mexican","middle-eastern","nordic","thai","vietnamese"]. Use the lowercase hyphenated form. If nothing in the text indicates a cuisine, return [].
+
+For isFood: set false ONLY when the content is clearly not about food, cooking, or drink (e.g., workout routines, hiking trails, travel vlogs, fashion). Food-adjacent, ambiguous, or unreadable content (error pages, empty chrome text) stays true.
 
 Text:
 ${captionText}`;
@@ -7012,6 +7033,7 @@ function parsedToEnrichmentResult(parsed: any): EnrichmentResult {
         : null,
     notes: typeof parsed?.notes === 'string' ? parsed.notes.trim() : '',
     provenance: null,
+    isFood: typeof parsed?.isFood === 'boolean' ? parsed.isFood : null,
   };
 }
 
@@ -7219,9 +7241,10 @@ Rules:
 - Extract ingredients and steps ONLY from text you can actually read in the image.
 - If the image is just a photo of food with no readable recipe text, return empty arrays. DO NOT invent ingredients or steps, and DO NOT infer them from how the dish looks.
 - Minor normalization of units and spelling is allowed; keep quantities exactly as printed.
+- For isFood: set false ONLY when the image is clearly not about food, cooking, or drink (e.g., a workout plan, hiking trail map, travel photo). A photo of food with no recipe text is still isFood true.
 
 Return JSON matching this schema:
-{ "ingredients": [], "steps": [], "mealTypes": [], "durationMinutes": null, "notes": "", "title": "" }`;
+{ "ingredients": [], "steps": [], "mealTypes": [], "durationMinutes": null, "notes": "", "title": "", "isFood": true }`;
 }
 
 function arrayBufferToBase64(buf: ArrayBuffer): string {
@@ -7333,9 +7356,10 @@ Rules:
 - Preserve the chef's voice and phrasing for step descriptions.
 - Minor normalization of units and spelling is allowed.
 - If the video has no explicit ingredient list or steps (e.g., it is not a cooking video, or no recipe is demonstrated), return empty arrays. DO NOT invent ingredients.
+- For isFood: set false ONLY when the video is clearly not about food, cooking, or drink (e.g., workouts, hiking, travel, fashion). Food-adjacent or ambiguous content stays true.
 
 Return JSON matching this schema:
-{ "ingredients": [], "steps": [], "mealTypes": [], "durationMinutes": null, "notes": "", "title": "" }`;
+{ "ingredients": [], "steps": [], "mealTypes": [], "durationMinutes": null, "notes": "", "title": "", "isFood": true }`;
 }
 
 type YoutubeVideoDeps = {
@@ -7671,6 +7695,9 @@ export async function enrichAfterSave(
   //     the misleading "rate-limited, try again" snackbar indefinitely.
   const hasContent = result.ingredients.length > 0 || result.steps.length > 0;
   const now = new Date().toISOString();
+  // COALESCE keeps the stored verdict when the chain produced none (null) —
+  // e.g. a caption-less reel where Gemini never saw content.
+  const isFoodBind = result.isFood == null ? null : (result.isFood ? 1 : 0);
 
   if (!hasContent) {
     // Bookkeeping-only update: stamp provenance to 'title-only' and let
@@ -7678,8 +7705,8 @@ export async function enrichAfterSave(
     // / cuisines / duration_minutes / notes — preserving any user-set
     // values from the initial save.
     await env.DB.prepare(
-      `UPDATE recipes SET provenance = ?, updated_at = ? WHERE id = ?`
-    ).bind('title-only', now, recipeId).run();
+      `UPDATE recipes SET provenance = ?, is_food = COALESCE(?, is_food), updated_at = ? WHERE id = ?`
+    ).bind('title-only', isFoodBind, now, recipeId).run();
     // Bump collection version so syncRecipesFromApi's lightweight check
     // refetches and the UI picks up the title-only flag (otherwise the
     // frontend stays on the pre-enrich snapshot indefinitely).
@@ -7696,7 +7723,7 @@ export async function enrichAfterSave(
   const healedTitle = looksLikeBrokenTitle(title) && result.title ? result.title : title;
   await env.DB.prepare(
     `UPDATE recipes
-     SET title = ?, ingredients = ?, steps = ?, meal_types = ?, cuisines = ?, duration_minutes = ?, notes = ?, provenance = ?, updated_at = ?
+     SET title = ?, ingredients = ?, steps = ?, meal_types = ?, cuisines = ?, duration_minutes = ?, notes = ?, provenance = ?, is_food = COALESCE(?, is_food), updated_at = ?
      WHERE id = ?`
   ).bind(
     healedTitle,
@@ -7707,6 +7734,7 @@ export async function enrichAfterSave(
     result.durationMinutes,
     result.notes || '',
     result.provenance ?? null,
+    isFoodBind,
     now,
     recipeId
   ).run();
