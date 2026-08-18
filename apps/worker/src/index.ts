@@ -3209,7 +3209,7 @@ async function handleParseRecipe(request: Request, env: Env, ctx: ExecutionConte
     // Fall through to HTML parsing
   }
 
-  const html = await fetchRecipeHtml(parsedUrl.toString());
+  const html = await fetchRecipeHtml(parsedUrl.toString(), { jinaApiKey: env.JINA_API_KEY });
   if (!html) {
     return json({ parsed: null });
   }
@@ -5839,7 +5839,10 @@ async function fetchSupabaseObject(env: Env, objectKey: string) {
   return response;
 }
 
-async function fetchRecipeHtml(sourceUrl: string): Promise<string | null> {
+async function fetchRecipeHtml(
+  sourceUrl: string,
+  opts: { jinaApiKey?: string } = {}
+): Promise<string | null> {
   // Even with a Safari UA, Instagram's edge alternates between serving the
   // full HTML (with og:description / og:image / og:title) and a stripped
   // login-wall HTML with all og: tags missing. The stripped variant is what
@@ -5880,7 +5883,7 @@ async function fetchRecipeHtml(sourceUrl: string): Promise<string | null> {
         redirect: 'follow',
       });
       if (!response.ok) {
-        if (isLast) return null;
+        if (isLast) break;
         continue;
       }
       const html = await response.text();
@@ -5888,10 +5891,64 @@ async function fetchRecipeHtml(sourceUrl: string): Promise<string | null> {
       return html;
     } catch (error) {
       console.warn('Failed to fetch recipe HTML', { attempt, error: String(error) });
-      if (isLast) return null;
+      if (isLast) break;
     }
   }
-  return null;
+
+  // Every direct attempt failed. Some recipe blogs (AllRecipes / Dotdash
+  // Meredith) serve a 403 bot-challenge page to any non-browser TLS
+  // fingerprint, so no UA spoofing recovers them — but Jina's reader fetchers
+  // get through. X-Return-Format: html asks Jina for the ORIGINAL HTML rather
+  // than its markdown digest, so the existing extractor still finds the
+  // JSON-LD recipe node AND the og:image (markdown mode drops both, which is
+  // why blog thumbnails were missing even after text enrichment worked).
+  //
+  // Social hosts are excluded: their failures are login walls, and Jina would
+  // return the same wall while burning tokens.
+  return await fetchRecipeHtmlViaJina(sourceUrl, opts.jinaApiKey);
+}
+
+// Jina-proxied HTML fetch. Returns null when unconfigured, host-excluded, or
+// the proxy itself fails — callers treat null as "no HTML", unchanged.
+async function fetchRecipeHtmlViaJina(sourceUrl: string, jinaApiKey?: string): Promise<string | null> {
+  if (!jinaApiKey) return null;
+  if (isSocialOrVideoUrl(sourceUrl)) return null;
+  try {
+    const response = await fetch(`https://r.jina.ai/${sourceUrl}`, {
+      headers: {
+        'User-Agent': 'RecipeWorker/1.0',
+        Authorization: `Bearer ${jinaApiKey}`,
+        'X-Return-Format': 'html',
+      },
+    });
+    if (!response.ok) {
+      console.warn('[jina-html] proxy fetch failed', { url: sourceUrl, status: response.status });
+      return null;
+    }
+    return await response.text();
+  } catch (error) {
+    console.warn('[jina-html] proxy fetch threw', { url: sourceUrl, error: String(error) });
+    return null;
+  }
+}
+
+// Caption/video-based hosts, which have no usable JSON-LD recipe node and
+// whose fetch failures are login walls rather than bot challenges.
+function isSocialOrVideoUrl(sourceUrl: string): boolean {
+  let host: string;
+  try {
+    host = new URL(sourceUrl).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return (
+    host.includes('instagram.com') ||
+    host.includes('tiktok.com') ||
+    host.includes('youtube.com') ||
+    host === 'youtu.be' || host.endsWith('.youtu.be') ||
+    host.includes('facebook.com') ||
+    host === 'fb.watch' || host.endsWith('.fb.watch')
+  );
 }
 
 function extractInstagramRecipeTitle(ogTitle: string): string {
@@ -7057,7 +7114,7 @@ type StructuredHtmlDeps = {
 // byte-for-byte unchanged. The chain falls through to captionExtract /
 // youtubeVideo / textInference for those hosts exactly as before.
 async function structuredHtml(
-  _env: Env,
+  env: Env,
   sourceUrl: string,
   _title: string,
   deps: StructuredHtmlDeps = {}
@@ -7065,25 +7122,17 @@ async function structuredHtml(
   const startedAt = Date.now();
   const fetcher = deps.fetchRecipeHtml ?? fetchRecipeHtml;
 
-  let host: string;
   try {
-    host = new URL(sourceUrl).hostname.toLowerCase();
+    new URL(sourceUrl);
   } catch {
     return EMPTY_ENRICHMENT;
   }
 
-  const isSocialOrVideo =
-    host.includes('instagram.com') ||
-    host.includes('tiktok.com') ||
-    host.includes('youtube.com') ||
-    host === 'youtu.be' || host.endsWith('.youtu.be') ||
-    host.includes('facebook.com') ||
-    host === 'fb.watch' || host.endsWith('.fb.watch');
-  if (isSocialOrVideo) return EMPTY_ENRICHMENT;
+  if (isSocialOrVideoUrl(sourceUrl)) return EMPTY_ENRICHMENT;
 
   let html: string | null = null;
   try {
-    html = await fetcher(sourceUrl);
+    html = await fetcher(sourceUrl, { jinaApiKey: env?.JINA_API_KEY });
   } catch (err) {
     console.log('[enrich]', { strategy: 'structured-html', url: sourceUrl, outcome: 'error', duration_ms: Date.now() - startedAt, error: String(err) });
     return EMPTY_ENRICHMENT;
@@ -8308,6 +8357,7 @@ export {
   buildGeminiPrompt,
   parseGeminiRecipeJson,
   fetchOembedCaption,
+  fetchRecipeHtml,
   geminiExtractFromCaption,
   captionExtract,
   facebookImageVision,

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRawRecipeText, fetchOembedCaption, captionExtract, youtubeVideo, textInference, structuredHtml, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe, isAllowedSourceHost, isFacebookLinkShim, resolveSourceUrl, extractRecipeDetailsFromHtml, stripFacebookEngagementPrefix, geminiExtractFromCaption, facebookImageVision, extractFacebookPostMessage, callGemini } from './index';
+import { fetchRawRecipeText, fetchOembedCaption, fetchRecipeHtml, captionExtract, youtubeVideo, textInference, structuredHtml, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe, isAllowedSourceHost, isFacebookLinkShim, resolveSourceUrl, extractRecipeDetailsFromHtml, stripFacebookEngagementPrefix, geminiExtractFromCaption, facebookImageVision, extractFacebookPostMessage, callGemini } from './index';
 import type { Env } from './index';
 
 describe('fetchRawRecipeText', () => {
@@ -1640,9 +1640,64 @@ type EnrichmentResultForTest = {
   notes: string; provenance: 'extracted' | 'inferred' | 'title-only' | null;
 };
 
+describe('fetchRecipeHtml jina HTML fallback', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const BLOG_HTML = '<html><head><meta property="og:image" content="https://img/x.jpg"/></head></html>';
+
+  it('falls back to jina HTML mode when the direct fetch is bot-walled and a key is set', async () => {
+    // AllRecipes 403s every non-browser TLS fingerprint, so jina's fetchers
+    // (which get through) are the only way to reach its og:image / JSON-LD.
+    let jinaInit: any = null;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: any) => {
+      if (String(url).includes('r.jina.ai')) {
+        jinaInit = init;
+        return { ok: true, text: async () => BLOG_HTML };
+      }
+      return { ok: false, status: 403, text: async () => 'blocked' };
+    }) as unknown as typeof fetch);
+
+    const html = await fetchRecipeHtml('https://www.allrecipes.com/recipe/1/x/', { jinaApiKey: 'jina_k' });
+    expect(html).toBe(BLOG_HTML);
+    expect(jinaInit?.headers?.Authorization).toBe('Bearer jina_k');
+    expect(jinaInit?.headers?.['X-Return-Format']).toBe('html');
+  });
+
+  it('returns null on direct-fetch failure when no key is configured (no jina call)', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('r.jina.ai')) throw new Error('must not call jina');
+      return { ok: false, status: 403, text: async () => 'blocked' };
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    const html = await fetchRecipeHtml('https://www.allrecipes.com/recipe/1/x/');
+    expect(html).toBeNull();
+  });
+
+  it('never uses the jina fallback for social hosts (login walls, wasted tokens)', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('r.jina.ai')) throw new Error('must not call jina');
+      return { ok: false, status: 403, text: async () => 'blocked' };
+    });
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    const html = await fetchRecipeHtml('https://www.instagram.com/reel/abc/', { jinaApiKey: 'jina_k' });
+    expect(html).toBeNull();
+  });
+});
+
 describe('structuredHtml strategy', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('threads env.JINA_API_KEY into fetchRecipeHtml', async () => {
+    const seenOpts: any[] = [];
+    const fetchRecipeHtml = (async (_u: string, opts?: any) => { seenOpts.push(opts); return null; }) as any;
+    await structuredHtml({ JINA_API_KEY: 'jina_k2' } as Env, 'https://www.allrecipes.com/recipe/1/x/', '', { fetchRecipeHtml });
+    expect(seenOpts[0]?.jinaApiKey).toBe('jina_k2');
   });
 
   const BLOG_JSONLD = `<html><head>
