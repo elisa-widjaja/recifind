@@ -29,6 +29,33 @@ describe('import regression: recipe blogs (JSON-LD, deterministic)', () => {
   });
 });
 
+describe('import regression: JSON-LD HTML entities (deterministic)', () => {
+  // AllRecipes embeds raw HTML entities inside its JSON-LD strings, e.g.
+  // "Alysia&#39;s Basic Meat Lasagna". extractMetaContent already decodes the
+  // og: path, but the JSON-LD path did not — so saved titles kept the literal
+  // "&#39;". Real prod rows carried this ("Just Like Wendy&#39;s Chili").
+  const entityJsonLd = `<html><head>
+    <script type="application/ld+json">
+    {"@context":"https://schema.org","@type":"Recipe","name":"Alysia&#39;s Basic Meat &amp; Cheese Lasagna",
+     "recipeIngredient":["1 jar Trader Joe&#39;s marinara","salt &amp; pepper"],
+     "recipeInstructions":[{"@type":"HowToStep","text":"Preheat to 350&#176;F."},
+                           {"@type":"HowToStep","text":"Layer noodles &amp; sauce."}]}
+    </script></head><body></body></html>`;
+
+  it('decodes entities in the JSON-LD title', () => {
+    const result = extractRecipeDetailsFromHtml(entityJsonLd, 'https://www.allrecipes.com/recipe/24074/x/');
+    expect(result!.title).toBe("Alysia's Basic Meat & Cheese Lasagna");
+  });
+
+  it('decodes entities in JSON-LD ingredients and steps', () => {
+    const result = extractRecipeDetailsFromHtml(entityJsonLd, 'https://www.allrecipes.com/recipe/24074/x/');
+    expect(result!.ingredients).toContain("1 jar Trader Joe's marinara");
+    expect(result!.ingredients).toContain('salt & pepper');
+    expect(result!.steps).toContain('Preheat to 350°F.');
+    expect(result!.steps).toContain('Layer noodles & sauce.');
+  });
+});
+
 describe('import regression: IG/TikTok title extraction (deterministic)', () => {
   it('IG: pulls dish name before the first food emoji', () => {
     expect(extractInstagramRecipeTitle('BANANA BREAD FRENCH TOAST BAKE 🍌🍞 the best brunch')).toBe('BANANA BREAD FRENCH TOAST BAKE');

@@ -6285,11 +6285,21 @@ function extractRecipeDetailsFromHtml(html: string, sourceUrl: string): ParsedRe
     };
   }
 
-  const titleCandidate = (recipeNode.name || recipeNode.headline || fallbackTitle || '').toString().trim();
-  const ingredients = sanitizeStringArray(recipeNode.recipeIngredient || recipeNode.ingredients);
+  // JSON-LD string fields carry raw HTML entities on some blogs (AllRecipes
+  // ships "Alysia&#39;s Basic Meat Lasagna" in recipeNode.name), and unlike the
+  // og:/meta path — extractMetaContent decodes on the way out — nothing
+  // decoded these, so the entity reached the saved recipe. Decode here at the
+  // point HTML-sourced text enters, rather than inside sanitizeStringArray /
+  // normalizeInstructionList, which are shared with the Gemini paths whose
+  // output is already plain text.
+  const titleCandidate = decodeHtmlEntities(
+    (recipeNode.name || recipeNode.headline || fallbackTitle || '').toString().trim()
+  );
+  const ingredients = sanitizeStringArray(recipeNode.recipeIngredient || recipeNode.ingredients)
+    .map(decodeHtmlEntities);
   const steps = normalizeInstructionList(
     recipeNode.recipeInstructions || recipeNode.instructions || recipeNode.recipeDirections
-  );
+  ).map(decodeHtmlEntities);
   const mealTypes = extractMealTypesFromNode(recipeNode);
   const durationMinutes =
     parseDurationValue(recipeNode.totalTime) ??
