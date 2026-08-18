@@ -17,6 +17,38 @@ describe('fetchRawRecipeText', () => {
     expect(result).toContain('eggs');
   });
 
+  it('sends Authorization bearer to r.jina.ai when a Jina API key is provided', async () => {
+    // Jina now 401s anonymous requests from low-reputation ASNs (which
+    // includes Cloudflare's) — an authenticated request is what revives the
+    // blog text-inference path for bot-walled hosts like AllRecipes.
+    let sentInit: any = null;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: any) => {
+      if (String(url).includes('r.jina.ai')) {
+        sentInit = init;
+        return { ok: true, text: async () => 'Ingredients: eggs, butter' };
+      }
+      return { ok: false, text: async () => '' };
+    }) as unknown as typeof fetch);
+
+    const result = await fetchRawRecipeText('https://www.allrecipes.com/recipe/20144/banana-banana-bread/', { jinaApiKey: 'jina_test123' });
+    expect(result).toContain('Ingredients');
+    expect(sentInit?.headers?.Authorization).toBe('Bearer jina_test123');
+  });
+
+  it('omits the Authorization header when no Jina key is configured', async () => {
+    let sentInit: any = null;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: any) => {
+      if (String(url).includes('r.jina.ai')) {
+        sentInit = init;
+        return { ok: true, text: async () => 'Ingredients: eggs, butter' };
+      }
+      return { ok: false, text: async () => '' };
+    }) as unknown as typeof fetch);
+
+    await fetchRawRecipeText('https://www.allrecipes.com/recipe/20144/banana-banana-bread/');
+    expect(sentInit?.headers?.Authorization).toBeUndefined();
+  });
+
   it('falls back to Instagram oEmbed caption when Jina AI fails', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if ((url as string).includes('r.jina.ai')) {
@@ -776,6 +808,17 @@ describe('textInference', () => {
       project_id: 'proj-123'
     })
   };
+
+  it('threads env.JINA_API_KEY into fetchRawRecipeText', async () => {
+    const seenOpts: any[] = [];
+    const deps = {
+      ...baseDeps,
+      fetchRawRecipeText: (async (_u: string, opts?: any) => { seenOpts.push(opts); return null; }) as any,
+      fetchImpl: vi.fn() as unknown as typeof fetch,
+    };
+    await textInference({ JINA_API_KEY: 'jina_k1' } as Env, 'https://example.com/x', 'T', deps);
+    expect(seenOpts[0]?.jinaApiKey).toBe('jina_k1');
+  });
 
   it('returns empty (no Gemini call) when raw text is null, regardless of title', async () => {
     const deps = {

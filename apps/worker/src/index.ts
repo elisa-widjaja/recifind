@@ -32,6 +32,10 @@ export interface Env {
   SUPABASE_JWT_SECRET?: string;
   GEMINI_SERVICE_ACCOUNT_B64?: string;
   GEMINI_API_KEY?: string;
+  // r.jina.ai reader-proxy auth. Jina 401s anonymous requests from
+  // low-reputation ASNs (Cloudflare's included), which killed blog
+  // text-inference; an authenticated request restores it.
+  JINA_API_KEY?: string;
   RESEND_API_KEY?: string;
   // === [S05] APNs secrets ===
   APNS_AUTH_KEY_P8?: string;
@@ -7447,7 +7451,7 @@ async function textInference(
   const fetcher = deps.fetchRawRecipeText ?? fetchRawRecipeText;
   let rawText: string | null = null;
   try {
-    rawText = await fetcher(sourceUrl);
+    rawText = await fetcher(sourceUrl, { jinaApiKey: env.JINA_API_KEY });
   } catch (err) {
     console.log('[enrich]', { strategy: 'text-inference', url: sourceUrl, outcome: 'error', duration_ms: Date.now() - startedAt, error: String(err) });
     return EMPTY_ENRICHMENT;
@@ -7747,7 +7751,10 @@ export async function enrichAfterSave(
   await updateCollectionMeta(env, userId, { countDelta: 0 });
 }
 
-async function fetchRawRecipeText(sourceUrl: string | undefined) {
+async function fetchRawRecipeText(
+  sourceUrl: string | undefined,
+  opts: { jinaApiKey?: string } = {}
+) {
   if (!sourceUrl) {
     return null;
   }
@@ -7782,11 +7789,9 @@ async function fetchRawRecipeText(sourceUrl: string | undefined) {
   }
 
   const proxied = `https://r.jina.ai/${sourceUrl}`;
-  const response = await fetch(proxied, {
-    headers: {
-      'User-Agent': 'RecipeWorker/1.0'
-    }
-  });
+  const jinaHeaders: Record<string, string> = { 'User-Agent': 'RecipeWorker/1.0' };
+  if (opts.jinaApiKey) jinaHeaders.Authorization = `Bearer ${opts.jinaApiKey}`;
+  const response = await fetch(proxied, { headers: jinaHeaders });
   if (response.ok) {
     return response.text();
   }
