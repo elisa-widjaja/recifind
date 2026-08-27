@@ -78,8 +78,24 @@ describe('searchPublicRecipes', () => {
   it('binds the escaped wrapped term for every LIKE slot', async () => {
     const { db, bind } = mockDbReturning([]);
     await searchPublicRecipes(db, '50%');
-    // 4 WHERE columns + 1 ORDER BY CASE = 5 binds of the same escaped term
-    expect(bind).toHaveBeenCalledWith('%50\\%%', '%50\\%%', '%50\\%%', '%50\\%%', '%50\\%%');
+    // 5 WHERE columns + 1 ORDER BY CASE = 6 binds of the same escaped term
+    expect(bind).toHaveBeenCalledWith('%50\\%%', '%50\\%%', '%50\\%%', '%50\\%%', '%50\\%%', '%50\\%%');
+  });
+
+  it('searches the creator column and carries creator into results', async () => {
+    const { db, prepare } = mockDbReturning([
+      okRow('r1', { title: 'Saucy Peanut Chicken', creator: 'Kalejunkie' }),
+    ]);
+    const out = await searchPublicRecipes(db, 'kalejunkie');
+    expect(prepare.mock.calls[0][0]).toMatch(/creator LIKE \?/);
+    expect(out).toHaveLength(1);
+    expect(out[0].creator).toBe('Kalejunkie');
+  });
+
+  it('maps a missing creator column to null', async () => {
+    const { db } = mockDbReturning([okRow('r1')]);
+    const out = await searchPublicRecipes(db, 'recipe');
+    expect(out[0].creator).toBeNull();
   });
 
   it('collapses the same source video saved by different users to one card', async () => {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRawRecipeText, fetchOembedCaption, fetchRecipeHtml, captionExtract, youtubeVideo, textInference, structuredHtml, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe, isAllowedSourceHost, isFacebookLinkShim, resolveSourceUrl, extractRecipeDetailsFromHtml, stripFacebookEngagementPrefix, geminiExtractFromCaption, facebookImageVision, extractFacebookPostMessage, callGemini } from './index';
+import { judgeTitleIsFood, fetchRawRecipeText, fetchOembedCaption, fetchRecipeHtml, captionExtract, youtubeVideo, textInference, structuredHtml, runEnrichmentChain, enrichAfterSave, handleEnrichRecipe, isAllowedSourceHost, isFacebookLinkShim, resolveSourceUrl, extractRecipeDetailsFromHtml, stripFacebookEngagementPrefix, geminiExtractFromCaption, facebookImageVision, extractFacebookPostMessage, callGemini } from './index';
 import type { Env } from './index';
 
 describe('fetchRawRecipeText', () => {
@@ -1347,7 +1347,97 @@ describe('isFood classification', () => {
   });
 });
 
+const EMPTY_RESULT = {
+  title: '', imageUrl: '', mealTypes: [], cuisines: [], ingredients: [], steps: [],
+  durationMinutes: null, notes: '', provenance: null as any,
+};
+
+describe('judgeTitleIsFood', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  const env = { GEMINI_API_KEY: 'k' } as unknown as Env;
+  const geminiReturning = (payload: unknown) => vi.fn(async () => ({
+    ok: true,
+    json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(payload) }] } }] }),
+  })) as unknown as typeof fetch;
+
+  it('returns false for a clearly non-food title', async () => {
+    const result = await judgeTitleIsFood(env, 'Not legal advice, and just for fun. Family dynamics, as you can guess, can be complicated.', { fetchImpl: geminiReturning({ isFood: false }) });
+    expect(result).toBe(false);
+  });
+
+  it('returns true for a food title', async () => {
+    const result = await judgeTitleIsFood(env, 'Garlic butter shrimp pasta', { fetchImpl: geminiReturning({ isFood: true }) });
+    expect(result).toBe(true);
+  });
+
+  it('fails open to null when Gemini errors — never hides a recipe on an outage', async () => {
+    const fetchImpl = vi.fn(async () => { throw new Error('gemini down'); }) as unknown as typeof fetch;
+    const result = await judgeTitleIsFood(env, 'Some real recipe title', { fetchImpl });
+    expect(result).toBeNull();
+  });
+
+  it('skips placeholder titles without calling Gemini (they carry no signal)', async () => {
+    const fetchImpl = vi.fn(async () => { throw new Error('must not call gemini'); }) as unknown as typeof fetch;
+    for (const junk of ['', 'Facebook Reel', 'Instagram', 'www.instagram.com', 'Redirecting...']) {
+      expect(await judgeTitleIsFood(env, junk, { fetchImpl })).toBeNull();
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('returns null when Gemini is not configured', async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    expect(await judgeTitleIsFood({} as Env, 'Garlic butter shrimp pasta', { fetchImpl })).toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
 describe('enrichAfterSave', () => {
+  it('judges the title when the chain comes back empty with no verdict, and stores it', async () => {
+    // The real-world leak: Instagram serves the worker a login wall, so no
+    // strategy ever reaches Gemini and is_food stayed null (= shown on the
+    // discover shelf). The title is the one signal we always have.
+    const runCalls: Array<{ sql: string; binds: any[] }> = [];
+    const dbMock = {
+      prepare: (sql: string) => ({
+        bind: (...binds: any[]) => ({
+          run: async () => { runCalls.push({ sql, binds: [...binds] }); return { success: true }; },
+          first: async () => null,
+        }),
+      }),
+    };
+    const env = { DB: dbMock as unknown as D1Database, GEMINI_API_KEY: 'x' } as unknown as Env;
+    const fakeChain = async () => ({
+      result: { ...EMPTY_RESULT, isFood: null },
+      winningStrategy: null,
+    });
+    const judged: string[] = [];
+    await enrichAfterSave(env, 'user-1', 'recipe-1', 'https://www.instagram.com/reel/DcMEGpWMwGe/', 'Not legal advice, and just for fun. Family dynamics.', {
+      runEnrichmentChain: fakeChain as any,
+      judgeTitleIsFood: (async (_e: any, t: string) => { judged.push(t); return false; }) as any,
+    });
+    expect(judged).toEqual(['Not legal advice, and just for fun. Family dynamics.']);
+    const update = runCalls.find(c => c.sql.includes('UPDATE recipes'));
+    expect(update!.binds).toContain(0);
+  });
+
+  it('does NOT judge the title when the chain already returned a verdict', async () => {
+    const dbMock = {
+      prepare: () => ({ bind: () => ({ run: async () => ({ success: true }), first: async () => null }) }),
+    };
+    const env = { DB: dbMock as unknown as D1Database, GEMINI_API_KEY: 'x' } as unknown as Env;
+    const fakeChain = async () => ({
+      result: { ...EMPTY_RESULT, isFood: true },
+      winningStrategy: null,
+    });
+    const judge = vi.fn();
+    await enrichAfterSave(env, 'user-1', 'recipe-1', 'https://e.com/x', 'Real Recipe', {
+      runEnrichmentChain: fakeChain as any,
+      judgeTitleIsFood: judge as any,
+    });
+    expect(judge).not.toHaveBeenCalled();
+  });
+
   it('binds provenance in the UPDATE when the chain returns a non-empty result', async () => {
     const runCalls: Array<{ sql: string; binds: any[] }> = [];
     const dbMock = {

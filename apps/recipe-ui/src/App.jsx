@@ -3749,7 +3749,7 @@ function App() {
         if (normalizedIngredients.length > 0) {
           const haystack = `${recipe.title} ${recipe.ingredients.join(' ')} ${
             recipe.steps ? recipe.steps.join(' ') : ''
-          } ${(recipe.customTags || []).join(' ')}`.toLowerCase();
+          } ${(recipe.customTags || []).join(' ')} ${recipe.creator || ''}`.toLowerCase();
 
           normalizedIngredients.forEach((term) => {
             if (term && haystack.includes(term)) {
@@ -4419,10 +4419,13 @@ function App() {
     }
   }, [recipes, activeRecipe, handleOpenRecipeDetails, session, isAuthChecked]);
 
-  // Fetch oEmbed author for Instagram/TikTok recipes when dialog opens
+  // Fetch oEmbed author for Instagram/TikTok recipes when dialog opens.
+  // Skipped when the recipe already carries a stored creator (backfilled by a
+  // previous view) — the credit line reads that directly.
   useEffect(() => {
     const sourceUrl = activeRecipe?.sourceUrl;
     if (!sourceUrl) { setOembedAuthor(null); return; }
+    if (activeRecipe?.creator) { setOembedAuthor(null); return; }
     try {
       const host = new URL(sourceUrl).hostname;
       if (!host.includes('instagram.com') && !host.includes('tiktok.com')) {
@@ -4440,7 +4443,7 @@ function App() {
         setOembedAuthor(author);
       })
       .catch(() => {});
-  }, [activeRecipe?.sourceUrl]);
+  }, [activeRecipe?.sourceUrl, activeRecipe?.creator]);
 
   // Handle pending friend request accept (URL param captured at module load)
   useEffect(() => {
@@ -6964,7 +6967,7 @@ function App() {
                       View source
                     </Link>
                     {!isEditMode && (() => {
-                      const credit = getRecipeCredit(activeRecipeView?.sourceUrl, oembedAuthor);
+                      const credit = getRecipeCredit(activeRecipeView?.sourceUrl, activeRecipeView?.creator || oembedAuthor);
                       return credit ? (
                         <Typography
                           variant="caption"
@@ -8143,7 +8146,7 @@ function App() {
                     <TextField
                       autoFocus
                       size="small"
-                      placeholder="Search recipes..."
+                      placeholder="Search recipes, ingredients, creators"
                       value={friendRecipeSearchQuery}
                       onChange={(e) => {
                         setFriendRecipeSearchQuery(e.target.value);

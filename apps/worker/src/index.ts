@@ -72,6 +72,10 @@ interface Recipe {
   previewImage?: ImageMetadata | null;
   sharedWithFriends?: boolean;
   provenance?: 'extracted' | 'inferred' | 'title-only' | null;
+  // Content creator's display name/handle (e.g. "Kalejunkie"), backfilled
+  // lazily by /public/oembed-author on recipe-detail views — never written by
+  // the import flow. NULL = not yet resolved.
+  creator?: string | null;
 }
 
 interface UserProfile {
@@ -273,7 +277,7 @@ export default {
 
       // Public endpoint to get recipe credit/author from source URL via oEmbed
       if (url.pathname === '/public/oembed-author' && request.method === 'GET') {
-        return await handleOembedAuthor(url);
+        return await handleOembedAuthor(url, env.DB);
       }
 
       // Public endpoint to get trending community recipes
@@ -1455,6 +1459,7 @@ function rowToRecipe(row: Record<string, unknown>): Recipe {
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
     provenance: (row.provenance as 'extracted' | 'inferred' | 'title-only' | null) ?? null,
+    creator: (row.creator as string) || null,
   };
 }
 
@@ -1876,11 +1881,10 @@ async function handleCreateFriendShareLink(env: Env, friendId: string, recipeId:
   return json({ token }, 201, withCors());
 }
 
-async function handleOembedAuthor(url: URL) {
-  const sourceUrl = url.searchParams.get('url');
-  if (!sourceUrl) {
-    return json({ author: null }, 400, withCors());
-  }
+// Resolves the content creator's display name for a social source URL, live.
+// TikTok via oEmbed; Instagram via og:title with a Jina fallback. Returns null
+// when nothing resolves (blocked fetch, unsupported host, malformed URL).
+async function resolveOembedAuthor(sourceUrl: string, fetchImpl: typeof fetch): Promise<string | null> {
   try {
     const parsed = new URL(sourceUrl);
     const host = parsed.hostname.toLowerCase();
@@ -1888,15 +1892,13 @@ async function handleOembedAuthor(url: URL) {
     // Try TikTok oEmbed (works reliably)
     if (host.includes('tiktok.com')) {
       const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(sourceUrl)}`;
-      const res = await fetch(oembedUrl, {
+      const res = await fetchImpl(oembedUrl, {
         headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)', 'Accept': 'application/json' }
       });
       if (res.ok) {
         const payload = await res.json() as { author_name?: string };
         if (payload.author_name) {
-          return json({ author: payload.author_name }, 200, {
-            ...withCors(), 'Cache-Control': 'public, max-age=86400'
-          });
+          return payload.author_name;
         }
       }
     }
@@ -1905,7 +1907,7 @@ async function handleOembedAuthor(url: URL) {
     if (host.includes('instagram.com')) {
       // Strategy 1: Fetch HTML directly and parse og:title
       try {
-        const htmlRes = await fetch(sourceUrl, {
+        const htmlRes = await fetchImpl(sourceUrl, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (compatible; RecipeWorker/1.0)',
             'Accept': 'text/html,application/xhtml+xml'
@@ -1919,9 +1921,7 @@ async function handleOembedAuthor(url: URL) {
           if (ogTitle) {
             const match = ogTitle.match(/^(.+?)\s+on\s+Instagram/i);
             if (match) {
-              return json({ author: match[1].trim() }, 200, {
-                ...withCors(), 'Cache-Control': 'public, max-age=86400'
-              });
+              return match[1].trim();
             }
           }
         }
@@ -1929,7 +1929,7 @@ async function handleOembedAuthor(url: URL) {
 
       // Strategy 2: Use Jina proxy (handles JS-rendered pages)
       try {
-        const jinaRes = await fetch(`https://r.jina.ai/${sourceUrl}`, {
+        const jinaRes = await fetchImpl(`https://r.jina.ai/${sourceUrl}`, {
           headers: { 'User-Agent': 'RecipeWorker/1.0' }
         });
         if (jinaRes.ok) {
@@ -1938,18 +1938,66 @@ async function handleOembedAuthor(url: URL) {
           const match = text.match(/^Title:\s*(.+?)\s+on\s+Instagram/im) ||
                         text.match(/(.+?)\s+on\s+Instagram/i);
           if (match) {
-            return json({ author: match[1].trim() }, 200, {
-              ...withCors(), 'Cache-Control': 'public, max-age=86400'
-            });
+            return match[1].trim();
           }
         }
       } catch { /* fall through */ }
     }
 
-    return json({ author: null }, 200, withCors());
+    return null;
   } catch {
+    return null;
+  }
+}
+
+export async function handleOembedAuthor(
+  url: URL,
+  db: D1Database,
+  deps: { fetchImpl?: typeof fetch } = {},
+) {
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const sourceUrl = url.searchParams.get('url');
+  if (!sourceUrl) {
+    return json({ author: null }, 400, withCors());
+  }
+
+  // Read-first: a previously stored creator answers without a live fetch —
+  // the IG fetch only lands ~20% of the time from worker IPs, so once any
+  // view has backfilled a recipe, later views stop hammering Instagram.
+  try {
+    const row = await db.prepare(
+      `SELECT creator FROM recipes WHERE source_url = ? AND creator IS NOT NULL AND creator != '' LIMIT 1`
+    ).bind(sourceUrl).first<{ creator: string }>();
+    if (row?.creator) {
+      return json({ author: row.creator }, 200, {
+        ...withCors(), 'Cache-Control': 'public, max-age=86400'
+      });
+    }
+  } catch {
+    // Best-effort read; fall through to a live resolve.
+  }
+
+  const author = await resolveOembedAuthor(sourceUrl, fetchImpl);
+  if (!author) {
     return json({ author: null }, 200, withCors());
   }
+
+  // Lazy backfill: persist the creator on every copy of this source so
+  // creator search (Discover + recipe list) matches it from now on. The
+  // value comes from fetching the source page itself — never from the
+  // (unauthenticated) request — and only rows already holding this
+  // source_url are touched, so the endpoint can't be used to plant text.
+  try {
+    await db.prepare(
+      `UPDATE recipes SET creator = ? WHERE source_url = ? AND (creator IS NULL OR creator = '')`
+    ).bind(author, sourceUrl).run();
+  } catch {
+    // Best-effort write; still serve the resolved author.
+  }
+
+  return json({ author }, 200, {
+    ...withCors(), 'Cache-Control': 'public, max-age=86400'
+  });
 }
 
 // Optional hand-picked recipe IDs to pin to the front of the Discover "From the Community"
@@ -1960,7 +2008,7 @@ const CURATED_YOUTUBE_SHORTS_IDS: string[] = [];
 type DiscoverRecipe = {
   id: string; userId: string; title: string; sourceUrl: string; imageUrl: string;
   mealTypes: string[]; customTags: string[]; durationMinutes: number | null;
-  ingredients: string[]; steps: string[];
+  ingredients: string[]; steps: string[]; creator: string | null;
 };
 
 function mapDiscoverRow(r: Record<string, unknown>): DiscoverRecipe {
@@ -1975,6 +2023,7 @@ function mapDiscoverRow(r: Record<string, unknown>): DiscoverRecipe {
     durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
     ingredients: JSON.parse(String(r.ingredients || '[]')),
     steps: JSON.parse(String(r.steps || '[]')),
+    creator: r.creator ? String(r.creator) : null,
   };
 }
 
@@ -1990,7 +2039,7 @@ function isBrokenDiscoverRow(r: Record<string, unknown>): boolean {
   return isGenericFacebookTitle(String(r.title ?? '')); // generic/empty title
 }
 
-const DISCOVER_SELECT = `SELECT id, user_id, title, source_url, image_url, meal_types, custom_tags, duration_minutes, ingredients, steps FROM recipes`;
+const DISCOVER_SELECT = `SELECT id, user_id, title, source_url, image_url, meal_types, custom_tags, duration_minutes, ingredients, steps, creator FROM recipes`;
 
 export async function getPublicDiscover(db: D1Database): Promise<DiscoverRecipe[]> {
   // Privacy gate: every public-feed query requires shared_with_friends = 1.
@@ -2037,7 +2086,7 @@ export function escapeLikeTerm(term: string): string {
     .replace(/_/g, '\\_');
 }
 
-// Search all public recipes by title + ingredients + tags. Title matches are
+// Search all public recipes by title + ingredients + tags + creator. Title matches are
 // ranked first (SQL CASE), then newest. A leading-wildcard LIKE forces a full
 // table scan, which is fine at this table size (~1.3k rows). We over-fetch to
 // 60, drop broken cards (no image / generic FB title) in JS, then cap at 30.
@@ -2157,10 +2206,11 @@ export async function searchPublicRecipes(
        AND (title LIKE ? ESCAPE '\\'
             OR ingredients LIKE ? ESCAPE '\\'
             OR custom_tags LIKE ? ESCAPE '\\'
-            OR meal_types LIKE ? ESCAPE '\\')
+            OR meal_types LIKE ? ESCAPE '\\'
+            OR creator LIKE ? ESCAPE '\\')
      ORDER BY CASE WHEN title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, created_at DESC
      LIMIT 60`
-  ).bind(like, like, like, like, like).all();
+  ).bind(like, like, like, like, like, like).all();
 
   const mapped = (rows.results as Array<Record<string, unknown>>)
     .filter(r => !isBrokenDiscoverRow(r))
@@ -7699,13 +7749,61 @@ async function runEnrichmentChain(
   return { result: EMPTY_ENRICHMENT, winningStrategy: null };
 }
 
+// Last-resort food check for the case the enrichment chain can't help with:
+// every strategy came back empty (Instagram's login wall is the common cause),
+// so Gemini never saw content and returned no isFood verdict. The title is the
+// one signal we always have — it comes from og:title at save time, and for
+// non-recipe saves it is usually plainly non-food ("Not legal advice, and just
+// for fun...").
+//
+// Fails OPEN in every uncertain case (null = "no verdict" = still shown): no
+// Gemini configured, a placeholder title carrying no signal, a malformed
+// response, or an outage. Hiding a real recipe is far worse than showing a
+// stray non-recipe, so only an explicit false from Gemini suppresses a row.
+async function judgeTitleIsFood(
+  env: Env,
+  title: string,
+  deps: CallGeminiDeps = {}
+): Promise<boolean | null> {
+  if (!env.GEMINI_API_KEY && !env.GEMINI_SERVICE_ACCOUNT_B64) return null;
+
+  const t = String(title ?? '').trim();
+  // Placeholder titles ("Instagram", "Facebook Reel", a bare host) describe the
+  // platform, not the content — judging them would be judging noise. Note this
+  // deliberately does NOT use looksLikeBrokenTitle, which also flags any title
+  // over 80 chars: long caption-style titles are the highest-signal ones here.
+  if (!t) return null;
+  if (isGenericFacebookTitle(t)) return null;
+  if (/^(www\.)?(instagram|tiktok|youtube|facebook)(\.com)?$/i.test(t)) return null;
+  if (/^https?:\/\//i.test(t)) return null;
+
+  const prompt = `Does this saved link's title describe food, cooking, a recipe, or a drink?
+
+Title: ${t}
+
+Answer with JSON only: { "isFood": true } or { "isFood": false }.
+Set false ONLY when the title clearly describes something other than food or cooking (a workout, a hiking trail, legal or financial talk, fashion, travel, family/relationship commentary). If the title is ambiguous, generic, truncated, or you are unsure, answer true.`;
+
+  try {
+    const raw = await callGemini(env, prompt, deps);
+    const parsed = JSON.parse(raw);
+    return typeof parsed?.isFood === 'boolean' ? parsed.isFood : null;
+  } catch (err) {
+    console.log('[isFood-title] judge failed', { title: t.slice(0, 60), error: String(err) });
+    return null;
+  }
+}
+
 export async function enrichAfterSave(
   env: Env,
   userId: string,
   recipeId: string,
   sourceUrl: string,
   title: string,
-  deps: { runEnrichmentChain?: typeof runEnrichmentChain } = {}
+  deps: {
+    runEnrichmentChain?: typeof runEnrichmentChain;
+    judgeTitleIsFood?: typeof judgeTitleIsFood;
+  } = {}
 ): Promise<void> {
   if (!sourceUrl || (!env.GEMINI_API_KEY && !env.GEMINI_SERVICE_ACCOUNT_B64)) return;
 
@@ -7760,7 +7858,19 @@ export async function enrichAfterSave(
   const now = new Date().toISOString();
   // COALESCE keeps the stored verdict when the chain produced none (null) —
   // e.g. a caption-less reel where Gemini never saw content.
-  const isFoodBind = result.isFood == null ? null : (result.isFood ? 1 : 0);
+  let resolvedIsFood = result.isFood ?? null;
+
+  // Title fallback. When every strategy came back empty, Gemini was never
+  // handed any content and so returned no verdict — the case that let a
+  // non-recipe Instagram reel onto the discover shelf (is_food null = shown).
+  // The title is all we have left, so judge that. Only runs on the empty
+  // path, so it costs nothing on successful imports.
+  if (!hasContent && resolvedIsFood == null) {
+    const judge = deps.judgeTitleIsFood ?? judgeTitleIsFood;
+    resolvedIsFood = await judge(env, title);
+  }
+
+  const isFoodBind = resolvedIsFood == null ? null : (resolvedIsFood ? 1 : 0);
 
   if (!hasContent) {
     // Bookkeeping-only update: stamp provenance to 'title-only' and let
@@ -8368,6 +8478,7 @@ export {
   parseGeminiRecipeJson,
   fetchOembedCaption,
   fetchRecipeHtml,
+  judgeTitleIsFood,
   geminiExtractFromCaption,
   captionExtract,
   facebookImageVision,
