@@ -189,7 +189,7 @@ export default function DiscoverPage({
         fullWidth
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search dishes, tags, or creators"
+        placeholder="Search dishes, tags, creators"
         sx={{
           mb: 4,
           '& .MuiOutlinedInput-root': { height: { xs: '50px', sm: '54px' }, borderRadius: '999px' },
