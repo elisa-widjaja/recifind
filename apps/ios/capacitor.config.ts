@@ -14,8 +14,8 @@ const config: CapacitorConfig = {
     iosScheme: 'https',
     // For release builds: comment out the `url` and `cleartext` lines below.
     // For dev: uncomment to live-reload from the named tunnel.
-    url: 'https://dev.recifriend.com',
-    cleartext: false,
+    // url: 'https://dev.recifriend.com',
+    // cleartext: false,
   },
   ios: {
     scheme: 'recifriend',
