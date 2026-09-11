@@ -1,0 +1,13 @@
+# SPA routes: serve the app for real paths only. Anything else falls through to 404.html.
+# Keep in sync with public/.well-known/apple-app-site-association and the pathname checks in src/App.jsx.
+/discover / 200
+/discover/* / 200
+/friends / 200
+/friends/* / 200
+/friend-requests / 200
+/friend-requests/* / 200
+/add-recipe / 200
+/add-recipe/* / 200
+/auth/callback / 200
+/recipes / 200
+/recipes/* / 200

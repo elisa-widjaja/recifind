@@ -1,0 +1,5 @@
+# ReciFriend
+User-agent: *
+Allow: /
+Disallow: /friends
+Disallow: /notifications.html
