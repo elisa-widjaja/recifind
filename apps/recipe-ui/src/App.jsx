@@ -150,6 +150,7 @@ import { SharedAuthStore } from './native/SharedAuthStore';
 import { formatDuration } from './utils/videoEmbed';
 import { estimateDurationMinutes } from './utils/estimateDuration';
 import { landingViewForRecipeCount } from './utils/landing';
+import { buildFriendListRows } from './utils/friendListRows';
 import recipesData from '../recipes.json';
 import recipesFromPdfData from '../recipes_from_pdf.json';
 
@@ -1924,11 +1925,6 @@ function App() {
   // shared-recipe list and the friends list.
   const [friendViewStats, setFriendViewStats] = useState(null);
   const [friendViewStatsLoading, setFriendViewStatsLoading] = useState(false);
-  // Friends-tab rows: all of the person's friends when the worker says the
-  // viewer may see them (friendsListScope 'all'), otherwise mutuals only. Falls
-  // back to mutualFriends for a worker that predates the `friends` field.
-  const friendListRows = friendViewStats?.friends ?? friendViewStats?.mutualFriends ?? [];
-  const friendListIsFull = friendViewStats?.friendsListScope === 'all';
   const [friendDrawerTab, setFriendDrawerTab] = useState('recipes');
   // Drill-down trail for the friend drawer. When you tap a mutual friend, the
   // current view is pushed here so the header's close button can become a back
@@ -1946,6 +1942,20 @@ function App() {
 
   // Profile state
   const [userProfile, setUserProfile] = useState(null);
+  // Friends-tab rows: all of the person's friends (with a leading "You" row)
+  // when the worker says the viewer may see them (friendsListScope 'all'),
+  // otherwise mutuals only.
+  const friendListRows = buildFriendListRows(
+    friendViewStats,
+    {
+      userId: session?.user?.id,
+      displayName: userProfile?.displayName,
+      avatarUrl: userProfile?.avatarUrl,
+      foundingChefAt: userProfile?.foundingChefAt,
+    },
+    selectedFriend?.friendId
+  );
+  const friendListIsFull = friendViewStats?.friendsListScope === 'all';
   const [isEditNameOpen, setIsEditNameOpen] = useState(false);
   const [editNameValue, setEditNameValue] = useState('');
 
@@ -8059,7 +8069,7 @@ function App() {
                   <Box sx={{ display: 'flex', flexDirection: 'column' }}>
                     {friendListRows.map((mutual) => {
                       const palette = ['#7c3aed', '#10b981', '#f59e0b', '#ef4444', '#06b6d4'];
-                      const mName = mutual.name || '?';
+                      const mName = mutual.avatarName || mutual.name || '?';
                       let mh = 0;
                       for (let i = 0; i < mName.length; i++) mh = (mh * 31 + mName.charCodeAt(i)) | 0;
                       const mColor = palette[Math.abs(mh) % palette.length];
@@ -8067,17 +8077,19 @@ function App() {
                       return (
                         <Box
                           key={mutual.userId}
-                          onClick={() => drillIntoFriend(mutual)}
+                          // The viewer's own "You" row is informational only.
+                          onClick={mutual.isSelf ? undefined : () => drillIntoFriend(mutual)}
                           sx={{
                             position: 'relative',
-                            display: 'flex', alignItems: 'center', gap: 1.5, py: 1, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: 1.5, py: 1,
+                            cursor: mutual.isSelf ? 'default' : 'pointer',
                             WebkitTapHighlightColor: 'transparent',
                             // Divider inset to align with the name (avatar 38px + 12px gap).
                             '&:not(:last-of-type)::after': {
                               content: '""', position: 'absolute', left: '50px', right: 0, bottom: 0,
                               borderBottom: '1px solid', borderColor: 'divider',
                             },
-                            '&:active': { opacity: 0.6 },
+                            '&:active': mutual.isSelf ? undefined : { opacity: 0.6 },
                           }}
                         >
                           <Box sx={{ position: 'relative', flexShrink: 0 }}>
