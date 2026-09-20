@@ -1919,11 +1919,16 @@ function App() {
   const [friendRecipes, setFriendRecipes] = useState([]);
   const [friendRecipesLoading, setFriendRecipesLoading] = useState(false);
   // Friend Drawer header stats + Recipes/Friends tabs. friendViewStats holds
-  // { recipeCount, friendCount, mutualCount, mutualFriends }; friendDrawerTab
-  // switches the drawer body between the shared-recipe list and the
-  // mutual-friends list.
+  // { recipeCount, friendCount, mutualCount, mutualFriends, friendsListScope,
+  // friends }; friendDrawerTab switches the drawer body between the
+  // shared-recipe list and the friends list.
   const [friendViewStats, setFriendViewStats] = useState(null);
   const [friendViewStatsLoading, setFriendViewStatsLoading] = useState(false);
+  // Friends-tab rows: all of the person's friends when the worker says the
+  // viewer may see them (friendsListScope 'all'), otherwise mutuals only. Falls
+  // back to mutualFriends for a worker that predates the `friends` field.
+  const friendListRows = friendViewStats?.friends ?? friendViewStats?.mutualFriends ?? [];
+  const friendListIsFull = friendViewStats?.friendsListScope === 'all';
   const [friendDrawerTab, setFriendDrawerTab] = useState('recipes');
   // Drill-down trail for the friend drawer. When you tap a mutual friend, the
   // current view is pushed here so the header's close button can become a back
@@ -8032,24 +8037,27 @@ function App() {
         >
           {selectedFriend ? (
             friendDrawerTab === 'friends' ? (
-              /* Mutual-friends list. Header shows the mutual count; each row
-                 re-points the drawer at that friend (a mutual friend is also
-                 the viewer's friend). */
+              /* Friends list. When the viewer is friends with this person the
+                 worker returns all of their friends (mutuals first, flagged);
+                 for a non-friend preview it returns mutuals only. Each row
+                 re-points the drawer at that person. */
               friendViewStatsLoading ? (
                 <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
                   <CircularProgress />
                 </Box>
-              ) : (friendViewStats?.mutualFriends?.length ?? 0) === 0 ? (
+              ) : (friendListRows.length === 0) ? (
                 <Typography color="text.secondary" align="center" sx={{ py: 4 }}>
-                  No mutual friends yet
+                  {friendListIsFull ? 'No friends yet' : 'No mutual friends yet'}
                 </Typography>
               ) : (
                 <Box sx={{ pt: 1 }}>
                   <Typography sx={{ fontSize: 13, fontWeight: 600, mt: '8px', mb: 1 }}>
-                    {friendViewStats.mutualCount} mutual {friendViewStats.mutualCount === 1 ? 'friend' : 'friends'}
+                    {friendListIsFull
+                      ? (friendViewStats.mutualCount > 0 ? `Friends · ${friendViewStats.mutualCount} mutual` : 'Friends')
+                      : `${friendViewStats.mutualCount} mutual ${friendViewStats.mutualCount === 1 ? 'friend' : 'friends'}`}
                   </Typography>
                   <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                    {friendViewStats.mutualFriends.map((mutual) => {
+                    {friendListRows.map((mutual) => {
                       const palette = ['#7c3aed', '#10b981', '#f59e0b', '#ef4444', '#06b6d4'];
                       const mName = mutual.name || '?';
                       let mh = 0;
@@ -8107,9 +8115,18 @@ function App() {
                               />
                             )}
                           </Box>
-                          <Typography sx={{ fontSize: 15, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {mutual.name}
-                          </Typography>
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography sx={{ fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {mutual.name}
+                            </Typography>
+                            {/* Only worth labelling when the list mixes mutual
+                                and non-mutual friends. */}
+                            {friendListIsFull && mutual.isMutual && (
+                              <Typography color="text.secondary" sx={{ fontSize: 12, lineHeight: 1.2 }}>
+                                Mutual
+                              </Typography>
+                            )}
+                          </Box>
                         </Box>
                       );
                     })}

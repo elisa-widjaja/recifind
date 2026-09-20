@@ -1058,7 +1058,7 @@ export default {
       }
 
       // GET /users/:id/friend-view-stats — recipe count, friend count, and the
-      // viewer<->target mutual-friends list for the Friend Drawer tabs.
+      // friends list (full for friends, mutuals only otherwise) for the Friend Drawer tabs.
       const friendViewStatsMatch = url.pathname.match(/^\/users\/([^/]+)\/friend-view-stats$/);
       if (friendViewStatsMatch && request.method === 'GET') {
         if (!user) throw new HttpError(401, 'Missing Authorization header');
@@ -4607,10 +4607,14 @@ async function handleGetUserSharedRecipes(request: Request, env: Env, user: Auth
 }
 
 // Stats shown in the Friend Drawer header/tabs when the viewer opens someone's
-// drawer: how many shared recipes and friends the target has, plus the friends
-// the viewer and target have in common (the "mutual friends" list). Keyed by
-// user id so it works for both an already-connected friend and a suggestion
-// preview. Exported for unit testing.
+// drawer: how many shared recipes and friends the target has, plus the target's
+// friends list for the Friends tab. The full list is only returned when the
+// viewer is already friends with the target (or is the target); a non-friend
+// viewer (suggestion preview) only gets the friends they have in common, so a
+// stranger's social graph never leaks. Keyed by user id so it works for both an
+// already-connected friend and a suggestion preview. Exported for unit testing.
+type FriendViewPerson = { userId: string; name: string; avatarUrl: string | null; foundingChefAt: string | null };
+
 export async function handleFriendViewStats(
   db: D1Database,
   viewerId: string,
@@ -4619,7 +4623,10 @@ export async function handleFriendViewStats(
   recipeCount: number;
   friendCount: number;
   mutualCount: number;
-  mutualFriends: Array<{ userId: string; name: string; avatarUrl: string | null; foundingChefAt: string | null }>;
+  // Kept for already-shipped clients (iOS builds) that render this list.
+  mutualFriends: FriendViewPerson[];
+  friendsListScope: 'all' | 'mutual';
+  friends: Array<FriendViewPerson & { isMutual: boolean }>;
   foundingChefAt: string | null;
 }> {
   // Shared-recipe count matches exactly what the Recipes tab lists.
@@ -4628,39 +4635,52 @@ export async function handleFriendViewStats(
   ).bind(targetId).first<{ cnt: number }>();
 
   // friends is one row per direction, so the target's outgoing edges = their
-  // friend count.
+  // friend count. The same scan tells us whether the viewer is one of them.
   const friendRow = await db.prepare(
-    'SELECT COUNT(*) AS cnt FROM friends WHERE user_id = ?'
-  ).bind(targetId).first<{ cnt: number }>();
+    'SELECT COUNT(*) AS cnt, MAX(CASE WHEN friend_id = ? THEN 1 ELSE 0 END) AS viewerIsFriend FROM friends WHERE user_id = ?'
+  ).bind(viewerId, targetId).first<{ cnt: number; viewerIsFriend: number | null }>();
 
-  // Mutual friends: users who are friends of BOTH the viewer and the target.
-  // Same self-join shape as handleFriendSuggestions, joined to profiles for the
-  // display name + avatar. Nameless / deleted profiles are filtered so no
-  // gibberish row renders.
-  const mutualRows = await db.prepare(`
+  const canSeeAll = viewerId === targetId || Boolean(friendRow?.viewerIsFriend);
+
+  // The target's friends, each flagged with whether the viewer is also friends
+  // with them (LEFT JOIN on the viewer's edges), mutuals first. The viewer's
+  // own row is excluded. When the viewer can't see the full list the trailing
+  // flag restricts the rows to mutuals in SQL. Nameless / deleted profiles are
+  // filtered so no gibberish row renders.
+  const friendRows = await db.prepare(`
     SELECT
       f_t.friend_id      AS userId,
       p.display_name     AS name,
       p.avatar_url       AS avatarUrl,
-      p.founding_chef_at AS foundingChefAt
-    FROM friends f_v
-    JOIN friends f_t ON f_t.friend_id = f_v.friend_id
+      p.founding_chef_at AS foundingChefAt,
+      CASE WHEN f_v.friend_id IS NULL THEN 0 ELSE 1 END AS isMutual
+    FROM friends f_t
     JOIN profiles p ON p.user_id = f_t.friend_id
-    WHERE f_v.user_id = ?
-      AND f_t.user_id = ?
+    LEFT JOIN friends f_v ON f_v.user_id = ? AND f_v.friend_id = f_t.friend_id
+    WHERE f_t.user_id = ?
+      AND f_t.friend_id <> ?
       AND p.deleted_at IS NULL
       AND p.display_name IS NOT NULL AND TRIM(p.display_name) <> ''
-    ORDER BY p.display_name
-  `).bind(viewerId, targetId).all<{ userId: string; name: string; avatarUrl: string | null; foundingChefAt: string | null }>();
+      AND (? = 1 OR f_v.friend_id IS NOT NULL)
+    ORDER BY isMutual DESC, p.display_name
+  `).bind(viewerId, targetId, viewerId, canSeeAll ? 1 : 0)
+    .all<FriendViewPerson & { isMutual: number }>();
 
-  const mutualFriends = (mutualRows.results || [])
+  const friends = (friendRows.results || [])
     .filter(row => row.name && String(row.name).trim())
+    // Defense in depth: a non-friend viewer never receives a non-mutual row.
+    .filter(row => canSeeAll || Boolean(row.isMutual))
     .map(row => ({
       userId: row.userId,
       name: row.name,
       avatarUrl: row.avatarUrl ?? null,
       foundingChefAt: row.foundingChefAt ?? null,
+      isMutual: Boolean(row.isMutual),
     }));
+
+  const mutualFriends = friends
+    .filter(f => f.isMutual)
+    .map(({ isMutual, ...person }) => person);
 
   // Founding Chef badge on the drawer header avatar. Read from profiles here
   // (rather than trusting the caller's friend object) so the badge shows no
@@ -4674,6 +4694,8 @@ export async function handleFriendViewStats(
     friendCount: friendRow?.cnt ?? 0,
     mutualCount: mutualFriends.length,
     mutualFriends,
+    friendsListScope: canSeeAll ? 'all' : 'mutual',
+    friends,
     foundingChefAt: badgeRow?.founding_chef_at ?? null,
   };
 }
