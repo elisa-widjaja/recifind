@@ -122,6 +122,8 @@ import SourcesWorkflowRow from './components/SourcesWorkflowRow';
 // === [S04] Friend picker wiring ===
 import { FriendPicker } from './components/FriendPicker';
 import { ShareSheet } from './components/ShareSheet';
+import WhatsNewSheet from './components/WhatsNewSheet';
+import { WHATS_NEW, shouldShowWhatsNew, markWhatsNewSeen } from './lib/whatsNew';
 import { shareRecipe } from './lib/shareRecipe';
 import { SHARE_PUBLIC_URL, buildRecipeShareUrl, buildRecipeAppDeepLink } from './lib/shareUrl';
 import { CUISINE_LABELS, CUISINE_ORDER } from './lib/cuisines';
@@ -3602,6 +3604,49 @@ function App() {
     setReviewPromptOpen(false);
   };
 
+  // ---- "What's new" tips sheet ----
+  // One-time bottom sheet introducing new features. Shown once per device to a
+  // logged-in user whose account is at least an hour old (new signups get it on
+  // a later open, not their first session). Logic: src/lib/whatsNew.js. It
+  // waits until nothing else is open, and sits out a session in which the
+  // review prompt already asked for attention.
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
+  const whatsNewHandledRef = useRef(false);
+  const whatsNewBlocked = Boolean(
+    onboardingDrawerOpen || addFriendDrawerOpen || referralDialogOpen || isAddDialogOpen ||
+    isDeleteConfirmOpen || isAuthDialogOpen || pickerOpen || isFriendsDialogOpen ||
+    isInviteSheetOpen || openInviteRegenerateOpen || isEditNameOpen || softPromptOpen ||
+    reviewPromptOpen || settingsDrawer || shareSheetState || shareMenuState ||
+    friendConfirm.open || activeRecipe
+  );
+
+  useEffect(() => {
+    if (reviewPromptOpen) whatsNewHandledRef.current = true;
+  }, [reviewPromptOpen]);
+
+  useEffect(() => {
+    if (whatsNewHandledRef.current || whatsNewBlocked) return undefined;
+    if (!shouldShowWhatsNew({ user: session?.user, storage: window.localStorage })) return undefined;
+    // Settle delay so it never flashes over a screen that is still loading. Any
+    // dialog opening in the meantime flips whatsNewBlocked and cancels this.
+    const timer = setTimeout(() => {
+      whatsNewHandledRef.current = true;
+      setWhatsNewOpen(true);
+      trackEvent('whats_new_shown', { version: WHATS_NEW.version });
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [session?.user?.id, whatsNewBlocked]);
+
+  const closeWhatsNew = () => {
+    markWhatsNewSeen({ storage: window.localStorage });
+    setWhatsNewOpen(false);
+  };
+  const handleWhatsNewTry = (tip) => {
+    trackEvent('whats_new_try', { tip: tip.id });
+    closeWhatsNew();
+    setCurrentView(tip.action);
+  };
+
   // Hits the worker's DELETE /profile, then signs out + closes the settings
   // drawer + redirects to the logged-out home. Throws so AboutContent can
   // show an inline error message on failure (network blip, etc).
@@ -6070,6 +6115,13 @@ function App() {
         onDismiss={handleReferralDialogDismiss}
       />
 
+      <WhatsNewSheet
+        open={whatsNewOpen}
+        tips={WHATS_NEW.tips}
+        onTry={handleWhatsNewTry}
+        onClose={closeWhatsNew}
+        darkMode={darkMode}
+      />
       <ShareSheet
         open={Boolean(shareSheetState)}
         onClose={() => setShareSheetState(null)}
