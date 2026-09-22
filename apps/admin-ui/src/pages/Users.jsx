@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Box, Button, FormControl, InputLabel, MenuItem, OutlinedInput, Select, TextField, Typography,
-  Table, TableHead, TableRow, TableCell, TableBody, CircularProgress
+  Table, TableHead, TableRow, TableCell, TableBody, TableSortLabel, CircularProgress
 } from '@mui/material';
 import {
   useReactTable, getCoreRowModel, flexRender,
@@ -33,11 +33,16 @@ const SIGNUP_OPTIONS = [
 
 const PAGE_SIZE = 50;
 
+// Server-side sort keys (the list is paginated, so the worker orders it).
+// Value is `${key}_${dir}` and must be in the worker's ALLOWED_SORT.
+const SORTABLE = { signed_up_at: 'signup', last_sign_in_at: 'signin', last_saved_at: 'saved' };
+
 export default function Users() {
   const [search, setSearch] = useState('');
   const [recipeBucket, setRecipeBucket] = useState('');
   const [activity, setActivity] = useState('');
   const [signupDays, setSignupDays] = useState('');
+  const [sort, setSort] = useState({ key: 'signup', dir: 'desc' });
   const [page, setPage] = useState(0);
   const [data, setData] = useState({ users: [], page: { returned: 0, has_more: false } });
   const [loading, setLoading] = useState(false);
@@ -55,10 +60,17 @@ export default function Users() {
       const after = new Date(Date.now() - Number(signupDays) * 86400000).toISOString();
       params.set('signupAfter', after);
     }
+    params.set('sort', `${sort.key}_${sort.dir}`);
     fetchAdmin(`/admin/users?${params.toString()}`)
       .then(setData)
       .finally(() => setLoading(false));
-  }, [search, recipeBucket, activity, signupDays, page]);
+  }, [search, recipeBucket, activity, signupDays, sort, page]);
+
+  // First click on a column sorts newest-first; clicking again flips it.
+  const toggleSort = (key) => {
+    setSort((s) => ({ key, dir: s.key === key && s.dir === 'desc' ? 'asc' : 'desc' }));
+    setPage(0);
+  };
 
   useEffect(() => {
     fetchAdmin('/admin/users/counts').then(setCounts).catch(() => {});
@@ -182,9 +194,23 @@ export default function Users() {
         <TableHead>
           {table.getHeaderGroups().map((hg) => (
             <TableRow key={hg.id}>
-              {hg.headers.map((h) => (
-                <TableCell key={h.id}>{flexRender(h.column.columnDef.header, h.getContext())}</TableCell>
-              ))}
+              {hg.headers.map((h) => {
+                const sortKey = SORTABLE[h.column.id];
+                const label = flexRender(h.column.columnDef.header, h.getContext());
+                return (
+                  <TableCell key={h.id} sortDirection={sortKey && sort.key === sortKey ? sort.dir : false}>
+                    {sortKey ? (
+                      <TableSortLabel
+                        active={sort.key === sortKey}
+                        direction={sort.key === sortKey ? sort.dir : 'desc'}
+                        onClick={() => toggleSort(sortKey)}
+                      >
+                        {label}
+                      </TableSortLabel>
+                    ) : label}
+                  </TableCell>
+                );
+              })}
             </TableRow>
           ))}
         </TableHead>

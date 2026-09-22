@@ -202,6 +202,25 @@ describe('buildUsersListQuery', () => {
     const { sql } = buildUsersListQuery({ limit: 50, offset: 0, activity: 'soft_deleted' });
     expect(sql).toMatch(/p\.deleted_at IS NOT NULL/i);
   });
+
+  it('default and signup sorts order by p.created_at', () => {
+    expect(buildUsersListQuery({ limit: 50, offset: 0 }).sql).toMatch(/ORDER BY p\.created_at DESC/i);
+    expect(buildUsersListQuery({ limit: 50, offset: 0, sort: 'signup_asc' }).sql).toMatch(/ORDER BY p\.created_at ASC/i);
+  });
+
+  it('signin sorts order by last_sign_in_at with never-signed-in rows last in both directions', () => {
+    const desc = buildUsersListQuery({ limit: 50, offset: 0, sort: 'signin_desc' }).sql;
+    const asc = buildUsersListQuery({ limit: 50, offset: 0, sort: 'signin_asc' }).sql;
+    expect(desc).toMatch(/ORDER BY s\.last_sign_in_at IS NULL, s\.last_sign_in_at DESC, p\.created_at DESC/i);
+    expect(asc).toMatch(/ORDER BY s\.last_sign_in_at IS NULL, s\.last_sign_in_at ASC, p\.created_at DESC/i);
+  });
+
+  it('saved sorts order by last_saved_at with never-saved rows last in both directions', () => {
+    const desc = buildUsersListQuery({ limit: 50, offset: 0, sort: 'saved_desc' }).sql;
+    const asc = buildUsersListQuery({ limit: 50, offset: 0, sort: 'saved_asc' }).sql;
+    expect(desc).toMatch(/ORDER BY s\.last_saved_at IS NULL, s\.last_saved_at DESC, p\.created_at DESC/i);
+    expect(asc).toMatch(/ORDER BY s\.last_saved_at IS NULL, s\.last_saved_at ASC, p\.created_at DESC/i);
+  });
 });
 
 describe('buildRecipeSearchQuery', () => {
@@ -309,6 +328,23 @@ describe('handleAdminUsersList input validation', () => {
       url,
     });
     expect(res.status).toBe(400);
+  });
+
+  it('returns 400 for invalid sort but accepts the signin/saved sorts', async () => {
+    const { handleAdminUsersList } = await import('./admin');
+    const call = (sort: string) => handleAdminUsersList({
+      env: {
+        DB: { prepare: () => ({ bind: () => ({ all: async () => ({ results: [] }) }) }) } as any,
+        SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: undefined,
+      },
+      user: { userId: 'u', email: 'elisa.widjaja@gmail.com' },
+      adminEmails: 'elisa.widjaja@gmail.com',
+      url: new URL(`http://x/admin/users?sort=${sort}`),
+    });
+    expect((await call('garbage')).status).toBe(400);
+    for (const s of ['signin_desc', 'signin_asc', 'saved_desc', 'saved_asc']) {
+      expect((await call(s)).status).toBe(200);
+    }
   });
 
   it('returns 403 before validating params (security: never leak param shape to non-admins)', async () => {

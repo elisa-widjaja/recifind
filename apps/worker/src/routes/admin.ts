@@ -186,7 +186,7 @@ export interface UsersListParams {
   activity?: 'active' | 'inactive' | 'ghost' | 'soft_deleted';
   signupAfter?: string;
   signupBefore?: string;
-  sort?: 'signup_desc' | 'signup_asc';
+  sort?: 'signup_desc' | 'signup_asc' | 'signin_desc' | 'signin_asc' | 'saved_desc' | 'saved_asc';
 }
 
 export interface BuiltQuery { sql: string; params: unknown[] }
@@ -231,7 +231,17 @@ export function buildUsersListQuery(p: UsersListParams): BuiltQuery {
   else if (p.activity === 'inactive') where.push(`NOT (${IS_ACTIVE_EXPR}) AND NOT (${GHOST_EXPR})`);
   // 'soft_deleted' is already covered by the base deleted_at filter above.
 
-  const orderBy = p.sort === 'signup_asc' ? 'p.created_at ASC' : 'p.created_at DESC';
+  // Nullable stat columns sort "never" rows last in both directions so an
+  // ascending sort doesn't lead with a page of blanks.
+  const USER_SORTS: Record<string, string> = {
+    signup_desc: 'p.created_at DESC',
+    signup_asc: 'p.created_at ASC',
+    signin_desc: 's.last_sign_in_at IS NULL, s.last_sign_in_at DESC, p.created_at DESC',
+    signin_asc: 's.last_sign_in_at IS NULL, s.last_sign_in_at ASC, p.created_at DESC',
+    saved_desc: 's.last_saved_at IS NULL, s.last_saved_at DESC, p.created_at DESC',
+    saved_asc: 's.last_saved_at IS NULL, s.last_saved_at ASC, p.created_at DESC',
+  };
+  const orderBy = USER_SORTS[p.sort ?? 'signup_desc'] ?? USER_SORTS.signup_desc;
 
   const sql = `
     SELECT
@@ -258,7 +268,7 @@ export function buildUsersListQuery(p: UsersListParams): BuiltQuery {
 
 const ALLOWED_ACTIVITY = new Set(['active', 'inactive', 'ghost', 'soft_deleted']);
 const ALLOWED_BUCKET = new Set(['0', '1-9', '10-19', '20-49', '50+']);
-const ALLOWED_SORT = new Set(['signup_desc', 'signup_asc']);
+const ALLOWED_SORT = new Set(['signup_desc', 'signup_asc', 'signin_desc', 'signin_asc', 'saved_desc', 'saved_asc']);
 
 // Page through Supabase Auth admin users → Map<user_id, last_sign_in_at|null>.
 export async function fetchAllSupabaseLastSignIn(
