@@ -243,6 +243,7 @@ export function buildUsersListQuery(p: UsersListParams): BuiltQuery {
       COALESCE(s.recipe_count, 0) AS recipe_count,
       COALESCE(s.friends_count, 0) AS invites_accepted,
       s.last_sign_in_at AS last_sign_in_at,
+      s.last_saved_at AS last_saved_at,
       CASE WHEN ${IS_ACTIVE_EXPR} THEN 1 ELSE 0 END AS is_active
     FROM profiles p
     LEFT JOIN admin_user_stats s ON s.user_id = p.user_id
@@ -291,13 +292,17 @@ export async function syncAdminUserStats(
   const now = new Date().toISOString();
 
   const [recipeRows, friendRows, profileRows] = await Promise.all([
-    env.DB.prepare(`SELECT user_id, COUNT(*) AS n FROM recipes GROUP BY user_id`).all(),
+    env.DB.prepare(`SELECT user_id, COUNT(*) AS n, MAX(created_at) AS last_saved_at FROM recipes GROUP BY user_id`).all(),
     env.DB.prepare(`SELECT user_id, COUNT(DISTINCT friend_id) AS n FROM friends GROUP BY user_id`).all(),
     env.DB.prepare(`SELECT user_id FROM profiles`).all(),
   ]);
 
   const recipeCounts = new Map<string, number>();
-  for (const r of (recipeRows.results as any[]) || []) recipeCounts.set(r.user_id, r.n);
+  const lastSaved = new Map<string, string | null>();
+  for (const r of (recipeRows.results as any[]) || []) {
+    recipeCounts.set(r.user_id, r.n);
+    lastSaved.set(r.user_id, r.last_saved_at ?? null);
+  }
   const friendCounts = new Map<string, number>();
   for (const r of (friendRows.results as any[]) || []) friendCounts.set(r.user_id, r.n);
 
@@ -313,24 +318,26 @@ export async function syncAdminUserStats(
   // On success, refresh last_sign_in_at too. On failure, leave it untouched for
   // existing rows (and NULL for brand-new ones).
   const upsertSql = gotSignIn
-    ? `INSERT INTO admin_user_stats (user_id, recipe_count, friends_count, last_sign_in_at, synced_at)
-       VALUES (?, ?, ?, ?, ?)
+    ? `INSERT INTO admin_user_stats (user_id, recipe_count, friends_count, last_sign_in_at, last_saved_at, synced_at)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(user_id) DO UPDATE SET
          recipe_count = excluded.recipe_count,
          friends_count = excluded.friends_count,
          last_sign_in_at=excluded.last_sign_in_at,
+         last_saved_at = excluded.last_saved_at,
          synced_at = excluded.synced_at`
-    : `INSERT INTO admin_user_stats (user_id, recipe_count, friends_count, last_sign_in_at, synced_at)
-       VALUES (?, ?, ?, ?, ?)
+    : `INSERT INTO admin_user_stats (user_id, recipe_count, friends_count, last_sign_in_at, last_saved_at, synced_at)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(user_id) DO UPDATE SET
          recipe_count = excluded.recipe_count,
          friends_count = excluded.friends_count,
+         last_saved_at = excluded.last_saved_at,
          synced_at = excluded.synced_at`;
 
   const stmt = env.DB.prepare(upsertSql);
   const profileIds = ((profileRows.results as any[]) || []).map((r) => r.user_id as string);
   const batch = profileIds.map((id) =>
-    stmt.bind(id, recipeCounts.get(id) ?? 0, friendCounts.get(id) ?? 0, lastSignIn.get(id) ?? null, now)
+    stmt.bind(id, recipeCounts.get(id) ?? 0, friendCounts.get(id) ?? 0, lastSignIn.get(id) ?? null, lastSaved.get(id) ?? null, now)
   );
   if (batch.length) await env.DB.batch(batch);
   return { users: batch.length };

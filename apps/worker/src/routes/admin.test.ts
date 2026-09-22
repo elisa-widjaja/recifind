@@ -164,6 +164,7 @@ describe('buildUsersListQuery', () => {
     expect(sql).toMatch(/COALESCE\(s\.recipe_count, 0\) AS recipe_count/i);
     expect(sql).toMatch(/COALESCE\(s\.friends_count, 0\) AS invites_accepted/i);
     expect(sql).toMatch(/s\.last_sign_in_at AS last_sign_in_at/i);
+    expect(sql).toMatch(/s\.last_saved_at AS last_saved_at/i);
     expect(sql).toMatch(/AS is_active/i);
     expect(sql).toMatch(/julianday\(s\.last_sign_in_at\) >= julianday\('now','-30 days'\)/i);
   });
@@ -1140,7 +1141,7 @@ describe('syncAdminUserStats', () => {
     const prepare = vi.fn((sql) => ({
       bind: (...args) => ({ __sql: sql, __args: args }),
       all: vi.fn().mockImplementation(() => {
-        if (/FROM recipes/i.test(sql)) return Promise.resolve({ results: [{ user_id: 'u1', n: 3 }] });
+        if (/FROM recipes/i.test(sql)) return Promise.resolve({ results: [{ user_id: 'u1', n: 3, last_saved_at: '2026-06-02T00:00:00Z' }] });
         if (/FROM friends/i.test(sql)) return Promise.resolve({ results: [{ user_id: 'u1', n: 2 }] });
         if (/FROM profiles/i.test(sql)) return Promise.resolve({ results: [{ user_id: 'u1' }, { user_id: 'u2' }] });
         return Promise.resolve({ results: [] });
@@ -1181,6 +1182,25 @@ describe('syncAdminUserStats', () => {
     const u1 = captured.find((s) => s.__args[0] === 'u1');
     expect(u1.__args.slice(0, 3)).toEqual(['u1', 3, 2]);
     expect(u1.__sql).not.toMatch(/last_sign_in_at=excluded/i);
+    vi.unstubAllGlobals();
+  });
+
+  it('reads MAX(created_at) from the same recipes scan and upserts it as last_saved_at', async () => {
+    const captured = [];
+    const db = mockDb(captured);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ users: [] }) }));
+
+    await syncAdminUserStats({ DB: db, SUPABASE_URL: 'https://x', SUPABASE_SERVICE_ROLE_KEY: 'k' });
+
+    const recipesSql = db.prepare.mock.calls.map((c) => c[0]).find((s) => /FROM recipes/i.test(s));
+    expect(recipesSql).toMatch(/MAX\(created_at\) AS last_saved_at/i);
+    expect(db.prepare.mock.calls.filter((c) => /FROM recipes/i.test(c[0]))).toHaveLength(1);
+
+    const u1 = captured.find((s) => s.__args[0] === 'u1');
+    const u2 = captured.find((s) => s.__args[0] === 'u2');
+    expect(u1.__args[4]).toBe('2026-06-02T00:00:00Z');
+    expect(u2.__args[4]).toBeNull();
+    expect(u1.__sql).toMatch(/last_saved_at\s*=\s*excluded\.last_saved_at/i);
     vi.unstubAllGlobals();
   });
 });
