@@ -377,28 +377,19 @@ struct ShareFormView: View {
         }
     }
 
-    @ViewBuilder
     private var signInToolbarButton: some View {
-        if #available(iOS 26.0, *) {
-            Button(action: viewModel.signIn) {
-                Text("Sign in")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(Color.white)
-            }
-            .buttonStyle(.glassProminent)
-            .tint(Color.blue)
-            .disabled(viewModel.isSigningIn)
-            .accessibilityLabel("Sign in on ReciFriend")
-        } else {
-            Button(action: viewModel.signIn) {
-                Text("Sign in")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(Color.white)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(viewModel.isSigningIn)
-            .accessibilityLabel("Sign in on ReciFriend")
+        // Plain text action in the system's own toolbar chrome (the same glass
+        // pill the X button gets), with a blue label. The previous
+        // glassProminent + white label rendered as white-on-clear-glass in
+        // light mode, so "Sign in" was invisible. Blue text on system glass is
+        // legible in both appearances and matches native "Done"-style actions.
+        Button(action: viewModel.signIn) {
+            Text("Sign in")
+                .font(.body.weight(.semibold))
         }
+        .tint(Color.blue)
+        .disabled(viewModel.isSigningIn)
+        .accessibilityLabel("Sign in on ReciFriend")
     }
 
     @ViewBuilder
