@@ -17,6 +17,7 @@ const batch = { version: 7, tips: [] };
 describe('WHATS_NEW batch', () => {
   it('has a version and tips with the fields the sheet renders', () => {
     expect(Number.isInteger(WHATS_NEW.version)).toBe(true);
+    expect(['carousel', 'list']).toContain(WHATS_NEW.variant);
     expect(WHATS_NEW.tips.length).toBeGreaterThan(0);
     for (const tip of WHATS_NEW.tips) {
       expect(tip.id && tip.title && tip.body).toBeTruthy();

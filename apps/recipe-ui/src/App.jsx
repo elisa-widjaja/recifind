@@ -123,6 +123,7 @@ import SourcesWorkflowRow from './components/SourcesWorkflowRow';
 import { FriendPicker } from './components/FriendPicker';
 import { ShareSheet } from './components/ShareSheet';
 import WhatsNewSheet from './components/WhatsNewSheet';
+import WhatsNewCarousel from './components/WhatsNewCarousel';
 import { WHATS_NEW, shouldShowWhatsNew, markWhatsNewSeen } from './lib/whatsNew';
 import { shareRecipe } from './lib/shareRecipe';
 import { SHARE_PUBLIC_URL, buildRecipeShareUrl, buildRecipeAppDeepLink } from './lib/shareUrl';
@@ -3637,6 +3638,7 @@ function App() {
     return () => clearTimeout(timer);
   }, [session?.user?.id, whatsNewBlocked]);
 
+  const WhatsNewComponent = WHATS_NEW.variant === 'list' ? WhatsNewSheet : WhatsNewCarousel;
   const closeWhatsNew = () => {
     markWhatsNewSeen({ storage: window.localStorage });
     setWhatsNewOpen(false);
@@ -6115,7 +6117,8 @@ function App() {
         onDismiss={handleReferralDialogDismiss}
       />
 
-      <WhatsNewSheet
+      {/* v2 carousel or v1 list, chosen by WHATS_NEW.variant (lib/whatsNew.js). */}
+      <WhatsNewComponent
         open={whatsNewOpen}
         tips={WHATS_NEW.tips}
         onTry={handleWhatsNewTry}

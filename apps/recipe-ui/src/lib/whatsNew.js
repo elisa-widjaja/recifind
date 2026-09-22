@@ -8,23 +8,28 @@
 // is simply never read again. Copy rule: no em dashes.
 export const WHATS_NEW = {
   version: 1,
+  // Which sheet App.jsx renders: 'carousel' (v2, screenshots, one card at a
+  // time: components/WhatsNewCarousel.jsx) or 'list' (v1, all tips in one list:
+  // components/WhatsNewSheet.jsx). Flip to 'list' to revert to v1.
+  variant: 'carousel',
   tips: [
     {
       id: 'discover-search',
       title: 'Search community recipes',
-      body: 'On the Discover tab, search by ingredient or creator.',
+      // Matches the Discover search box placeholder shown in the screenshot.
+      body: 'On the Discover tab, search by dish, tag or creator.',
       action: 'discover',
     },
     {
       id: 'friends-of-friends',
       title: "See your friends' friends",
-      body: "Open a friend and tap Friends to see everyone they're connected with, not just the friends you share.",
+      body: 'Open a friend and tap Friends to see all their friends, not just mutuals.',
       action: 'friends',
     },
     {
       id: 'custom-tags',
       title: 'Organize with custom tags',
-      body: 'Add your own tags to any recipe, then filter by tag to find it fast.',
+      body: 'Edit a recipe to add your own tags, then filter by tag to find it fast.',
       action: 'recipes',
     },
   ],
