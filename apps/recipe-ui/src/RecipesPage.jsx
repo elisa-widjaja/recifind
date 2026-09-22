@@ -760,14 +760,19 @@ export default function RecipesPage({
             onClick={() => setFilterDrawerOpen(false)}
             disableRipple
             endIcon={<ArrowForwardIcon sx={{ fontSize: 16 }} />}
-            sx={{
+            sx={(theme) => ({
               textTransform: 'none',
               fontWeight: 500,
               fontSize: 14,
-              color: 'text.secondary',
+              // Light mode: primary iris (same as filled-button backgrounds) so it
+              // reads as a link. Dark mode keeps the quieter secondary text color.
+              color: theme.palette.mode === 'dark' ? 'text.secondary' : 'primary.main',
               '& .MuiButton-endIcon': { ml: 0.5 },
-              '&:hover': { bgcolor: 'transparent', color: 'text.primary' },
-            }}
+              '&:hover': {
+                bgcolor: 'transparent',
+                color: theme.palette.mode === 'dark' ? 'text.primary' : 'primary.dark',
+              },
+            })}
           >
             {filteredRecipes.length === 0
               ? 'No recipes found'
