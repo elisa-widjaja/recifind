@@ -1538,3 +1538,36 @@ export async function handleAdminNudgeAb(args: {
   const activated = variants.reduce((a, v) => a + v.activated, 0);
   return json(200, { variants, totals: { sent, activated, rate: rate(activated, sent) } });
 }
+
+// GET /admin/metrics/picked-feedback
+// Thumbs up / down on the "Picked for you" shelf: per-day counts plus the
+// latest 50 rows with the recipe title and the shelf caption shown at the time.
+export async function handleAdminPickedFeedback(args: {
+  env: { DB: D1Database };
+  user: { userId: string; email?: string };
+  adminEmails: string | undefined;
+  url: URL;
+}): Promise<Response> {
+  const denied = requireAdmin({ user: args.user, adminEmails: args.adminEmails });
+  if (denied) return denied;
+  const byDayRows = await args.env.DB.prepare(
+    `SELECT substr(created_at, 1, 10) AS day,
+            SUM(CASE WHEN rating = 1 THEN 1 ELSE 0 END) AS up,
+            SUM(CASE WHEN rating = -1 THEN 1 ELSE 0 END) AS down
+     FROM recommendation_feedback
+     GROUP BY day ORDER BY day DESC LIMIT 60`
+  ).all<{ day: string; up: number; down: number }>();
+  const recentRows = await args.env.DB.prepare(
+    `SELECT f.user_id, f.recipe_id, f.rating, f.reason, f.created_at,
+            (SELECT title FROM recipes r WHERE r.id = f.recipe_id LIMIT 1) AS title
+     FROM recommendation_feedback f
+     ORDER BY f.updated_at DESC LIMIT 50`
+  ).all<{ user_id: string; recipe_id: string; rating: number; reason: string | null; created_at: string; title: string | null }>();
+  const byDay = (byDayRows.results || []).map(r => ({ day: r.day, up: Number(r.up), down: Number(r.down) }));
+  const totals = byDay.reduce((a, d) => ({ up: a.up + d.up, down: a.down + d.down }), { up: 0, down: 0 });
+  const recent = (recentRows.results || []).map(r => ({
+    userId: r.user_id, recipeId: r.recipe_id, title: r.title ?? null, rating: Number(r.rating),
+    reason: r.reason ?? null, createdAt: r.created_at,
+  }));
+  return json(200, { byDay, totals, recent });
+}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Box, Typography, Stack, Skeleton, TextField, InputAdornment, IconButton } from '@mui/material';
+import { Box, Typography, Stack, Skeleton, TextField, InputAdornment, IconButton, Button } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
 import RecipeShelf from './RecipeShelf';
@@ -8,6 +8,16 @@ import DiscoverRecipes from './DiscoverRecipes';
 import TrendingHealthCarousel from './TrendingHealthCarouselB';
 
 const API_BASE_URL = import.meta.env.VITE_RECIPES_API_BASE_URL || '';
+
+// Fire-and-forget POST with auth. Used for the "Picked for you" thumbs;
+// the UI updates optimistically and never blocks on the response.
+function postJson(path, accessToken, body) {
+  return fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify(body),
+  }).catch(() => null);
+}
 
 async function fetchJson(path, accessToken) {
   const url = `${API_BASE_URL}${path}`;
@@ -88,6 +98,9 @@ export default function DiscoverPage({
   const [aiPicks, setAiPicks] = useState([]);
   const [picked, setPicked] = useState([]);
   const [pickedReason, setPickedReason] = useState(null);
+  // recipeId -> 1 ("Good pick") | -1 ("Not for me"), seeded from the server
+  // so a rated card stays locked across visits.
+  const [pickedRatings, setPickedRatings] = useState({});
   const [pickedLoaded, setPickedLoaded] = useState(!accessToken);
   // Per-fetch loaded flags so each section can swap its skeleton for real
   // content as soon as its own fetch resolves — instead of waiting for the
@@ -133,6 +146,7 @@ export default function DiscoverPage({
       pickedFetchedRef.current = false;
       setPicked([]);
       setPickedReason(null);
+      setPickedRatings({});
       setPickedLoaded(true);
       return undefined;
     }
@@ -143,10 +157,17 @@ export default function DiscoverPage({
       pickedFetchedRef.current = true;
       setPicked(Array.isArray(d?.recipes) ? d.recipes : []);
       setPickedReason(d?.reason || null);
+      setPickedRatings(d?.ratings && typeof d.ratings === 'object' ? d.ratings : {});
       setPickedLoaded(true);
     });
     return () => { cancelled = true; };
   }, [accessToken]);
+
+  const ratePick = (recipeId, rating) => {
+    if (!accessToken || pickedRatings[recipeId]) return;
+    setPickedRatings(prev => ({ ...prev, [recipeId]: rating }));
+    postJson('/recipes/picked-for-you/feedback', accessToken, { recipeId, rating, reason: pickedReason || undefined });
+  };
 
   useEffect(() => {
     setAiLoaded(false);
@@ -279,9 +300,34 @@ export default function DiscoverPage({
                   </Typography>
                 )}
                 <Stack spacing={1}>
-                  {picked.map(recipe => (
-                    <RecipeListCard key={recipe.id} recipe={recipe} onSave={onSaveRecipe} onShare={onShareRecipe} onOpen={onOpenRecipe} />
-                  ))}
+                  {picked.map(recipe => {
+                    const rating = pickedRatings[recipe.id] || 0;
+                    return (
+                      <Box
+                        key={recipe.id}
+                        data-testid={`picked-card-${recipe.id}`}
+                        data-rating={rating}
+                        sx={{ opacity: rating === -1 ? 0.45 : 1, transition: 'opacity 200ms' }}
+                      >
+                        <RecipeListCard recipe={recipe} onSave={onSaveRecipe} onShare={onShareRecipe} onOpen={onOpenRecipe} />
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, pl: '102px', mt: '-2px', minHeight: 28 }}>
+                          {rating ? (
+                            <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>Thanks</Typography>
+                          ) : (
+                            <>
+                              <Button size="small" variant="text" onClick={() => ratePick(recipe.id, 1)} sx={{ fontSize: 12, minWidth: 0, px: 0.75, py: 0, textTransform: 'none' }}>
+                                Good pick
+                              </Button>
+                              <Typography sx={{ fontSize: 12, color: 'text.disabled' }}>|</Typography>
+                              <Button size="small" variant="text" color="inherit" onClick={() => ratePick(recipe.id, -1)} sx={{ fontSize: 12, minWidth: 0, px: 0.75, py: 0, textTransform: 'none', color: 'text.secondary' }}>
+                                Not for me
+                              </Button>
+                            </>
+                          )}
+                        </Box>
+                      </Box>
+                    );
+                  })}
                 </Stack>
               </>
             ) : (
@@ -300,7 +346,7 @@ export default function DiscoverPage({
                 ))}
               </Stack>
             ) : (
-              <ListSkeleton count={7} />
+              <ListSkeleton count={3} />
             )}
           </Box>
         )}

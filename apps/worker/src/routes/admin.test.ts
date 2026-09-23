@@ -7,6 +7,7 @@ import { syncAdminUserStats, fetchAllSupabaseLastSignIn } from './admin';
 import { buildSignupsPerDayQuery, buildViralCoefWeeklyQuery, buildGrowthCountersQuery, buildRetentionCohortsQuery, METRICS_EXCLUDED_EMAILS, buildWeeklySignupsActivationQuery, buildWeeklySavesQuery, launchWeeks, LAUNCH_DATE, buildSeedFunnelQuery, SEED_SHELF_LAUNCH, handleAdminSeedConversions, handleAdminNudgeRequeue, buildNudgeAbQuery, handleAdminNudgeAb } from './admin';
 import { buildRecipeSearchQuery } from './admin';
 import { deriveImageStatus } from './admin';
+import { handleAdminPickedFeedback } from './admin';
 
 describe('isAdminEmail', () => {
   it('returns true for an email in ADMIN_EMAILS (single value)', () => {
@@ -1613,5 +1614,33 @@ describe('handleAdminNudgeAb', () => {
       { variant: 'v2', sent: 100, activated: 20, rate: 0.2 },
     ]);
     expect(body.totals).toEqual({ sent: 200, activated: 32, rate: 0.16 });
+  });
+});
+
+describe('handleAdminPickedFeedback', () => {
+  const adminEmails = 'admin@recifriend.com';
+  it('rejects a non-admin with 403', async () => {
+    const res = await handleAdminPickedFeedback({
+      env: { DB: {} as unknown as D1Database }, user: { userId: 'u', email: 'nobody@x.com' },
+      adminEmails, url: new URL('https://x/'),
+    });
+    expect(res.status).toBe(403);
+  });
+  it('returns per-day up/down counts, totals and the latest rows', async () => {
+    const byDay = [{ day: '2026-09-22', up: 3, down: 1 }, { day: '2026-09-21', up: 1, down: 2 }];
+    const recent = [{ user_id: 'u1', recipe_id: 'r1', title: 'Miso Ramen', rating: -1, reason: 'Based on your Japanese saves', created_at: '2026-09-22T10:00:00Z' }];
+    const prepare = vi.fn()
+      .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: byDay }) })
+      .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: recent }) });
+    const res = await handleAdminPickedFeedback({
+      env: { DB: { prepare } as unknown as D1Database }, user: { userId: 'u', email: 'admin@recifriend.com' },
+      adminEmails, url: new URL('https://x/'),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { byDay: unknown[]; totals: { up: number; down: number }; recent: unknown[] };
+    expect(body.byDay).toEqual(byDay);
+    expect(body.totals).toEqual({ up: 4, down: 3 });
+    expect(body.recent).toEqual([{ userId: 'u1', recipeId: 'r1', title: 'Miso Ramen', rating: -1, reason: 'Based on your Japanese saves', createdAt: '2026-09-22T10:00:00Z' }]);
+    expect(prepare.mock.calls[1][0]).toMatch(/LIMIT 50/);
   });
 });

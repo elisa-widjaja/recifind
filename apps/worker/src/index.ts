@@ -672,6 +672,14 @@ export default {
         return await handleAdminNudgeRequeue({ env, user, adminEmails: env.ADMIN_EMAILS, url });
       }
 
+      if (url.pathname === '/admin/metrics/picked-feedback' && request.method === 'GET') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        const { handleAdminPickedFeedback } = await import('./routes/admin');
+        return await handleAdminPickedFeedback({ env, user, adminEmails: env.ADMIN_EMAILS, url });
+      }
+
       if (url.pathname === '/admin/metrics/nudge-ab' && request.method === 'GET') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');
@@ -710,6 +718,13 @@ export default {
           const result = await getPickedForYou(env.DB, env.AI_PICKS_CACHE, user.userId);
           return json(result, 200, withCors());
         })();
+      }
+
+      if (url.pathname === '/recipes/picked-for-you/feedback' && request.method === 'POST') {
+        if (!user) {
+          throw new HttpError(401, 'Missing Authorization header');
+        }
+        return await handlePickedFeedback(request, env, user);
       }
 
       if (url.pathname === '/recipes' && request.method === 'POST') {
@@ -2271,7 +2286,7 @@ export async function getTrendingRecipes(
 // hearting/unhearting recipes in her account; no code change needed to
 // adjust the picks.
 export const EDITORS_PICK_USER_ID = '8e4dfd5e-bb6a-4890-98cd-d9ac6ce655a2';
-const EDITORS_PICK_WEEKLY_LIMIT = 7;
+const EDITORS_PICK_WEEKLY_LIMIT = 3;
 
 // Deterministic 0-99 bucket for nudge A/B assignment. Reuses fnv1a32 (no crypto,
 // stable across runtimes). bucket < NUDGE_V2_PCT -> v2.
@@ -2337,6 +2352,9 @@ export type PickedForYouResult = {
   eligible: boolean;
   reason: string | null;
   recipes: DiscoverRecipe[];
+  // recipeId -> 1 ("Good pick") | -1 ("Not for me"). Read fresh on every
+  // request, never cached, so the shelf can render locked/dimmed state.
+  ratings: Record<string, 1 | -1>;
 };
 
 const PICKED_CACHE_VERSION = 'v2';
@@ -2397,27 +2415,69 @@ export async function getPickedForYou(
 ): Promise<PickedForYouResult> {
   const key = pickedForYouCacheKey(userId);
 
-  let cached: (PickedForYouResult & { computedAt?: number }) | null = null;
+  // Feedback is tiny (one row per rated recipe) and must be fresh, so it is
+  // read on every request and layered over the cached picks.
+  const ratings = await loadPickedRatings(db, userId);
+
+  let cached: (Omit<PickedForYouResult, 'ratings'> & { computedAt?: number }) | null = null;
   try {
-    cached = await kv.get(key, { type: 'json' }) as (PickedForYouResult & { computedAt?: number }) | null;
+    cached = await kv.get(key, { type: 'json' }) as (Omit<PickedForYouResult, 'ratings'> & { computedAt?: number }) | null;
   } catch (err) {
     console.log('[picked-for-you] kv read failed', { userId, error: String(err) });
   }
   if (cached && typeof cached.eligible === 'boolean' && Array.isArray(cached.recipes)) {
-    return { eligible: cached.eligible, reason: cached.reason ?? null, recipes: cached.recipes };
+    return { eligible: cached.eligible, reason: cached.reason ?? null, recipes: cached.recipes, ratings };
   }
 
-  const result = await computePickedForYou(db, userId, now);
+  const downvoted = new Set(Object.entries(ratings).filter(([, r]) => r === -1).map(([id]) => id));
+  const result = await computePickedForYou(db, userId, now, downvoted);
 
   try {
     await kv.put(key, JSON.stringify({ ...result, computedAt: now }), { expirationTtl: PICKED_CACHE_TTL_SECONDS });
   } catch (err) {
     console.log('[picked-for-you] kv write failed', { userId, error: String(err) });
   }
-  return result;
+  return { ...result, ratings };
 }
 
-async function computePickedForYou(db: D1Database, userId: string, now: number): Promise<PickedForYouResult> {
+async function loadPickedRatings(db: D1Database, userId: string): Promise<Record<string, 1 | -1>> {
+  const res = await db.prepare(
+    `SELECT recipe_id, rating FROM recommendation_feedback WHERE user_id = ?`
+  ).bind(userId).all();
+  const ratings: Record<string, 1 | -1> = {};
+  for (const row of (res.results as Array<{ recipe_id: string; rating: number }>) || []) {
+    const r = Number(row.rating);
+    if (r === 1 || r === -1) ratings[String(row.recipe_id)] = r;
+  }
+  return ratings;
+}
+
+const PICKED_FEEDBACK_REASON_MAX = 200;
+
+// POST /recipes/picked-for-you/feedback { recipeId, rating: 1 | -1, reason? }
+// One row per (user, recipe); a second tap overwrites. "Not for me" (-1)
+// also drops that recipe from the user's future recomputes.
+async function handlePickedFeedback(request: Request, env: Env, user: AuthenticatedUser) {
+  const body = await readJsonBody(request);
+  const recipeId = typeof body.recipeId === 'string' ? body.recipeId.trim() : '';
+  const rating = body.rating;
+  if (!recipeId) throw new HttpError(400, 'recipeId is required');
+  if (rating !== 1 && rating !== -1) throw new HttpError(400, 'rating must be 1 or -1');
+  const reason = typeof body.reason === 'string' && body.reason.trim()
+    ? body.reason.trim().slice(0, PICKED_FEEDBACK_REASON_MAX)
+    : null;
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `INSERT INTO recommendation_feedback (user_id, recipe_id, rating, reason, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT (user_id, recipe_id) DO UPDATE SET rating = excluded.rating, reason = excluded.reason, updated_at = excluded.updated_at`
+  ).bind(user.userId, recipeId, rating, reason, now, now).run();
+  return json({ ok: true }, 200, withCors());
+}
+
+async function computePickedForYou(
+  db: D1Database, userId: string, now: number, downvoted: Set<string> = new Set(),
+): Promise<Omit<PickedForYouResult, 'ratings'>> {
   const savesRes = await db.prepare(
     `SELECT source_url, cuisines, meal_types, ingredients, creator, is_food
      FROM recipes WHERE user_id = ? AND hidden_at IS NULL`
@@ -2431,7 +2491,7 @@ async function computePickedForYou(db: D1Database, userId: string, now: number):
 
   // Never show the same recipe twice on Discover.
   const editors = await getEditorsPick(db, EDITORS_PICK_USER_ID, now);
-  const excludeIds = new Set(editors.map((r) => r.id));
+  const excludeIds = new Set([...editors.map((r) => r.id), ...downvoted]);
 
   const poolRes = await db.prepare(PICKED_CANDIDATE_SELECT).bind(userId).all();
   // Only recipes with a durable (Supabase-hosted) image. Raw Instagram/TikTok

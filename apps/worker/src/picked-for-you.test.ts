@@ -27,12 +27,16 @@ function candRow(i: number, over: Record<string, unknown> = {}) {
 
 // The function issues, in order: saves query (.all), editors' picks query
 // (.all, inside getEditorsPick), candidates query (.all).
-function mockDb(saves: unknown[], editors: unknown[], candidates: unknown[]) {
+// The function issues, in order: feedback query (.all, always), then on a
+// cache miss: saves query (.all), editors' picks query (.all, inside
+// getEditorsPick), candidates query (.all).
+function mockDb(saves: unknown[], editors: unknown[], candidates: unknown[], feedback: unknown[] = []) {
   const allMock = (results: unknown[]) => ({
     bind: vi.fn().mockReturnThis(),
     all: vi.fn().mockResolvedValue({ results }),
   });
   const prepare = vi.fn()
+    .mockReturnValueOnce(allMock(feedback))
     .mockReturnValueOnce(allMock(saves))
     .mockReturnValueOnce(allMock(editors))
     .mockReturnValueOnce(allMock(candidates));
@@ -48,26 +52,30 @@ function mockKv(cached: unknown = null) {
 }
 
 describe('getPickedForYou', () => {
-  it('returns cached result without touching D1', async () => {
+  it('returns cached result, querying D1 only for the feedback map', async () => {
     const cached = { eligible: true, reason: 'Based on your Korean saves', recipes: [], computedAt: 1 };
     const kv = mockKv(cached);
-    const db = { prepare: vi.fn() } as unknown as D1Database;
+    const prepare = vi.fn().mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [] }) });
+    const db = { prepare } as unknown as D1Database;
     const out = await getPickedForYou(db, kv, 'u1', NOW);
-    expect(out).toEqual({ eligible: true, reason: 'Based on your Korean saves', recipes: [] });
-    expect((db as unknown as { prepare: ReturnType<typeof vi.fn> }).prepare).not.toHaveBeenCalled();
+    expect(out).toEqual({ eligible: true, reason: 'Based on your Korean saves', recipes: [], ratings: {} });
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(prepare.mock.calls[0][0]).toMatch(/recommendation_feedback/);
     expect(kv.get).toHaveBeenCalledWith(pickedForYouCacheKey('u1'), { type: 'json' });
   });
 
   it('is ineligible under 5 saves, caches that, and never queries the pool', async () => {
     const kv = mockKv();
-    const prepare = vi.fn().mockReturnValueOnce({
-      bind: vi.fn().mockReturnThis(),
-      all: vi.fn().mockResolvedValue({ results: [saveRow(1), saveRow(2), saveRow(3), saveRow(4)] }),
-    });
+    const prepare = vi.fn()
+      .mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [] }) })
+      .mockReturnValueOnce({
+        bind: vi.fn().mockReturnThis(),
+        all: vi.fn().mockResolvedValue({ results: [saveRow(1), saveRow(2), saveRow(3), saveRow(4)] }),
+      });
     const db = { prepare } as unknown as D1Database;
     const out = await getPickedForYou(db, kv, 'u1', NOW);
-    expect(out).toEqual({ eligible: false, reason: null, recipes: [] });
-    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(out).toEqual({ eligible: false, reason: null, recipes: [], ratings: {} });
+    expect(prepare).toHaveBeenCalledTimes(2);
     expect(kv.put).toHaveBeenCalledWith(
       pickedForYouCacheKey('u1'),
       expect.stringContaining('"eligible":false'),
@@ -183,17 +191,41 @@ describe('getPickedForYou', () => {
     expect(out.recipes).toHaveLength(3);
   });
 
+  it('attaches the user\'s existing ratings to a cached result', async () => {
+    const cached = { eligible: true, reason: 'r', recipes: [{ id: 'c1' }, { id: 'c2' }], computedAt: 1 };
+    const kv = mockKv(cached);
+    const prepare = vi.fn().mockReturnValueOnce({
+      bind: vi.fn().mockReturnThis(),
+      all: vi.fn().mockResolvedValue({ results: [{ recipe_id: 'c1', rating: -1 }, { recipe_id: 'zz', rating: 1 }] }),
+    });
+    const out = await getPickedForYou({ prepare } as unknown as D1Database, kv, 'u1', NOW);
+    expect(out.ratings).toEqual({ c1: -1, zz: 1 });
+  });
+
+  it('excludes recipes the user rated "Not for me" from a recompute', async () => {
+    const kv = mockKv();
+    const saves = [1, 2, 3, 4, 5].map((i) => saveRow(i));
+    const candidates = [1, 2, 3, 4].map((i) => candRow(i));
+    const db = mockDb(saves, [], candidates, [{ recipe_id: 'c1', rating: -1 }, { recipe_id: 'c2', rating: 1 }]);
+    const out = await getPickedForYou(db, kv, 'u1', NOW);
+    const ids = out.recipes.map((r) => r.id);
+    expect(ids).not.toContain('c1');
+    expect(ids).toContain('c2');
+    expect(out.ratings).toEqual({ c1: -1, c2: 1 });
+  });
+
   it('binds the requesting user id to the saves and pool queries', async () => {
     const kv = mockKv();
     const bindSpy = vi.fn().mockReturnThis();
     const allMock = (results: unknown[]) => ({ bind: bindSpy, all: vi.fn().mockResolvedValue({ results }) });
     const prepare = vi.fn()
+      .mockReturnValueOnce(allMock([]))
       .mockReturnValueOnce(allMock([1, 2, 3, 4, 5].map((i) => saveRow(i))))
       .mockReturnValueOnce(allMock([]))
       .mockReturnValueOnce(allMock([1, 2, 3].map((i) => candRow(i))));
     await getPickedForYou({ prepare } as unknown as D1Database, kv, 'user-xyz', NOW);
     expect(bindSpy).toHaveBeenCalledWith('user-xyz');
-    const poolSql = prepare.mock.calls[2][0] as string;
+    const poolSql = prepare.mock.calls[3][0] as string;
     expect(poolSql).toMatch(/user_id != \?/);
     expect(poolSql).toMatch(/shared_with_friends = 1/);
     expect(poolSql).toMatch(/hidden_at IS NULL/);
@@ -216,13 +248,14 @@ describe('GET /recipes/picked-for-you', () => {
 
   it('returns the result JSON with CORS headers for an authenticated user', async () => {
     const kv = mockKv();
-    // dev-user has no saves -> one D1 query, ineligible.
-    const prepare = vi.fn().mockReturnValueOnce({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [] }) });
+    // dev-user has no feedback and no saves -> two D1 queries, ineligible.
+    const emptyAll = () => ({ bind: vi.fn().mockReturnThis(), all: vi.fn().mockResolvedValue({ results: [] }) });
+    const prepare = vi.fn().mockReturnValueOnce(emptyAll()).mockReturnValueOnce(emptyAll());
     const env = { DB: { prepare }, AI_PICKS_CACHE: kv, DEV_API_KEY: 'devkey' } as unknown as Parameters<typeof worker.fetch>[1];
     const res = await worker.fetch(new Request('https://worker/recipes/picked-for-you', { headers: DEV }), env, ctx);
     expect(res.status).toBe(200);
     expect(res.headers.get('Access-Control-Allow-Origin')).toBeTruthy();
-    expect(await res.json()).toEqual({ eligible: false, reason: null, recipes: [] });
+    expect(await res.json()).toEqual({ eligible: false, reason: null, recipes: [], ratings: {} });
     expect(kv.get).toHaveBeenCalledWith(pickedForYouCacheKey('dev-user'), { type: 'json' });
   });
 
@@ -242,5 +275,51 @@ describe('GET /recipes/picked-for-you', () => {
     const env = { DB: dbStub, AI_PICKS_CACHE: mockKv(), DEV_API_KEY: 'devkey' } as unknown as Parameters<typeof worker.fetch>[1];
     const res = await worker.fetch(new Request('https://worker/recipes/for-you', { headers: DEV }), env, ctx);
     expect(res.status).toBe(404);
+  });
+});
+
+describe('POST /recipes/picked-for-you/feedback', () => {
+  const runMock = () => ({ bind: vi.fn().mockReturnThis(), run: vi.fn().mockResolvedValue({ success: true }) });
+  const post = (body: unknown, headers: Record<string, string> = DEV) =>
+    new Request('https://worker/recipes/picked-for-you/feedback', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body),
+    });
+
+  it('returns 401 without auth', async () => {
+    const env = { DB: { prepare: vi.fn() }, AI_PICKS_CACHE: mockKv(), DEV_API_KEY: 'devkey' } as unknown as Parameters<typeof worker.fetch>[1];
+    const res = await worker.fetch(post({ recipeId: 'c1', rating: 1 }, {}), env, ctx);
+    expect(res.status).toBe(401);
+  });
+
+  it('rejects a missing recipeId or a rating other than 1 / -1 with 400', async () => {
+    const env = { DB: { prepare: vi.fn() }, AI_PICKS_CACHE: mockKv(), DEV_API_KEY: 'devkey' } as unknown as Parameters<typeof worker.fetch>[1];
+    expect((await worker.fetch(post({ rating: 1 }), env, ctx)).status).toBe(400);
+    expect((await worker.fetch(post({ recipeId: 'c1', rating: 5 }), env, ctx)).status).toBe(400);
+    expect((await worker.fetch(post({ recipeId: 'c1', rating: '1' }), env, ctx)).status).toBe(400);
+  });
+
+  it('upserts one row per (user, recipe) and returns ok with CORS', async () => {
+    const stmt = runMock();
+    const prepare = vi.fn().mockReturnValue(stmt);
+    const env = { DB: { prepare }, AI_PICKS_CACHE: mockKv(), DEV_API_KEY: 'devkey' } as unknown as Parameters<typeof worker.fetch>[1];
+    const res = await worker.fetch(post({ recipeId: 'c1', rating: -1, reason: 'Based on your Korean saves' }), env, ctx);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBeTruthy();
+    expect(await res.json()).toEqual({ ok: true });
+    const sql = prepare.mock.calls[0][0] as string;
+    expect(sql).toMatch(/INSERT INTO recommendation_feedback/);
+    expect(sql).toMatch(/ON CONFLICT\s*\(user_id, recipe_id\)/);
+    const binds = stmt.bind.mock.calls[0];
+    expect(binds.slice(0, 4)).toEqual(['dev-user', 'c1', -1, 'Based on your Korean saves']);
+  });
+
+  it('truncates an over-long reason and stores null when absent', async () => {
+    const stmt = runMock();
+    const prepare = vi.fn().mockReturnValue(stmt);
+    const env = { DB: { prepare }, AI_PICKS_CACHE: mockKv(), DEV_API_KEY: 'devkey' } as unknown as Parameters<typeof worker.fetch>[1];
+    await worker.fetch(post({ recipeId: 'c1', rating: 1, reason: 'x'.repeat(500) }), env, ctx);
+    expect((stmt.bind.mock.calls[0][3] as string).length).toBe(200);
+    await worker.fetch(post({ recipeId: 'c2', rating: 1 }), env, ctx);
+    expect(stmt.bind.mock.calls[1][3]).toBeNull();
   });
 });

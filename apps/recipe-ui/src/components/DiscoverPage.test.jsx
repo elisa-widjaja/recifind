@@ -5,10 +5,14 @@ import DiscoverPage from './DiscoverPage';
 describe('DiscoverPage', () => {
   beforeEach(() => {
     global.fetch = vi.fn((url, opts) => {
+      if (url.includes('/recipes/picked-for-you/feedback')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
+      }
       if (url.includes('/recipes/picked-for-you')) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({
           eligible: true, reason: 'Based on your Korean saves',
           recipes: [{ id: 'p1', title: 'Gochujang Chicken' }, { id: 'p2', title: 'Kimchi Fried Rice' }],
+          ratings: {},
         }) });
       }
       if (url.includes('/public/trending-recipes')) {
@@ -189,5 +193,60 @@ describe('DiscoverPage', () => {
     render(<DiscoverPage accessToken="tok" savedCount={8} onOpenRecipe={noop} onSaveRecipe={noop} onShareRecipe={noop} />);
     await waitFor(() => expect(screen.getByText('Editor Pasta')).toBeInTheDocument());
     expect(screen.queryByText(/picked for you/i)).not.toBeInTheDocument();
+  });
+  it('renders Good pick / Not for me under each picked card', async () => {
+    render(<DiscoverPage accessToken="tok" savedCount={8} onOpenRecipe={noop} onSaveRecipe={noop} onShareRecipe={noop} />);
+    await waitFor(() => expect(screen.getByText('Gochujang Chicken')).toBeInTheDocument());
+    expect(screen.getAllByRole('button', { name: 'Good pick' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'Not for me' })).toHaveLength(2);
+  });
+
+  it('tapping Not for me posts feedback with auth, locks the row and dims the card', async () => {
+    render(<DiscoverPage accessToken="tok" savedCount={8} onOpenRecipe={noop} onSaveRecipe={noop} onShareRecipe={noop} />);
+    await waitFor(() => expect(screen.getByText('Gochujang Chicken')).toBeInTheDocument());
+    fireEvent.click(screen.getAllByRole('button', { name: 'Not for me' })[0]);
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/recipes/picked-for-you/feedback'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ Authorization: 'Bearer tok' }),
+          body: JSON.stringify({ recipeId: 'p1', rating: -1, reason: 'Based on your Korean saves' }),
+        }),
+      );
+    });
+    const card = screen.getByTestId('picked-card-p1');
+    expect(card).toHaveAttribute('data-rating', '-1');
+    expect(card).toHaveTextContent('Thanks');
+    expect(screen.getAllByRole('button', { name: 'Not for me' })).toHaveLength(1);
+    expect(screen.getByTestId('picked-card-p2')).toHaveAttribute('data-rating', '0');
+  });
+
+  it('tapping Good pick posts rating 1 and does not dim', async () => {
+    render(<DiscoverPage accessToken="tok" savedCount={8} onOpenRecipe={noop} onSaveRecipe={noop} onShareRecipe={noop} />);
+    await waitFor(() => expect(screen.getByText('Gochujang Chicken')).toBeInTheDocument());
+    fireEvent.click(screen.getAllByRole('button', { name: 'Good pick' })[1]);
+    await waitFor(() => expect(screen.getByTestId('picked-card-p2')).toHaveAttribute('data-rating', '1'));
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/recipes/picked-for-you/feedback'),
+      expect.objectContaining({ body: JSON.stringify({ recipeId: 'p2', rating: 1, reason: 'Based on your Korean saves' }) }),
+    );
+  });
+
+  it('renders already-rated picks locked from the ratings map', async () => {
+    global.fetch.mockImplementation((url, opts) => {
+      if (url.includes('/recipes/picked-for-you/feedback')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
+      if (url.includes('/recipes/picked-for-you')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({
+          eligible: true, reason: 'r', recipes: [{ id: 'p1', title: 'Gochujang Chicken' }, { id: 'p2', title: 'Kimchi Fried Rice' }], ratings: { p2: 1 },
+        }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ recipes: [], picks: [] }) });
+    });
+    render(<DiscoverPage accessToken="tok" savedCount={8} onOpenRecipe={noop} onSaveRecipe={noop} onShareRecipe={noop} />);
+    await waitFor(() => expect(screen.getByText('Kimchi Fried Rice')).toBeInTheDocument());
+    expect(screen.getByTestId('picked-card-p2')).toHaveAttribute('data-rating', '1');
+    expect(screen.getByTestId('picked-card-p2')).toHaveTextContent('Thanks');
+    expect(screen.getAllByRole('button', { name: 'Good pick' })).toHaveLength(1);
   });
 });
