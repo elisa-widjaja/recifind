@@ -3,6 +3,8 @@ import { getPickedForYou, pickedForYouCacheKey } from './index';
 import worker from './index';
 
 const NOW = Date.UTC(2026, 8, 22);
+const SUPA_IMG = 'https://jpjuaaxwfpemecbwwthk.supabase.co/storage/v1/object/public/recipe-previews/x.jpg';
+const CDN_IMG = 'https://scontent-sjc3-1.cdninstagram.com/v/t51.82787-15/1.jpg?oe=68D0';
 
 function saveRow(i: number, over: Record<string, unknown> = {}) {
   return {
@@ -15,7 +17,7 @@ function saveRow(i: number, over: Record<string, unknown> = {}) {
 function candRow(i: number, over: Record<string, unknown> = {}) {
   return {
     id: `c${i}`, user_id: 'other', title: 'Spicy Chicken Bowl',
-    source_url: `https://www.instagram.com/reel/c${i}/`, image_url: 'https://img/x.jpg',
+    source_url: `https://www.instagram.com/reel/c${i}/`, image_url: SUPA_IMG,
     meal_types: '["dinner"]', custom_tags: '[]', duration_minutes: 20,
     ingredients: '["2 lbs chicken thighs","3 tbsp gochujang","1 cup rice"]', steps: '["Marinate","Cook"]',
     cuisines: '["korean"]', creator: 'Sofia M', created_at: '2026-09-01T00:00:00Z', is_food: null,
@@ -81,16 +83,16 @@ describe('getPickedForYou', () => {
     const out = await getPickedForYou(db, kv, 'u1', NOW);
     expect(out.eligible).toBe(true);
     expect(out.reason).toBe('Based on your Korean saves');
-    expect(out.recipes).toHaveLength(7);
+    expect(out.recipes).toHaveLength(3);
     expect(out.recipes[0]).toMatchObject({
       id: expect.any(String), userId: 'other', title: 'Spicy Chicken Bowl',
-      sourceUrl: expect.stringContaining('instagram.com'), imageUrl: 'https://img/x.jpg',
+      sourceUrl: expect.stringContaining('instagram.com'), imageUrl: SUPA_IMG,
       mealTypes: ['dinner'], customTags: [], durationMinutes: 20,
       ingredients: expect.any(Array), steps: expect.any(Array), creator: 'Sofia M',
     });
     expect(kv.put).toHaveBeenCalledWith(pickedForYouCacheKey('u1'), expect.any(String), { expirationTtl: 86400 });
     const stored = JSON.parse(kv.put.mock.calls[0][1] as string);
-    expect(stored.recipes).toHaveLength(7);
+    expect(stored.recipes).toHaveLength(3);
     expect(typeof stored.computedAt).toBe('number');
   });
 
@@ -152,6 +154,35 @@ describe('getPickedForYou', () => {
     expect(row?.sourceUrl).toBe('');
   });
 
+  it('drops candidates whose only image is an expiring CDN link', async () => {
+    const kv = mockKv();
+    const saves = [1, 2, 3, 4, 5].map((i) => saveRow(i));
+    const candidates = [candRow(1, { image_url: CDN_IMG, preview_image: null }), candRow(2), candRow(3), candRow(4)];
+    const out = await getPickedForYou(mockDb(saves, [], candidates), kv, 'u1', NOW);
+    expect(out.recipes.map((r) => r.id)).not.toContain('c1');
+    expect(out.recipes).toHaveLength(3);
+  });
+
+  it('uses the durable preview URL when image_url is a CDN link but a Supabase preview exists', async () => {
+    const kv = mockKv();
+    const saves = [1, 2, 3, 4, 5].map((i) => saveRow(i));
+    const durable = 'https://jpjuaaxwfpemecbwwthk.supabase.co/storage/v1/object/public/recipe-previews/durable.jpg';
+    const candidates = [
+      candRow(1, { image_url: CDN_IMG, preview_image: JSON.stringify({ publicUrl: durable }) }),
+      candRow(2), candRow(3),
+    ];
+    const out = await getPickedForYou(mockDb(saves, [], candidates), kv, 'u1', NOW);
+    const c1 = out.recipes.find((r) => r.id === 'c1');
+    expect(c1?.imageUrl).toBe(durable);
+  });
+
+  it('never returns more than 3 picks', async () => {
+    const kv = mockKv();
+    const saves = [1, 2, 3, 4, 5].map((i) => saveRow(i));
+    const out = await getPickedForYou(mockDb(saves, [], [1, 2, 3, 4, 5, 6].map((i) => candRow(i))), kv, 'u1', NOW);
+    expect(out.recipes).toHaveLength(3);
+  });
+
   it('binds the requesting user id to the saves and pool queries', async () => {
     const kv = mockKv();
     const bindSpy = vi.fn().mockReturnThis();
@@ -168,6 +199,7 @@ describe('getPickedForYou', () => {
     expect(poolSql).toMatch(/hidden_at IS NULL/);
     expect(poolSql).toMatch(/is_food IS NULL OR is_food = 1/);
     expect(poolSql).toMatch(/provenance IS NULL OR provenance != 'title-only'/);
+    expect(poolSql).toMatch(/preview_image/);
   });
 });
 

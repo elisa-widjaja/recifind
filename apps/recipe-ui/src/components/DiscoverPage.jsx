@@ -285,7 +285,7 @@ export default function DiscoverPage({
                 </Stack>
               </>
             ) : (
-              <ListSkeleton count={7} />
+              <ListSkeleton count={3} />
             )}
           </Box>
         )}

@@ -144,7 +144,7 @@ export type CandidateRow = Record<string, unknown> & {
 };
 
 export const PICKED_MIN_SAVES = 5;
-export const PICKED_LIMIT = 7;
+export const PICKED_LIMIT = 3;
 export const PICKED_MIN_POSITIVE = 3;
 const KEYWORD_OVERLAP_CAP = 6;
 

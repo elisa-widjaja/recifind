@@ -260,8 +260,9 @@ describe('pickRecommendations', () => {
     );
     const out = pickRecommendations({ profile, candidates, excludeIds: new Set(), now: NOW });
     expect(out.length).toBe(PICKED_LIMIT);
-    const korean = out.slice(0, 4).map((r) => r.id).sort();
-    expect(korean).toEqual(['c0', 'c1', 'c2', 'c3']);
+    expect(PICKED_LIMIT).toBe(3);
+    // Every returned pick is one of the four Korean (highest-scoring) candidates.
+    for (const r of out) expect(['c0', 'c1', 'c2', 'c3']).toContain(r.id);
   });
 
   it('drops zero-score rows and returns [] when fewer than 3 score positive', () => {

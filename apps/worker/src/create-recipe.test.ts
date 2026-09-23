@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, test, vi } from 'vitest';
-import { handleCreateRecipe, enrichAfterSave, handleUpdateRecipe, sanitizeCustomTags, normalizeRecipePayload } from './index';
+import { handleCreateRecipe, enrichAfterSave, handleUpdateRecipe, sanitizeCustomTags, normalizeRecipePayload, pickedForYouCacheKey } from './index';
 import type { Env } from './index';
 
 function makeMockDb(options: {
@@ -726,7 +726,7 @@ describe('handleCreateRecipe picked-for-you invalidation', () => {
     const res = await handleCreateRecipe(req, env, ctx, user as any);
     expect(res.status).toBe(201);
     await Promise.all(waitUntil.mock.calls.map((c) => c[0]));
-    expect(kvDelete).toHaveBeenCalledWith('picked:v1:user-abc');
+    expect(kvDelete).toHaveBeenCalledWith(pickedForYouCacheKey('user-abc'));
   });
 
   it('does not touch the cache on a dedup hit', async () => {

@@ -2339,14 +2339,14 @@ export type PickedForYouResult = {
   recipes: DiscoverRecipe[];
 };
 
-const PICKED_CACHE_VERSION = 'v1';
+const PICKED_CACHE_VERSION = 'v2';
 const PICKED_CACHE_TTL_SECONDS = 24 * 60 * 60;
 
 export function pickedForYouCacheKey(userId: string): string {
   return `picked:${PICKED_CACHE_VERSION}:${userId}`;
 }
 
-const PICKED_CANDIDATE_SELECT = `SELECT id, user_id, title, source_url, image_url, meal_types, custom_tags,
+const PICKED_CANDIDATE_SELECT = `SELECT id, user_id, title, source_url, image_url, preview_image, meal_types, custom_tags,
   duration_minutes, ingredients, steps, cuisines, creator, created_at, is_food
   FROM recipes
   WHERE user_id != ?
@@ -2434,7 +2434,15 @@ async function computePickedForYou(db: D1Database, userId: string, now: number):
   const excludeIds = new Set(editors.map((r) => r.id));
 
   const poolRes = await db.prepare(PICKED_CANDIDATE_SELECT).bind(userId).all();
-  const candidates = (poolRes.results as CandidateRow[]) || [];
+  // Only recipes with a durable (Supabase-hosted) image. Raw Instagram/TikTok
+  // CDN links expire within days and would rot inside the 24h cache; the card
+  // gets the durable URL so the thumbnail never breaks.
+  const candidates: CandidateRow[] = [];
+  for (const row of (poolRes.results as CandidateRow[]) || []) {
+    const durable = durablePreviewUrl(row as Record<string, unknown>);
+    if (!durable) continue;
+    candidates.push({ ...row, image_url: durable });
+  }
 
   const picked = pickRecommendations({ profile, candidates, excludeIds, now });
   if (picked.length === 0) {
