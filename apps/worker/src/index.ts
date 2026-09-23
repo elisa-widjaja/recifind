@@ -7,6 +7,18 @@ import { sendPushToUser } from './push/apns';
 // === [/S05] ===
 import { ensureEstimatedDuration } from './estimateDuration';
 import { isGenericFacebookTitle, looksLikeBrokenTitle } from './brokenDigest';
+import {
+  isCleanDiscoveryTitle,
+  isCleanDiscoveryRow,
+  fnv1a32,
+  currentWeekIndex,
+  normalizeSourceUrlForDedup,
+} from './discoveryShared';
+export { normalizeSourceUrlForDedup } from './discoveryShared';
+import {
+  buildProfile, reasonFor, pickRecommendations, PICKED_MIN_SAVES,
+  type SaveRow, type CandidateRow,
+} from './recommend';
 
 const DEFAULT_PAGE_SIZE = 1000;
 const MAX_PAGE_SIZE = 1000;
@@ -690,13 +702,13 @@ export default {
         return await handleRecipeCount(request, env, user);
       }
 
-      if (url.pathname === '/recipes/for-you' && request.method === 'GET') {
+      if (url.pathname === '/recipes/picked-for-you' && request.method === 'GET') {
         if (!user) {
           throw new HttpError(401, 'Missing Authorization header');
         }
         return await (async () => {
-          const recipes = await getRecipesForUser(env.DB, user.userId);
-          return json({ recipes }, 200, withCors());
+          const result = await getPickedForYou(env.DB, env.AI_PICKS_CACHE, user.userId);
+          return json(result, 200, withCors());
         })();
       }
 
@@ -2092,43 +2104,6 @@ export function escapeLikeTerm(term: string): string {
 // 60, drop broken cards (no image / generic FB title) in JS, then cap at 30.
 const SEARCH_RESULT_LIMIT = 30;
 
-// Query params that are share/tracking noise, not content identity. Stripped
-// when building a dedup key so the same source video saved by different users
-// (one URL carrying ?igsh=, another without) collapses to a single card.
-// Content-bearing params like YouTube's ?v= or Facebook's ?fbid= are KEPT so
-// distinct videos never merge.
-const DEDUP_TRACKING_PARAMS = new Set([
-  'igsh', 'igshid', 'si', 'fbclid', 'mibextid', 'rdid',
-  '_r', '_t', 'share_app_id', 'share_link_id', 'share_id',
-]);
-
-// Normalize a source URL into a dedup key: drop scheme, leading www, trailing
-// slash, fragment, and tracking params (utm_* and the denylist above). Path
-// case is preserved (Instagram/TikTok IDs are case-sensitive). Returns '' for
-// an empty/absent URL so sourceless recipes are never merged together.
-export function normalizeSourceUrlForDedup(rawUrl: string): string {
-  const url = (rawUrl || '').trim();
-  if (!url) return '';
-  try {
-    const u = new URL(url);
-    const keep: Array<[string, string]> = [];
-    for (const [k, v] of u.searchParams.entries()) {
-      const lk = k.toLowerCase();
-      if (DEDUP_TRACKING_PARAMS.has(lk) || lk.startsWith('utm_')) continue;
-      keep.push([k, v]);
-    }
-    keep.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
-    const host = u.host.toLowerCase().replace(/^www\./, '');
-    const path = u.pathname.replace(/\/+$/, '');
-    const query = keep.length ? '?' + keep.map(([k, v]) => `${k}=${v}`).join('&') : '';
-    return `${host}${path}${query}`;
-  } catch {
-    // Malformed URL: strip fragment + query by hand, keep case (IDs may be
-    // case-sensitive), drop trailing slash.
-    return url.split('#')[0].split('?')[0].replace(/\/+$/, '');
-  }
-}
-
 // A duplicate group's best representative: prefer a copy that has structured
 // content (ingredients + steps) and a clean, presentable title. Image is
 // already guaranteed (broken rows are filtered before dedup).
@@ -2298,58 +2273,6 @@ export async function getTrendingRecipes(
 export const EDITORS_PICK_USER_ID = '8e4dfd5e-bb6a-4890-98cd-d9ac6ce655a2';
 const EDITORS_PICK_WEEKLY_LIMIT = 7;
 
-// Title smells common in unedited Instagram/TikTok imports: hashtags,
-// @handles, engagement counts, emoji decorations, sentence-style captions,
-// ALL-CAPS attention grabbers, ellipses. Trending / Editor's Picks shelves
-// filter these so the public surface only shows recipes with clean,
-// presentable noun-phrase titles.
-function isCleanDiscoveryTitle(title: string): boolean {
-  if (!title || title.length > 40) return false;
-  if (/[\p{Extended_Pictographic}]/u.test(title)) return false;  // any emoji
-  if (/…|\.{3}/.test(title)) return false;                       // ellipsis (caption marker)
-  if (/^\s*#\w+/.test(title)) return false;                      // hashtag-leading
-  if (/@\w{3,}/.test(title)) return false;                       // @handle
-  if (/\d+[Kk]?\s+likes?/i.test(title)) return false;            // engagement metrics
-  if (/\d+\s+comments?/i.test(title)) return false;
-  // Caption sentence-starters
-  if (/^\s*(i|i'?m|we|we'?re|this|that|welcome|it'?s|part|how|when|why|so|here'?s|the\s+day)\b/i.test(title)) return false;
-  // ALL-CAPS captions — > 60% of letters uppercase
-  const letters = title.match(/[a-zA-Z]/g) || [];
-  if (letters.length >= 6) {
-    const upper = letters.filter(c => c === c.toUpperCase()).length;
-    if (upper / letters.length > 0.6) return false;
-  }
-  return true;
-}
-
-// Row-level guard before mapping. Requires a thumbnail and structured
-// ingredients/steps so detail pages aren't empty when tapped.
-function isCleanDiscoveryRow(r: Record<string, unknown>): boolean {
-  const title = String(r.title || '');
-  const imageUrl = String(r.image_url || '');
-  const ingredientsRaw = String(r.ingredients || '[]');
-  const stepsRaw = String(r.steps || '[]');
-  if (!isCleanDiscoveryTitle(title)) return false;
-  if (!imageUrl) return false;
-  let ingredients: unknown;
-  let steps: unknown;
-  try { ingredients = JSON.parse(ingredientsRaw); } catch { return false; }
-  try { steps = JSON.parse(stepsRaw); } catch { return false; }
-  if (!Array.isArray(ingredients) || ingredients.length === 0) return false;
-  if (!Array.isArray(steps) || steps.length === 0) return false;
-  return true;
-}
-
-// FNV-1a 32-bit string hash. Deterministic across runtimes, no crypto needed.
-function fnv1a32(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
-}
-
 // Deterministic 0-99 bucket for nudge A/B assignment. Reuses fnv1a32 (no crypto,
 // stable across runtimes). bucket < NUDGE_V2_PCT -> v2.
 export function nudgeVariantBucket(userId: string): number {
@@ -2358,13 +2281,6 @@ export function nudgeVariantBucket(userId: string): number {
 
 export function pickNudgeVariant(userId: string, v2Pct: number): 'v1' | 'v2' {
   return nudgeVariantBucket(userId) < v2Pct ? 'v2' : 'v1';
-}
-
-// Week index for rotation. UTC-anchored weekly buckets so a US/EU/Asia
-// reader switches picks at the same instant. now is parameterized for
-// deterministic tests.
-function currentWeekIndex(now: number = Date.now()): number {
-  return Math.floor(now / (7 * 24 * 60 * 60 * 1000));
 }
 
 export async function getEditorsPick(
@@ -2409,6 +2325,126 @@ export async function getEditorsPick(
     ingredients: JSON.parse(String(r.ingredients || '[]')),
     steps: JSON.parse(String(r.steps || '[]')),
   }));
+}
+
+// === Picked for you ===
+// Save-based recommendations for signed-in users with PICKED_MIN_SAVES+
+// saves. Pure scoring lives in recommend.ts; this function owns the D1
+// reads and the per-user KV cache. See
+// docs/superpowers/specs/2026-09-22-picked-for-you-design.md.
+
+export type PickedForYouResult = {
+  eligible: boolean;
+  reason: string | null;
+  recipes: DiscoverRecipe[];
+};
+
+const PICKED_CACHE_VERSION = 'v1';
+const PICKED_CACHE_TTL_SECONDS = 24 * 60 * 60;
+
+export function pickedForYouCacheKey(userId: string): string {
+  return `picked:${PICKED_CACHE_VERSION}:${userId}`;
+}
+
+const PICKED_CANDIDATE_SELECT = `SELECT id, user_id, title, source_url, image_url, meal_types, custom_tags,
+  duration_minutes, ingredients, steps, cuisines, creator, created_at, is_food
+  FROM recipes
+  WHERE user_id != ?
+    AND shared_with_friends = 1
+    AND hidden_at IS NULL
+    AND (is_food IS NULL OR is_food = 1)
+    AND (provenance IS NULL OR provenance != 'title-only')`;
+
+// Tolerant array parser for JSON text columns: anything unparseable or
+// non-array yields [] instead of throwing. Unlike recommend.ts's parseList,
+// this does NOT lowercase/trim entries -- these values are shown as-is.
+function parseStringArrayTolerant(raw: unknown): string[] {
+  if (typeof raw !== 'string' || !raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+// Same shape as mapDiscoverRow, but never throws: isRecommendableRow only
+// guards ingredients/steps/meal_types/custom_tags parsing to arrays, not
+// their contents, so a picked row is mapped with a tolerant parser rather
+// than the unguarded JSON.parse in mapDiscoverRow. Also normalizes a null
+// source_url to '' instead of the literal string "null".
+function mapPickedRow(r: Record<string, unknown>): DiscoverRecipe {
+  return {
+    id: String(r.id),
+    userId: String(r.user_id),
+    title: String(r.title),
+    sourceUrl: String(r.source_url || ''),
+    imageUrl: String(r.image_url),
+    mealTypes: parseStringArrayTolerant(r.meal_types),
+    customTags: parseStringArrayTolerant(r.custom_tags),
+    durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
+    ingredients: parseStringArrayTolerant(r.ingredients),
+    steps: parseStringArrayTolerant(r.steps),
+    creator: r.creator ? String(r.creator) : null,
+  };
+}
+
+export async function getPickedForYou(
+  db: D1Database,
+  kv: KVNamespace,
+  userId: string,
+  now: number = Date.now(),
+): Promise<PickedForYouResult> {
+  const key = pickedForYouCacheKey(userId);
+
+  let cached: (PickedForYouResult & { computedAt?: number }) | null = null;
+  try {
+    cached = await kv.get(key, { type: 'json' }) as (PickedForYouResult & { computedAt?: number }) | null;
+  } catch (err) {
+    console.log('[picked-for-you] kv read failed', { userId, error: String(err) });
+  }
+  if (cached && typeof cached.eligible === 'boolean' && Array.isArray(cached.recipes)) {
+    return { eligible: cached.eligible, reason: cached.reason ?? null, recipes: cached.recipes };
+  }
+
+  const result = await computePickedForYou(db, userId, now);
+
+  try {
+    await kv.put(key, JSON.stringify({ ...result, computedAt: now }), { expirationTtl: PICKED_CACHE_TTL_SECONDS });
+  } catch (err) {
+    console.log('[picked-for-you] kv write failed', { userId, error: String(err) });
+  }
+  return result;
+}
+
+async function computePickedForYou(db: D1Database, userId: string, now: number): Promise<PickedForYouResult> {
+  const savesRes = await db.prepare(
+    `SELECT source_url, cuisines, meal_types, ingredients, creator, is_food
+     FROM recipes WHERE user_id = ? AND hidden_at IS NULL`
+  ).bind(userId).all();
+  const saves = (savesRes.results as SaveRow[]) || [];
+  if (saves.length < PICKED_MIN_SAVES) {
+    return { eligible: false, reason: null, recipes: [] };
+  }
+
+  const profile = buildProfile(saves);
+
+  // Never show the same recipe twice on Discover.
+  const editors = await getEditorsPick(db, EDITORS_PICK_USER_ID, now);
+  const excludeIds = new Set(editors.map((r) => r.id));
+
+  const poolRes = await db.prepare(PICKED_CANDIDATE_SELECT).bind(userId).all();
+  const candidates = (poolRes.results as CandidateRow[]) || [];
+
+  const picked = pickRecommendations({ profile, candidates, excludeIds, now });
+  if (picked.length === 0) {
+    return { eligible: true, reason: null, recipes: [] };
+  }
+  return {
+    eligible: true,
+    reason: reasonFor(profile),
+    recipes: picked.map((r) => mapPickedRow(r as Record<string, unknown>)),
+  };
 }
 
 type AiPick = {
@@ -3041,6 +3077,16 @@ async function handleCreateRecipe(
     throw err;
   }
   await updateCollectionMeta(env, user.userId, { countDelta: 1 });
+
+  // A new save changes the taste profile; drop the cached picked-for-you
+  // shelf so the next Discover visit recomputes. Best-effort: the entry
+  // expires in 24h regardless. Guarded because some test envs omit KV.
+  if (env.AI_PICKS_CACHE && typeof env.AI_PICKS_CACHE.delete === 'function') {
+    ctx.waitUntil(
+      env.AI_PICKS_CACHE.delete(pickedForYouCacheKey(user.userId))
+        .catch((err: unknown) => console.log('[picked-for-you] kv delete failed', { userId: user.userId, error: String(err) }))
+    );
+  }
 
   // Notify friends that this user saved a recipe.
   //
@@ -5359,59 +5405,6 @@ export async function getRecommendedRecipes(
     ...r,
     shareUrl: `https://recifriend.com/recipes/${encodeURIComponent(r.id)}?user=${encodeURIComponent(r.userId)}`,
   }));
-}
-
-async function getRecipesForUser(
-  db: D1Database,
-  userId: string,
-  limit = 11
-): Promise<Array<{
-  id: string; userId: string; title: string; sourceUrl: string; imageUrl: string;
-  mealTypes: string[]; customTags: string[]; durationMinutes: number | null;
-  ingredients: string[]; steps: string[];
-}>> {
-  const profile = await db.prepare(
-    'SELECT dietary_prefs, cuisine_prefs, meal_type_prefs FROM profiles WHERE user_id = ?'
-  ).bind(userId).first();
-
-  if (profile) {
-    const allPrefs: string[] = [];
-    for (const col of ['dietary_prefs', 'cuisine_prefs', 'meal_type_prefs'] as const) {
-      try {
-        const parsed = profile[col] ? JSON.parse(profile[col] as string) : [];
-        if (Array.isArray(parsed)) allPrefs.push(...parsed);
-      } catch { /* skip */ }
-    }
-    const validPrefs = allPrefs.filter(p => p && p !== 'None / all good');
-
-    if (validPrefs.length > 0) {
-      const likeClauses = validPrefs.map(() => '(r.meal_types LIKE ? OR r.ingredients LIKE ?)').join(' OR ');
-      const likeBinds = validPrefs.flatMap(pref => [`%${pref}%`, `%${pref}%`]);
-      const rows = await db.prepare(
-        `SELECT id, user_id, title, source_url, image_url, meal_types, custom_tags, duration_minutes, ingredients, steps
-         FROM recipes r
-         WHERE r.user_id != ? AND r.shared_with_friends = 1 AND r.hidden_at IS NULL AND (${likeClauses})
-         ORDER BY RANDOM() LIMIT ?`
-      ).bind(userId, ...likeBinds, limit).all();
-
-      if (rows.results.length > 0) {
-        return (rows.results as Array<Record<string, unknown>>).map((r) => ({
-          id: String(r.id),
-          userId: String(r.user_id),
-          title: String(r.title),
-          sourceUrl: String(r.source_url || ''),
-          imageUrl: String(r.image_url || ''),
-          mealTypes: JSON.parse(String(r.meal_types || '[]')),
-          customTags: JSON.parse(String(r.custom_tags || '[]')),
-          durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
-          ingredients: JSON.parse(String(r.ingredients || '[]')),
-          steps: JSON.parse(String(r.steps || '[]')),
-        }));
-      }
-    }
-  }
-
-  return getEditorsPick(db);
 }
 
 export function dedupeFavorites(

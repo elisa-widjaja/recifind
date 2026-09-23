@@ -74,6 +74,7 @@ function ListSkeleton({ count = 3 }) {
 
 export default function DiscoverPage({
   accessToken,
+  savedCount = 0,
   cookingFor,
   cuisinePrefs,
   dietaryPrefs,
@@ -85,6 +86,9 @@ export default function DiscoverPage({
   const [discover, setDiscover] = useState([]);
   const [editorsPick, setEditorsPick] = useState([]);
   const [aiPicks, setAiPicks] = useState([]);
+  const [picked, setPicked] = useState([]);
+  const [pickedReason, setPickedReason] = useState(null);
+  const [pickedLoaded, setPickedLoaded] = useState(!accessToken);
   // Per-fetch loaded flags so each section can swap its skeleton for real
   // content as soon as its own fetch resolves — instead of waiting for the
   // slowest of three to gate the whole page.
@@ -97,6 +101,10 @@ export default function DiscoverPage({
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
   const searchSeq = useRef(0);
+  // Flips true once the first picked-for-you fetch resolves, so a later
+  // token refresh (Supabase refreshes ~hourly) doesn't flash a loaded shelf
+  // back to its skeleton while it silently refetches.
+  const pickedFetchedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -117,6 +125,28 @@ export default function DiscoverPage({
     });
     return () => { cancelled = true; };
   }, []);
+
+  // Save-based picks for signed-in users. The route returns eligible:false
+  // under 5 saves; either way an empty list hides the shelf.
+  useEffect(() => {
+    if (!accessToken) {
+      pickedFetchedRef.current = false;
+      setPicked([]);
+      setPickedReason(null);
+      setPickedLoaded(true);
+      return undefined;
+    }
+    let cancelled = false;
+    if (!pickedFetchedRef.current) setPickedLoaded(false);
+    fetchJson('/recipes/picked-for-you', accessToken).then(d => {
+      if (cancelled) return;
+      pickedFetchedRef.current = true;
+      setPicked(Array.isArray(d?.recipes) ? d.recipes : []);
+      setPickedReason(d?.reason || null);
+      setPickedLoaded(true);
+    });
+    return () => { cancelled = true; };
+  }, [accessToken]);
 
   useEffect(() => {
     setAiLoaded(false);
@@ -235,6 +265,28 @@ export default function DiscoverPage({
             {discoverLoaded
               ? <DiscoverRecipes recipes={videoRecipes} onOpen={onOpenRecipe} />
               : <WatchCookSkeleton />}
+          </Box>
+        )}
+
+        {accessToken && (pickedLoaded ? picked.length > 0 : savedCount >= 5) && (
+          <Box>
+            <SectionLabel>Picked for you</SectionLabel>
+            {pickedLoaded ? (
+              <>
+                {pickedReason && (
+                  <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: '-6px', mb: '10px' }}>
+                    {pickedReason}
+                  </Typography>
+                )}
+                <Stack spacing={1}>
+                  {picked.map(recipe => (
+                    <RecipeListCard key={recipe.id} recipe={recipe} onSave={onSaveRecipe} onShare={onShareRecipe} onOpen={onOpenRecipe} />
+                  ))}
+                </Stack>
+              </>
+            ) : (
+              <ListSkeleton count={7} />
+            )}
           </Box>
         )}
 

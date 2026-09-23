@@ -6436,6 +6436,7 @@ function App() {
               <DiscoverPage
                 key={discoverRefreshKey}
                 accessToken={accessToken}
+                savedCount={recipes.length}
                 cookingFor={userProfile?.cookingFor ?? null}
                 cuisinePrefs={userProfile?.cuisinePrefs ?? null}
                 dietaryPrefs={userProfile?.dietaryPrefs ?? null}

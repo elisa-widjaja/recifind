@@ -710,3 +710,37 @@ describe('normalizeRecipePayload', () => {
     expect(recipe.customTags).toEqual(['Meal Prep', 'Camping', 'Sixth']);
   });
 });
+
+describe('handleCreateRecipe picked-for-you invalidation', () => {
+  it('deletes the user cache entry after a genuine insert', async () => {
+    const { db } = makeMockDb({ existingRecipe: null });
+    const kvDelete = vi.fn().mockResolvedValue(undefined);
+    const env = { DB: db as unknown as D1Database, AI_PICKS_CACHE: { delete: kvDelete } } as unknown as Env;
+    const waitUntil = vi.fn((p: Promise<unknown>) => p);
+    const ctx = { waitUntil } as unknown as ExecutionContext;
+    const user = { userId: 'user-abc', email: 'a@b.c' };
+    const req = new Request('https://worker/recipes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Pasta', sourceUrl: 'https://www.tiktok.com/@u/video/pasta' }),
+    });
+    const res = await handleCreateRecipe(req, env, ctx, user as any);
+    expect(res.status).toBe(201);
+    await Promise.all(waitUntil.mock.calls.map((c) => c[0]));
+    expect(kvDelete).toHaveBeenCalledWith('picked:v1:user-abc');
+  });
+
+  it('does not touch the cache on a dedup hit', async () => {
+    const dupe = { id: 'recipe-existing-123', created_at: new Date(Date.now() - 5 * 86400_000).toISOString() };
+    const { db } = makeMockDb({ existingRecipe: dupe, existingIngredients: ['1 cup flour'], existingSteps: ['Mix'] });
+    const kvDelete = vi.fn();
+    const env = { DB: db as unknown as D1Database, AI_PICKS_CACHE: { delete: kvDelete } } as unknown as Env;
+    const ctx = { waitUntil: vi.fn() } as unknown as ExecutionContext;
+    const user = { userId: 'user-abc', email: 'a@b.c' };
+    const req = new Request('https://worker/recipes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Pasta', sourceUrl: 'https://www.tiktok.com/@u/video/pasta', ingredients: ['1 cup flour'], steps: ['Mix'] }),
+    });
+    await handleCreateRecipe(req, env, ctx, user as any);
+    expect(kvDelete).not.toHaveBeenCalled();
+  });
+});
