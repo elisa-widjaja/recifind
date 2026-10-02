@@ -292,6 +292,29 @@ export default {
         return await handleOembedAuthor(url, env.DB);
       }
 
+      // Public endpoint: headline usage count for the portfolio site. Excludes the
+      // owner/test accounts so it matches the case-study figures. Cached at the edge
+      // for an hour; the count is a single indexed COUNT(*) on D1.
+      if (url.pathname === '/public/stats' && request.method === 'GET') {
+        return await (async () => {
+          const cache = caches.default;
+          const cacheKey = new Request(url.origin + url.pathname, { method: 'GET' });
+          const hit = await cache.match(cacheKey);
+          if (hit) return hit;
+          const placeholders = STATS_EXCLUDED_USER_IDS.map(() => '?').join(',');
+          const row = await env.DB.prepare(
+            `SELECT COUNT(*) AS n FROM recipes WHERE user_id NOT IN (${placeholders})`
+          ).bind(...STATS_EXCLUDED_USER_IDS).first<{ n: number }>();
+          const res = json(
+            { recipesSaved: Number(row?.n ?? 0), asOf: new Date().toISOString() },
+            200,
+            { 'Cache-Control': 'public, max-age=3600' }
+          );
+          ctx.waitUntil(cache.put(cacheKey, res.clone()));
+          return res;
+        })();
+      }
+
       // Public endpoint to get trending community recipes
       if (url.pathname === '/public/trending-recipes' && request.method === 'GET') {
         return await (async () => {
@@ -2286,6 +2309,13 @@ export async function getTrendingRecipes(
 // hearting/unhearting recipes in her account; no code change needed to
 // adjust the picks.
 export const EDITORS_PICK_USER_ID = '8e4dfd5e-bb6a-4890-98cd-d9ac6ce655a2';
+// Owner/test accounts left out of public usage stats (the founder account above
+// plus two personal accounts). Same exclusion the case-study numbers use.
+const STATS_EXCLUDED_USER_IDS = [
+  EDITORS_PICK_USER_ID,
+  'dfa74750-9b9a-4f71-b533-aa042572ab11',
+  '9e64c68d-47d1-48b4-b443-d25e80ea58eb',
+];
 const EDITORS_PICK_WEEKLY_LIMIT = 3;
 
 // Deterministic 0-99 bucket for nudge A/B assignment. Reuses fnv1a32 (no crypto,
