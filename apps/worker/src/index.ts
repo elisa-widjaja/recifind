@@ -8418,7 +8418,6 @@ async function callGemini(env: Env, prompt: string, deps: CallGeminiDeps = {}) {
           }
         ],
         generationConfig: {
-          temperature: 0.2,
           maxOutputTokens: 4096,
           // JSON mode: constrains the model to emit syntactically valid JSON.
           // Fixes the malformed-JSON failures (stray `]`->`"`, hallucinated

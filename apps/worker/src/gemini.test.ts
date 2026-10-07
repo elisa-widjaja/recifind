@@ -110,7 +110,6 @@ describe('callGemini', () => {
     const parsedBody = JSON.parse((options as RequestInit).body as string);
     expect(parsedBody.contents[0].parts[0].text).toBe(prompt);
     expect(parsedBody.generationConfig).toEqual({
-      temperature: 0.2,
       maxOutputTokens: 4096,
       responseMimeType: 'application/json',
       thinkingConfig: { thinkingLevel: 'minimal' }
